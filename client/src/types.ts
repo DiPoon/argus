@@ -1,7 +1,7 @@
 export type Position = { x: number; y: number };
-export type Skill = 'strike' | 'parry' | 'grab' | 'spin' | 'ward' | 'snatch';
+export type Skill = 'strike' | 'parry' | 'grab' | 'spin' | 'spinblock' | 'spingrab';
 export type Affinity = 'strike' | 'block' | 'channel' | 'none';
-export const skillNames: Record<Skill, string> = { strike: '근접 타격', parry: '받아치기', grab: '잡기', spin: '회전 베기', ward: '원형 방어', snatch: '낚아채기' };
+export const skillNames: Record<Skill, string> = { strike: '근접 타격', parry: '받아치기', grab: '잡기', spin: '회전 베기', spinblock: '회전 방어', spingrab: '회전 잡기' };
 export const affinityNames: Record<Affinity, string> = { strike: '타격', block: '방어', channel: '잡기', none: '반격' };
 export interface SkillDefinition {
   id: Skill; kind: Affinity; mana: number; contactAfter: number; activeSeconds: number;

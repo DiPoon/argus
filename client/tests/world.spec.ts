@@ -235,36 +235,40 @@ test('a parry followup is drawn until the followupUntil the server sent, not the
 
 test('skills around the player draw a circle of their reach, and an all-direction guard draws a full ring', async ({ page }) => {
   const state = snapshot();
+  const around = { mana: 1, contactAfter: .18, activeSeconds: .42, duration: .66, range: 48, halfWidth: 0,
+    guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true, followupBreaksStructures: false, around: true };
+  // 회전 베기와 회전 방어는 상성 종류만 다르다. ring은 이 검사에만 있는 둘레 방어다. 지금 그런 기술은 없지만 속성의 뜻대로 그리는지 본다.
   state.rules.skills = [
-    { id: 'spin', kind: 'strike', mana: 1, contactAfter: .18, activeSeconds: .42, duration: .66, range: 48, halfWidth: 0,
-      guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true, followupBreaksStructures: false, around: true },
-    { id: 'ward', kind: 'block', mana: 1, contactAfter: 0, activeSeconds: .55, duration: .98, range: 0, halfWidth: 0,
-      guardsFront: true, hasFollowup: false, singleTarget: false, breaksStructures: false, followupBreaksStructures: false, around: true },
+    { id: 'spin', kind: 'strike', ...around },
+    { id: 'spinblock', kind: 'block', ...around },
+    { id: 'ring' as 'spin', kind: 'block', ...around, contactAfter: 0, range: 0, guardsFront: true, breaksStructures: false },
   ];
   const shapes = await page.evaluate(state => {
     type Step = { action: string; data: number[] };
     type Drawing = { context: { instructions: { data: { path?: { instructions: Step[] } } }[] } };
     const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; units: Drawing; props: Drawing };
     // 대원이 그 기술을 쓰는 중인 장면을 그리고, 그린 원과 원호를 [x, y, 반지름]으로 모은다.
-    const drawn = (skill: 'spin' | 'ward') => {
+    const drawn = (skill: string) => {
+      const definition = state.rules.skills.find(d => d.id === skill)!;
       const scene = structuredClone(state);
-      scene.players[0].actions = [{ id: 930, skill, kind: skill === 'spin' ? 'strike' : 'block', slot: 1, tier: 1, phase: 'active', aim: 0,
-        startedAt: 9.8, contactAt: skill === 'spin' ? 9.98 : 9.8, activeUntil: 10.22, followupUntil: 10.22, endsAt: 10.46,
-        range: skill === 'spin' ? 48 : 0, halfWidth: 0 }];
+      scene.players[0].actions = [{ id: 930, skill, kind: definition.kind, slot: 1, tier: 1, phase: 'active', aim: 0,
+        startedAt: 9.8, contactAt: 9.8 + definition.contactAfter, activeUntil: 10.22, followupUntil: 10.22, endsAt: 10.46,
+        range: definition.range, halfWidth: 0 }];
       world.update(scene); world.draw(1 / 60);
       const steps = [world.units, world.props].flatMap(drawing => drawing.context.instructions.flatMap(i => i.data.path?.instructions ?? []));
       const pick = (action: string) => steps.filter(step => step.action === action).map(step => step.data.slice(0, 3));
       return { circles: pick('circle'), arcs: pick('arc') };
     };
-    return { spin: drawn('spin'), ward: drawn('ward') };
+    return { spin: drawn('spin'), spinblock: drawn('spinblock'), ring: drawn('ring') };
   }, state);
   // 대원(400, 730)을 중심으로 그 반지름의 도형이 몇 개인지 센다. 채우기와 테두리가 같은 경로를 쓰면 두 번 셀 수 있다.
-  const around = (shapes: number[][], radius: number) => shapes.filter(([x, y, r]) => r === radius && Math.hypot(x - 400, y - 730) < 1).length;
-  // 회전 베기는 조준 방향의 사각형이 아니라 대원 둘레 반지름 48의 원이다.
-  expect(around(shapes.spin.circles, 48)).toBeGreaterThan(0);
-  // 원형 방어는 반지름 28의 고리다. 앞만 막는 받아치기의 방어 호(같은 반지름의 원호)는 그리지 않는다.
-  expect(around(shapes.ward.circles, 28)).toBeGreaterThan(0);
-  expect(around(shapes.ward.arcs, 28)).toBe(0);
+  const at = (shapes: number[][], radius: number) => shapes.filter(([x, y, r]) => r === radius && Math.hypot(x - 400, y - 730) < 1).length;
+  // 둘레 기술은 조준 방향의 사각형이 아니라 대원 둘레 반지름 48의 원이다. 상성 종류와 관계없다.
+  expect(at(shapes.spin.circles, 48)).toBeGreaterThan(0);
+  expect(at(shapes.spinblock.circles, 48)).toBeGreaterThan(0);
+  // 둘레 방어는 반지름 28의 고리다. 앞만 막는 받아치기의 방어 호(같은 반지름의 원호)는 그리지 않는다.
+  expect(at(shapes.ring.circles, 28)).toBeGreaterThan(0);
+  expect(at(shapes.ring.arcs, 28)).toBe(0);
 });
 
 test('prediction blocks enemy bodies while allowing teammate overlap', async ({ page }) => {

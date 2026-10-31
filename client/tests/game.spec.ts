@@ -75,18 +75,18 @@ test('the lobby sends the skill chosen for each kind slot and the free slot', as
   await page.goto('/');
   // 종류 칸마다 둘레 기술을 고르고 자유 칸에는 받아치기를 고른다.
   await page.locator('input[name="slot-1"][value="spin"]').check();
-  await page.locator('input[name="slot-2"][value="ward"]').check();
-  await page.locator('input[name="slot-3"][value="snatch"]').check();
+  await page.locator('input[name="slot-2"][value="spinblock"]').check();
+  await page.locator('input[name="slot-3"][value="spingrab"]').check();
   await page.locator('input[name="free-slot"][value="parry"]').check();
   await page.getByRole('button', { name: '새 작전 시작' }).click();
-  await expect.poll(() => me.player?.slots).toEqual(['spin', 'ward', 'snatch', 'parry']);
+  await expect.poll(() => me.player?.slots).toEqual(['spin', 'spinblock', 'spingrab', 'parry']);
   // 명단에는 기본 기술과 다르게 고른 종류 칸과 자유 칸이 보인다.
-  await expect(page.locator('.member.self .roster-loadout')).toContainText('회전 베기 · 원형 방어 · 낚아채기 · 자유 받아치기');
+  await expect(page.locator('.member.self .roster-loadout')).toContainText('회전 베기 · 회전 방어 · 회전 잡기 · 자유 받아치기');
   await page.getByRole('button', { name: '캠프 선택' }).click();
   await page.locator('#deploy').click();
   await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
   // 기술 막대도 칸 차례대로 고른 기술을 보인다.
-  await expect(page.locator('#skill-bar .skill-slot b')).toHaveText(['회전 베기', '원형 방어', '낚아채기', '받아치기']);
+  await expect(page.locator('#skill-bar .skill-slot b')).toHaveText(['회전 베기', '회전 방어', '회전 잡기', '받아치기']);
   expect(me.errors).toEqual([]);
 });
 

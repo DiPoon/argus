@@ -11,13 +11,13 @@ const slotKeys = ['좌클릭 / 1', '우클릭 / 2', 'Space / 3', 'Q / 4'];
 // 방에 들어가기 전이라 서버의 기술 정의(rules.skills)가 아직 없으므로 여기에 적어 둔다.
 const kindSlots: { kind: 'strike' | 'block' | 'channel'; title: string; beats: string; skills: Skill[] }[] = [
   { kind: 'strike', title: '타격 칸', beats: '잡기를 파훼', skills: ['strike', 'spin'] },
-  { kind: 'block', title: '방어 칸', beats: '타격을 파훼', skills: ['parry', 'ward'] },
-  { kind: 'channel', title: '잡기 칸', beats: '방어를 파훼', skills: ['grab', 'snatch'] },
+  { kind: 'block', title: '방어 칸', beats: '타격을 파훼', skills: ['parry', 'spinblock'] },
+  { kind: 'channel', title: '잡기 칸', beats: '방어를 파훼', skills: ['grab', 'spingrab'] },
 ];
-const freeSkills: Skill[] = ['strike', 'parry', 'grab', 'spin', 'ward', 'snatch'];
+const freeSkills: Skill[] = ['strike', 'parry', 'grab', 'spin', 'spinblock', 'spingrab'];
 const skillNotes: Record<Skill, string> = {
   strike: '앞쪽 좁은 범위', parry: '앞쪽 방어 후 반격', grab: '앞쪽 한 명',
-  spin: '둘레 모두 · 조준 없음', ward: '모든 방향 · 반격 없음', snatch: '둘레에서 가장 가까운 한 명',
+  spin: '둘레 모두 · 조준 없음', spinblock: '둘레 모두 · 조준 없음', spingrab: '둘레 모두 · 조준 없음',
 };
 const skillChoice = (name: string, skill: Skill, checked: boolean) =>
   `<label><input type="radio" name="${name}" value="${skill}" ${checked ? 'checked' : ''}/><span><b>${skillNames[skill]}</b><small>${skillNotes[skill]}</small></span></label>`;

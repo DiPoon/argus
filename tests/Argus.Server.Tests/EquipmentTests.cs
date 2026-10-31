@@ -74,20 +74,20 @@ internal static class EquipmentTests
     private static void KindSlots()
     {
         // 앞의 세 칸은 차례로 타격·방어·잡기 종류의 기술 가운데 하나다. 자유 칸은 아무 기술이나 된다.
-        Check(Rules.ValidSlots(new string[] { "spin", "ward", "snatch", "strike" }));
-        Check(Rules.ValidSlots(new string[] { "strike", "ward", "grab", "snatch" }));
-        Check(Rules.ValidSlots(new string[] { "spin", "parry", "snatch", "spin" }));
+        Check(Rules.ValidSlots(new string[] { "spin", "spinblock", "spingrab", "strike" }));
+        Check(Rules.ValidSlots(new string[] { "strike", "spinblock", "grab", "spingrab" }));
+        Check(Rules.ValidSlots(new string[] { "spin", "parry", "spingrab", "spin" }));
         // 종류가 다른 기술은 그 칸에 들 수 없다. 모르는 id와 빈 값도 받지 않는다.
-        Check(!Rules.ValidSlots(new string[] { "ward", "parry", "grab", "strike" }));
+        Check(!Rules.ValidSlots(new string[] { "spinblock", "parry", "grab", "strike" }));
         Check(!Rules.ValidSlots(new string[] { "strike", "spin", "grab", "strike" }));
-        Check(!Rules.ValidSlots(new string[] { "strike", "parry", "ward", "strike" }));
+        Check(!Rules.ValidSlots(new string[] { "strike", "parry", "spinblock", "strike" }));
         Check(!Rules.ValidSlots(new string[] { "strike", "parry", "grab", "whirl" }));
         Check(!Rules.ValidSlots(new string[] { "strike", "parry", "grab", null! }));
 
         // 칸마다 고른 기술이 나간다.
         Match match = new Match("TEST01", new Rules { MaxEnemies = 0 }, 73);
         Player player = match.Join("p", "pilot")!;
-        string[] slots = new string[] { "spin", "ward", "snatch", "parry" };
+        string[] slots = new string[] { "spin", "spinblock", "spingrab", "parry" };
         Check(match.SetLoadout(player, slots));
         match.Deploy(player, match.Layout.Camp.X.ToDouble(), match.Layout.Camp.Y.ToDouble());
         Advance(match, 5.1);

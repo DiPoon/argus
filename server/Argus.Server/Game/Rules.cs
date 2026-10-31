@@ -71,36 +71,37 @@ public sealed class Rules
         new SkillDefinition("grab", "channel", 1, 0.12, 0.65, 0.85, 48, 8,
             guardsFront: false, hasFollowup: false, singleTarget: true, breaksStructures: false,
             followupBreaksStructures: false, around: false);
-    // 아래 셋은 조준하지 않는 둘레 기술이다. 버튼만 눌러 쓸 수 있다. 시간과 마나는 위의 같은 종류 기술과 같다.
-    // 회전 베기: 둘레(반지름 48)에 닿은 적을 한 번씩 친다. 둘레의 시설도 부순다. 벽은 치지 않는다.
+    // 아래 셋은 조준하지 않는 둘레 기술이다. 버튼만 눌러 쓸 수 있다. 셋은 상성 종류만 다르고 나머지는 같다.
+    // 둘레(반지름 48)에 닿은 적을 한 번씩 치고, 둘레의 시설도 부순다. 벽은 치지 않는다. 시간과 마나는 근접 타격과 같다.
+    // 회전 베기는 타격이다.
     private static readonly SkillDefinition SpinSkill =
         new SkillDefinition("spin", "strike", 1, 0.18, 0.42, 0.66, 48, 0,
             guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true,
             followupBreaksStructures: false, around: true);
-    // 원형 방어: 모든 방향에서 들어오는 공격을 막는다. 반격이 없으므로 사거리를 쓰지 않는다.
-    private static readonly SkillDefinition WardSkill =
-        new SkillDefinition("ward", "block", 1, 0, 0.55, 0.98, 0, 0,
-            guardsFront: true, hasFollowup: false, singleTarget: false, breaksStructures: false,
+    // 회전 방어는 방어다. 받아치기와 달리 공격을 기다리지 않고 먼저 친다.
+    private static readonly SkillDefinition SpinBlockSkill =
+        new SkillDefinition("spinblock", "block", 1, 0.18, 0.42, 0.66, 48, 0,
+            guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true,
             followupBreaksStructures: false, around: true);
-    // 낚아채기: 둘레(반지름 48)에서 가장 가까운 한 명을 붙잡고 동작 내내 그 대상만 판정한다.
-    private static readonly SkillDefinition SnatchSkill =
-        new SkillDefinition("snatch", "channel", 1, 0.12, 0.65, 0.85, 48, 0,
-            guardsFront: false, hasFollowup: false, singleTarget: true, breaksStructures: false,
+    // 회전 잡기는 잡기다. 잡기와 달리 한 명이 아니라 둘레의 적을 모두 친다.
+    private static readonly SkillDefinition SpinGrabSkill =
+        new SkillDefinition("spingrab", "channel", 1, 0.18, 0.42, 0.66, 48, 0,
+            guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true,
             followupBreaksStructures: false, around: true);
 
     // 모든 대원 기술이다. 규칙을 보낼 때 이 순서로 보낸다. 새 기술을 만들면 여기에 넣는다.
     // 정적 필드는 적힌 순서대로 만들어지므로 위의 정의들보다 뒤에 둔다.
     public static readonly IReadOnlyList<SkillDefinition> AllSkills = Array.AsReadOnly(new SkillDefinition[]
     {
-        StrikeSkill, ParrySkill, GrabSkill, SpinSkill, WardSkill, SnatchSkill
+        StrikeSkill, ParrySkill, GrabSkill, SpinSkill, SpinBlockSkill, SpinGrabSkill
     });
 
     public SkillDefinition Strike { get; } = StrikeSkill;
     public SkillDefinition Parry { get; } = ParrySkill;
     public SkillDefinition Grab { get; } = GrabSkill;
     public SkillDefinition Spin { get; } = SpinSkill;
-    public SkillDefinition Ward { get; } = WardSkill;
-    public SkillDefinition Snatch { get; } = SnatchSkill;
+    public SkillDefinition SpinBlock { get; } = SpinBlockSkill;
+    public SkillDefinition SpinGrab { get; } = SpinGrabSkill;
     public double ParryFollowupSeconds { get; init; } = 0.18;
 
     // id로 대원 기술을 찾는다. 모르는 id면 null이다.
