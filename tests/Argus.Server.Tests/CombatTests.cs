@@ -33,6 +33,7 @@ internal static class CombatTests
         tests.Add(new TestCase("Catching up after a stall runs whole ticks, preserving short active windows and preventing body tunneling", LongStep));
         tests.Add(new TestCase("A new skill id with guard flags still guards and follows up like a parry", SkillFlags));
         tests.Add(new TestCase("Skills around the player hit everyone around without aiming and differ only in affinity", AroundSkills));
+        tests.Add(new TestCase("An attack that reaches the player from where the skill faces is answered with its affinity beyond the skill's reach", BodyResponse));
         tests.Add(new TestCase("A flank outside an enemy action's area deals ordinary damage without its affinity", Flank));
         tests.Add(new TestCase("A player the shield shove reaches answers it with affinity even beside the shield", ShoveReach));
         tests.Add(new TestCase("A kill goes to the player whose draw or partial damage finished the elite", DrawCredit));
@@ -814,6 +815,81 @@ internal static class CombatTests
         Advance(guarded.Match, 0.1);
         Near(blocked.Hp, 0);
         Near(guarded.Player.Hp, guarded.Player.MaxHp);
+    }
+
+    private static void BodyResponse()
+    {
+        // 기술을 쓰는 동안 대원 몸에는 그 기술의 상성이 있다. 적의 공격이 기술이 향한 쪽(둘레 기술은 모든 방향, 그 밖에는 앞 120°)에서
+        // 대원에게 닿으면 기술의 사거리와 관계없이 그 상성으로 판정한다. 병사의 공격은 대원의 기술보다 멀리 닿는다.
+        // 병사의 잡기는 73(60 + 대원 몸 13), 밀어치기는 75(62 + 13), 타격은 78(65 + 13)까지 닿는다.
+        // 대원의 근접 타격은 앞으로 67(54 + 병사 몸 13), 잡기와 회전 베기는 61(48 + 13)까지 닿는다.
+        EnemySkill strike = EnemyDefinition.Grunt.Skills[0];
+        EnemySkill shove = EnemyDefinition.Grunt.Skills[1];
+        EnemySkill grab = EnemyDefinition.Grunt.Skills[2];
+        Equal(grab.Kind, "channel");
+        Equal(shove.Kind, "block");
+
+        // 앞에서 70 떨어진 병사가 잡는다. 근접 타격은 닿지 않지만 타격 상성이 잡기를 이겨 병사가 쓰러진다.
+        Fixture ahead = new Fixture();
+        Enemy grabber = Threat(ahead, EnemyDefinition.Grunt, grab);
+        grabber.Position = ahead.Player.Position + FixedVector.FromInt(70, 0);
+        Prepare(ahead, ahead.Player, "strike");
+        Advance(ahead.Match, 0.1);
+        Near(grabber.Hp, 0);
+        Near(ahead.Player.Hp, ahead.Player.MaxHp);
+
+        // 같은 잡기가 등 뒤에서 오면 근접 타격은 대응하지 못한다. 대원이 맞고 기술이 끊긴다.
+        Fixture behind = new Fixture();
+        Enemy rear = Threat(behind, EnemyDefinition.Grunt, grab);
+        rear.Position = behind.Player.Position + FixedVector.FromInt(70, 0);
+        behind.Player.Aim = Angle.FromRadians(Math.PI);
+        PlayerAction swing = Prepare(behind, behind.Player, "strike");
+        Advance(behind.Match, 0.1);
+        Near(rear.Hp, 1);
+        Near(behind.Player.Hp, behind.Player.MaxHp - 1);
+        Check(swing.Cancelled, "등 뒤에서 잡힌 근접 타격이 끊기지 않았습니다");
+
+        // 둘레 기술은 모든 방향이다. 등 뒤 65에서 잡는 병사를 회전 베기가 이긴다(2026-10-31 KYWN3F 방에서 제보한 장면).
+        Fixture spun = new Fixture();
+        Enemy far = Threat(spun, EnemyDefinition.Grunt, grab);
+        far.Position = spun.Player.Position + FixedVector.FromInt(65, 0);
+        spun.Player.Aim = Angle.FromRadians(Math.PI);
+        Prepare(spun, spun.Player, "spin");
+        Advance(spun.Match, 0.1);
+        Near(far.Hp, 0);
+        Near(spun.Player.Hp, spun.Player.MaxHp);
+
+        // 앞에서 70 떨어진 병사의 밀어치기를 잡기가 이긴다. 잡기는 그 병사를 대상으로 정한다.
+        Fixture held = new Fixture();
+        Enemy shover = Threat(held, EnemyDefinition.Grunt, shove);
+        shover.Position = held.Player.Position + FixedVector.FromInt(70, 0);
+        PlayerAction hold = Prepare(held, held.Player, "grab");
+        Advance(held.Match, 0.1);
+        Near(shover.Hp, 0);
+        Near(held.Player.Hp, held.Player.MaxHp);
+        Equal(hold.Target, shover.Id);
+
+        // 잡기는 한 시전에 한 명만 판정한다. 가까이 서 있던 병사를 먼저 잡았으면, 뒤의 병사가 밀어칠 때는 대응하지 못하고 맞는다.
+        Fixture busy = new Fixture();
+        Enemy first = Target(busy);
+        first.Position = busy.Player.Position + FixedVector.FromInt(40, 0);
+        Enemy second = Threat(busy, EnemyDefinition.Grunt, shove, 0.3);
+        second.Position = busy.Player.Position + FixedVector.FromInt(70, 0);
+        PlayerAction taken = Prepare(busy, busy.Player, "grab");
+        Advance(busy.Match, 0.4);
+        Near(first.Hp, 0);
+        Near(second.Hp, 1);
+        Near(busy.Player.Hp, busy.Player.MaxHp - 1);
+        Check(taken.Cancelled, "다른 병사를 잡은 잡기가 밀어치기에 끊기지 않았습니다");
+
+        // 같은 종류면 비긴다. 앞에서 72 떨어진 병사의 타격에 근접 타격으로 맞서면 서로 1씩 잃는다.
+        Fixture even = new Fixture();
+        Enemy striker = Threat(even, EnemyDefinition.Grunt, strike);
+        striker.Position = even.Player.Position + FixedVector.FromInt(72, 0);
+        Prepare(even, even.Player, "strike");
+        Advance(even.Match, 0.1);
+        Near(striker.Hp, 0);
+        Near(even.Player.Hp, even.Player.MaxHp - 1);
     }
 
     private static void Flank()

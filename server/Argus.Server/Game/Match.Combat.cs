@@ -158,6 +158,7 @@ public sealed partial class Match
         return along >= offset.Length() * _guardCosine;
     }
 
+    // 기술이 향한 쪽에 적이 있는지 본다. 받아치기의 방어와 몸 판정이 쓴다. 둘레 기술은 모든 방향, 그 밖에는 앞 120°다.
     private bool GuardFaces(Player player, PlayerAction action, Enemy enemy)
     {
         // 둘레 기술의 방어는 모든 방향을 막는다.
@@ -229,13 +230,20 @@ public sealed partial class Match
                 }
                 else
                 {
-                    if (!PlayerContact(player, action, enemy) || (action.Skill.SingleTarget && action.Target != enemy.Id))
+                    // 몸 판정: 기술을 쓰는 동안 대원 몸에는 그 기술의 상성이 있다(2026-11-01 합의). 적의 공격이 대원에게 닿고 그 공격이
+                    // 기술이 향한 쪽(둘레 기술은 모든 방향, 그 밖에는 앞 120°)에서 왔으면 기술의 사거리와 관계없이 대응으로 친다.
+                    // 받아치기와 같은 판정이다. 적의 공격은 대원의 기술보다 멀리 닿아, 이 판정이 없으면 맞는 기술을 제때 써도 맞기만 하는 거리가 있다.
+                    // 한 명만 판정하는 기술(잡기)은 아직 다른 적을 대상으로 정하지 않았을 때만 이렇게 대응한다.
+                    bool body = incoming && GuardFaces(player, action, enemy) &&
+                        (!action.Skill.SingleTarget || !action.TargetLocked || action.Target == enemy.Id);
+                    bool reaches = PlayerContact(player, action, enemy) && (!action.Skill.SingleTarget || action.Target == enemy.Id);
+                    if (!body && !reaches)
                     {
                         continue;
                     }
                     // 적 행동의 범위 밖에서 친 대원에게는 그 행동의 상성을 적용하지 않는다(측면 공격).
-                    // 무행동 적을 칠 때처럼 접촉한 순간 일반 피해만 준다.
-                    if (!InActionArea(enemy, attack, player))
+                    // 무행동 적을 칠 때처럼 접촉한 순간 일반 피해만 준다. 공격이 대원에게 닿았다면 범위 안이다.
+                    if (!body && !InActionArea(enemy, attack, player))
                     {
                         if (Tick >= action.ContactTick)
                         {
@@ -243,7 +251,13 @@ public sealed partial class Match
                         }
                         continue;
                     }
-                    initiates = Tick >= action.ContactTick;
+                    // 몸 판정으로 대응한 잡기는 그 적을 대상으로 정한다. 같은 시전에서 다른 적은 판정하지 않는다.
+                    if (body && action.Skill.SingleTarget)
+                    {
+                        action.Target = enemy.Id;
+                        action.TargetLocked = true;
+                    }
+                    initiates = reaches && Tick >= action.ContactTick;
                 }
                 responses.Add(new Response(player, action, initiates));
                 if (initiates)
