@@ -36,6 +36,7 @@ internal static class CombatTests
         tests.Add(new TestCase("An attack that reaches the player from where the skill faces is answered with its affinity beyond the skill's reach", BodyResponse));
         tests.Add(new TestCase("A grab answers the attacker reaching the player before a nearer idle enemy, whatever the enemy order", GrabTargetOrder));
         tests.Add(new TestCase("A grab is not tied to an attacker that a flank fells before the grab is judged", GrabFlankedTarget));
+        tests.Add(new TestCase("Attacks landing at the same moment are all judged against the skill held at that moment, whatever the enemy order", SimultaneousHits));
         tests.Add(new TestCase("A flank outside an enemy action's area deals ordinary damage without its affinity", Flank));
         tests.Add(new TestCase("A player the shield shove reaches answers it with affinity even beside the shield", ShoveReach));
         tests.Add(new TestCase("A kill goes to the player whose draw or partial damage finished the elite", DrawCredit));
@@ -954,6 +955,77 @@ internal static class CombatTests
         Near(f.Player.Hp, f.Player.MaxHp);
         Near(near.Hp, 0);
         Equal(grab.Target, near.Id);
+    }
+
+    private static void SimultaneousHits()
+    {
+        // 같은 순간에 닿은 공격은 모두 그 순간이 시작할 때의 대원 상태로 판정한다. 기술이 끊기는 것과 쓰러지는 것은 그 뒤다.
+        // 적 목록 순서를 바꿔 두 번씩 돌려 결과가 같은지 본다.
+        EnemySkill shove = EnemyDefinition.Grunt.Skills[1];
+        EnemySkill grab = EnemyDefinition.Grunt.Skills[2];
+        double[] startHps = new double[] { 6, 1 };
+        for (int h = 0; h < startHps.Length; h++)
+        {
+            for (int reversed = 0; reversed < 2; reversed++)
+            {
+                // 회전 베기를 쓰는 대원에게 앞(+x)의 병사는 잡고(회전 베기가 이김), 뒤(-x)의 병사는 밀어친다(회전 베기가 짐).
+                Fixture f = new Fixture();
+                f.Player.Hp = startHps[h];
+                Enemy grabber = Target(f);
+                grabber.Position = f.Player.Position + FixedVector.FromInt(60, 0);
+                BeginAction(f, grabber, grab, 0.1);
+                Enemy shover = Target(f);
+                shover.Position = f.Player.Position + FixedVector.FromInt(-60, 0);
+                BeginAction(f, shover, shove, 0.1, 0);
+                if (reversed == 1)
+                {
+                    f.Match.Enemies.Reverse();
+                }
+                PlayerAction spin = Prepare(f, f.Player, "spin");
+                Advance(f.Match, 0.3);
+                // 잡는 병사는 언제나 쓰러진다. 대원은 밀어치기에만 1을 잃고, 회전 베기는 그 뒤에 끊긴다.
+                // 체력이 1이었으면 대원은 쓰러지지만, 같은 순간의 잡기는 이미 이긴 판정이다.
+                Near(grabber.Hp, 0);
+                Near(shover.Hp, 1);
+                Near(f.Player.Hp, startHps[h] - 1);
+                if (startHps[h] > 1)
+                {
+                    Check(spin.Cancelled, "밀어치기에 진 회전 베기가 끊기지 않았습니다");
+                    Equal(f.Player.State, "alive");
+                }
+                else
+                {
+                    Equal(f.Player.State, "waiting");
+                }
+            }
+        }
+
+        // 동료(체력 1)가 같은 순간 다른 병사 C의 밀어치기에 맞아 쓰러진다. 그 순간 동료가 병사 B를 옆에서 친 타격은 그대로 들어가
+        // B가 쓰러지고, B가 대원에게 하던 잡기는 무효다(측면 공격). 동료가 먼저 쓰러졌다고 그 타격이 사라지지 않는다.
+        for (int reversed = 0; reversed < 2; reversed++)
+        {
+            Fixture f = new Fixture();
+            Player partner = Ally(f, "partner");
+            partner.Position = f.Player.Position + FixedVector.FromInt(0, 30);
+            partner.Hp = 1;
+            Enemy b = Target(f);
+            b.Position = f.Player.Position + FixedVector.FromInt(45, 0);
+            BeginAction(f, b, grab, f.Match.Rules.Strike.ContactAfter);
+            Enemy c = Target(f);
+            c.Position = f.Player.Position + FixedVector.FromInt(0, 80);
+            BeginAction(f, c, shove, f.Match.Rules.Strike.ContactAfter, -Math.PI / 2);
+            if (reversed == 1)
+            {
+                f.Match.Enemies.Reverse();
+            }
+            // 동료는 B를 향해 친다. B의 잡기 범위 밖이라 측면 공격이다. C는 동료의 등 뒤라 동료의 몸 판정도 없다.
+            partner.Aim = Angle.FromRadians(Math.Atan2(-30, 45));
+            Prepare(f, partner, "strike");
+            Advance(f.Match, 0.3);
+            Near(b.Hp, 0);
+            Equal(partner.State, "waiting");
+            Near(f.Player.Hp, f.Player.MaxHp);
+        }
     }
 
     private static void Flank()

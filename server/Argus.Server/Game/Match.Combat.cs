@@ -16,8 +16,16 @@ public sealed partial class Match
         }
     }
 
+    // 같은 틱의 판정은 모두 그 틱이 시작할 때의 대원 상태로 한다(2026-11-04 합의). 적은 목록 순서대로 하나씩 판정하므로,
+    // 앞의 판정이 대원의 기술을 끊거나 대원을 쓰러뜨리면 뒤의 판정이 그 결과를 읽어 같은 장면이 적 목록 순서에 따라 다르게 끝난다.
+    // 그래서 판정 도중에는 기술을 끊을 대원만 적어 두고(_interrupted), 쓰러짐도 미룬다. 둘 다 이 틱의 전투가 끝난 뒤 적용한다.
+    // 대원이 받는 피해는 더하기라 순서와 관계없으므로 바로 깎는다. 적이 받는 피해도 그 적의 판정만 읽으므로 바로 준다.
+    private readonly List<Player> _interrupted = new List<Player>();
+
     private void ResolveCombat()
     {
+        // 앞 틱에서 예외로 전투가 중간에 멈췄다면 적어 둔 것이 남아 있을 수 있다. 이 틱의 판정만 적용하도록 비우고 시작한다.
+        _interrupted.Clear();
         ChooseGrabTargets();
         for (int i = 0; i < Enemies.Count; i++)
         {
@@ -37,6 +45,29 @@ public sealed partial class Match
             ResolveFollowups(enemy);
         }
         ResolveStructures();
+        ApplyCombatResults();
+    }
+
+    // 이 틱의 판정이 다 끝난 뒤, 진 대원의 기술을 끊고 체력이 다한 대원을 쓰러뜨린다.
+    private void ApplyCombatResults()
+    {
+        for (int i = 0; i < _interrupted.Count; i++)
+        {
+            Player player = _interrupted[i];
+            for (int j = 0; j < player.Actions.Count; j++)
+            {
+                player.Actions[j].Cancelled = true;
+            }
+        }
+        _interrupted.Clear();
+        for (int i = 0; i < Players.Count; i++)
+        {
+            Player player = Players[i];
+            if (player.State == "alive" && player.Hp <= 0)
+            {
+                Fall(player);
+            }
+        }
     }
 
     private void ChooseGrabTargets()
@@ -402,7 +433,7 @@ public sealed partial class Match
                 // 같은 적 행동에 맞는 대응이 따로 닿으면 판정마다 이 피해를 받는다.
                 // 비김 피해는 대원을 모두 본 뒤에 주므로 이 피해가 먼저다. 이 피해로 쓰러지면 비김 피해는 더하지 않는다.
                 CancelActions(player);
-                Hurt(player, 1);
+                HurtInCombat(player, 1);
                 DamageEnemy(enemy, attack.Skill.PartialDamage, player, "partial");
             }
             else if (priority == 1)
@@ -412,12 +443,12 @@ public sealed partial class Match
                 {
                     drawCredit = best;
                 }
-                Hurt(player, attack.Skill.Tier);
+                HurtInCombat(player, attack.Skill.Tier);
             }
             else
             {
                 CancelActions(player);
-                Hurt(player, attack.Skill.Tier);
+                HurtInCombat(player, attack.Skill.Tier);
             }
         }
         // 비긴 대원이 여럿이어도 비김 효과는 판정마다 하나다. 효과는 적 자리에 그려지므로 대원마다 만들면 겹친다.
@@ -429,11 +460,12 @@ public sealed partial class Match
         }
     }
 
+    // 진 대원의 기술을 끊는다. 이 틱의 다른 판정은 아직 기술을 쓰던 상태로 보도록, 끊는 것은 ApplyCombatResults에서 한다.
     private void CancelActions(Player player)
     {
-        for (int i = 0; i < player.Actions.Count; i++)
+        if (!_interrupted.Contains(player))
         {
-            player.Actions[i].Cancelled = true;
+            _interrupted.Add(player);
         }
     }
 
