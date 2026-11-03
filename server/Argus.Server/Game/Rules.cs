@@ -99,9 +99,6 @@ public sealed class Rules
     public SkillDefinition Strike { get; } = StrikeSkill;
     public SkillDefinition Parry { get; } = ParrySkill;
     public SkillDefinition Grab { get; } = GrabSkill;
-    public SkillDefinition Spin { get; } = SpinSkill;
-    public SkillDefinition SpinBlock { get; } = SpinBlockSkill;
-    public SkillDefinition SpinGrab { get; } = SpinGrabSkill;
     public double ParryFollowupSeconds { get; init; } = 0.18;
 
     // id로 대원 기술을 찾는다. 모르는 id면 null이다.

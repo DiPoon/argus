@@ -34,6 +34,8 @@ internal static class CombatTests
         tests.Add(new TestCase("A new skill id with guard flags still guards and follows up like a parry", SkillFlags));
         tests.Add(new TestCase("Skills around the player hit everyone around without aiming and differ only in affinity", AroundSkills));
         tests.Add(new TestCase("An attack that reaches the player from where the skill faces is answered with its affinity beyond the skill's reach", BodyResponse));
+        tests.Add(new TestCase("A grab answers the attacker reaching the player before a nearer idle enemy, whatever the enemy order", GrabTargetOrder));
+        tests.Add(new TestCase("A grab is not tied to an attacker that a flank fells before the grab is judged", GrabFlankedTarget));
         tests.Add(new TestCase("A flank outside an enemy action's area deals ordinary damage without its affinity", Flank));
         tests.Add(new TestCase("A player the shield shove reaches answers it with affinity even beside the shield", ShoveReach));
         tests.Add(new TestCase("A kill goes to the player whose draw or partial damage finished the elite", DrawCredit));
@@ -554,6 +556,18 @@ internal static class CombatTests
         Prepare(f, f.Player, "strike");
         Advance(f.Match, 0.3);
         Near(enemy.Hp, 1);
+
+        // 적이 다른 쪽을 공격하는 중이어도 같다. 대원은 그 공격의 범위 밖이라 닿았다면 측면 공격으로 쳤겠지만, 벽 모서리에 가려 닿지 않는다.
+        Fixture busy = new Fixture();
+        busy.Player.Position = FixedVector.FromInt(464, 498);
+        busy.Player.Aim = Angle.FromRadians(313 * Math.PI / 180);
+        Enemy attacking = Target(busy);
+        attacking.Position = FixedVector.FromInt(495, 465);
+        BeginAction(busy, attacking, EnemyDefinition.Grunt.Skills[0], 0.5);
+        Prepare(busy, busy.Player, "strike");
+        Advance(busy.Match, 0.3);
+        Near(attacking.Hp, 1);
+        Near(busy.Player.Hp, busy.Player.MaxHp);
     }
 
     private static void Structures()
@@ -716,7 +730,8 @@ internal static class CombatTests
         Rules rules = new Rules();
         SkillDefinition[] around = new SkillDefinition[]
         {
-            Renamed(rules.Spin, "whirl"), Renamed(rules.SpinBlock, "whirl-block"), Renamed(rules.SpinGrab, "whirl-grab")
+            Renamed(Rules.FindSkill("spin")!, "whirl"), Renamed(Rules.FindSkill("spinblock")!, "whirl-block"),
+            Renamed(Rules.FindSkill("spingrab")!, "whirl-grab")
         };
         for (int s = 0; s < around.Length; s++)
         {
@@ -890,6 +905,55 @@ internal static class CombatTests
         Advance(even.Match, 0.1);
         Near(striker.Hp, 0);
         Near(even.Player.Hp, even.Player.MaxHp - 1);
+    }
+
+    private static void GrabTargetOrder()
+    {
+        // 잡기가 닿는 바로 그 순간에, 가까이(40) 서 있기만 한 병사 C와 앞 70에서 밀어치는 병사 B의 공격이 함께 닿는다.
+        // 잡기는 대원에게 닿는 공격을 한 B와 판정해 이긴다. C는 대상이 아니라 그대로다. 적 목록의 순서를 바꿔도 같아야 한다.
+        EnemySkill shove = EnemyDefinition.Grunt.Skills[1];
+        for (int reversed = 0; reversed < 2; reversed++)
+        {
+            Fixture f = new Fixture();
+            Enemy idle = Target(f);
+            idle.Position = f.Player.Position + FixedVector.FromInt(40, 0);
+            // 잡기는 시작 0.12초 뒤에 닿는다. 밀어치기도 같은 틱에 닿게 한다.
+            Enemy shover = Threat(f, EnemyDefinition.Grunt, shove, f.Match.Rules.Grab.ContactAfter);
+            shover.Position = f.Player.Position + FixedVector.FromInt(70, 0);
+            if (reversed == 1)
+            {
+                f.Match.Enemies.Reverse();
+            }
+            PlayerAction grab = Prepare(f, f.Player, "grab");
+            Advance(f.Match, 0.3);
+            Near(shover.Hp, 0);
+            Near(idle.Hp, 1);
+            Near(f.Player.Hp, f.Player.MaxHp);
+            Equal(grab.Target, shover.Id);
+        }
+    }
+
+    private static void GrabFlankedTarget()
+    {
+        // 잡기를 준비하는 동안 앞 70의 병사 E가 밀어친다. 같은 순간 동료가 E의 뒤에서 쳐(측면 공격) E가 쓰러지면 밀어치기는 무효다.
+        // 잡기는 E와 판정하지 않았으므로 E에게 묶이지 않고, 닿는 순간 가까이(40) 서 있던 병사 F를 잡는다.
+        EnemySkill shove = EnemyDefinition.Grunt.Skills[1];
+        Fixture f = new Fixture();
+        Enemy near = Target(f);
+        near.Position = f.Player.Position + FixedVector.FromInt(40, 0);
+        Enemy shover = Threat(f, EnemyDefinition.Grunt, shove);
+        shover.Position = f.Player.Position + FixedVector.FromInt(70, 0);
+        Player partner = Ally(f, "partner");
+        partner.Position = shover.Position + FixedVector.FromInt(40, 0);
+        partner.Aim = Angle.FromRadians(Math.PI);
+        // 동료의 타격이 밀어치기와 같은 틱에 닿게, 그만큼 먼저 시작한 타격이다. 타격은 시작 0.18초 뒤에 닿고 밀어치기는 0.05초 뒤에 닿는다.
+        Prepare(f, partner, "strike", f.Match.Rules.Strike.ContactAfter - 0.05);
+        PlayerAction grab = Prepare(f, f.Player, "grab");
+        Advance(f.Match, 0.3);
+        Near(shover.Hp, 0);
+        Near(f.Player.Hp, f.Player.MaxHp);
+        Near(near.Hp, 0);
+        Equal(grab.Target, near.Id);
     }
 
     private static void Flank()
