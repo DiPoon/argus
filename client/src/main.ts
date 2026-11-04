@@ -15,6 +15,8 @@ const kindSlots: { kind: 'strike' | 'block' | 'channel'; title: string; beats: s
   { kind: 'channel', title: '잡기 칸', beats: '방어를 파훼', skills: ['grab', 'spingrab'] },
 ];
 const freeSkills: Skill[] = ['strike', 'parry', 'grab', 'spin', 'spinblock', 'spingrab'];
+// 조준하지 않는 둘레 기술이다(서버 기술 정의의 around).
+const aroundSkills: Skill[] = ['spin', 'spinblock', 'spingrab'];
 const skillNotes: Record<Skill, string> = {
   strike: '앞쪽 좁은 범위', parry: '앞쪽 방어 후 반격', grab: '앞쪽 한 명',
   spin: '둘레 모두 · 조준 없음', spinblock: '둘레 모두 · 조준 없음', spingrab: '둘레 모두 · 조준 없음',
@@ -22,20 +24,27 @@ const skillNotes: Record<Skill, string> = {
 const skillChoice = (name: string, skill: Skill, checked: boolean) =>
   `<label><input type="radio" name="${name}" value="${skill}" ${checked ? 'checked' : ''}/><span><b>${skillNames[skill]}</b><small>${skillNotes[skill]}</small></span></label>`;
 const chosenSkill = (name: string) => document.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)!.value;
+// 손가락으로 조작하는 기기다. 작전 화면에 이동 조이스틱과 기술 버튼을 띄운다. 주소에 ?touch를 붙이면 PC에서도 띄운다.
+const touchMode = matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).has('touch');
+document.body.classList.toggle('touch', touchMode);
+// 터치 기기의 로비에서는 둘레 기술만 고른다. 손가락으로는 조준하면서 기술을 쓰기 어렵다(2026-11-03 휴대폰 시험).
+// 화면에서 고를 수 있는 기술만 줄인다. 서버는 어느 기기에서 온 참가든 같은 규칙(Rules.ValidSlots)으로 받는다.
+const offered = (skills: Skill[]) => touchMode ? skills.filter(skill => aroundSkills.includes(skill)) : skills;
 // 명단에 보이는 장비다. 종류 칸은 기본 기술과 다르게 고른 것만 적고, 자유 칸은 늘 적는다.
 const loadoutText = (slots: Skill[]) => [
   ...slots.slice(0, 3).filter((skill, index) => skill !== kindSlots[index].skills[0]).map(skill => skillNames[skill]),
   `자유 ${skillNames[slots[3]]}`,
 ].join(' · ');
 
-// FIELD NOTES에 적은 피해 값(부분 대응 1·1, 비김 2·1)은 합의한 규칙(docs/combat.md)의 값이다.
-// 서버는 부분 대응 피해 값을 보내지 않으므로, 규칙을 바꾸면 이 문구도 함께 고친다.
-$('app').innerHTML = `
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="ARGUS 홈"><span class="brand-mark">△</span> ARGUS <span class="version">COMBAT TEST / 02</span></a>
-    <div class="top-right"><span id="connection" class="connection"><i></i> 투입 대기</span><span class="build-tag">CO-OP PVE · 1–4</span></div>
-  </header>
-  <main id="lobby" class="lobby">
+// 장비 칸 고르기다. PC 로비와 터치 로비가 같은 입력(이름 slot-1~3, free-slot)을 쓴다.
+// 터치 로비의 종류 칸은 고를 기술이 하나뿐이라 처음부터 골라 둔다.
+const loadoutFields = `${kindSlots.map((slot, index) => `<fieldset class="equipment-options kind-slot skill-${slot.kind}"><legend class="field-label"><strong><kbd>${index + 1}</kbd>${slot.title}</strong><span>${slot.beats}</span></legend>
+        ${offered(slot.skills).map((skill, choice) => skillChoice(`slot-${index + 1}`, skill, choice === 0)).join('')}
+      </fieldset>`).join('')}
+      <fieldset class="equipment-options primary-weapons"><legend class="field-label">4번 자유 칸 <span>${touchMode ? '둘레 기술 하나 더' : '아무 기술이나 하나 더 · Q 또는 4'}</span></legend>
+        ${offered(freeSkills).map((skill, choice) => skillChoice('free-slot', skill, choice === 0)).join('')}
+      </fieldset>`;
+const desktopLobby = `  <main id="lobby" class="lobby">
     <section class="briefing">
       <div class="eyebrow"><span class="dash"></span> OPERATION 001</div>
       <h1>침묵의<br><span>전초기지.</span></h1>
@@ -56,12 +65,7 @@ $('app').innerHTML = `
       <div class="eyebrow">DEPLOYMENT PREP</div><h2>분대에 합류하세요</h2><p class="muted">혼자 시작해도, 작전 중 함께해도 됩니다.</p>
       <label class="field-label" for="callsign">호출명 <span>가입 없이 게스트로 참가</span></label>
       <input id="callsign" maxlength="16" autocomplete="nickname" placeholder="대원 이름" value="대원" />
-      ${kindSlots.map((slot, index) => `<fieldset class="equipment-options kind-slot skill-${slot.kind}"><legend class="field-label"><strong><kbd>${index + 1}</kbd>${slot.title}</strong><span>${slot.beats}</span></legend>
-        ${slot.skills.map((skill, choice) => skillChoice(`slot-${index + 1}`, skill, choice === 0)).join('')}
-      </fieldset>`).join('')}
-      <fieldset class="equipment-options primary-weapons"><legend class="field-label">4번 자유 칸 <span>아무 기술이나 하나 더 · Q 또는 4</span></legend>
-        ${freeSkills.map((skill, choice) => skillChoice('free-slot', skill, choice === 0)).join('')}
-      </fieldset>
+      ${loadoutFields}
       <p class="combat-intro">투입 마나 <b>0</b> · 보급 상자에서 충전 · 기술마다 마나 <b>1</b><br>자연 회복 없음. 빗나가도 마나를 소비합니다.<br>둘레 기술은 조준 없이 둘레 모두에 닿습니다. 기술은 한 번에 하나씩 사용합니다.</p>
       <button id="create" class="primary">새 작전 시작 <span>↗</span></button>
       <div class="or"><span></span> 초대받았다면 <span></span></div>
@@ -70,7 +74,34 @@ $('app').innerHTML = `
       <p class="entry-note"><span>◌</span> 투입 준비 5초 · 아군 피해 없음 · 전원 사망 시 실패</p>
     </section>
     <footer class="lobby-footer"><span>4명까지 함께하는 협동 전투</span><span>PC 브라우저 · 키보드 + 마우스</span></footer>
-  </main>
+  </main>`;
+// 터치 기기의 로비다. 휴대폰 가로 화면 한 장에 들어오도록 왼쪽에 참가, 오른쪽에 장비 칸만 둔다. 입력의 id는 PC 로비와 같다.
+// 장비 칸 위의 한 줄이 둘레 기술만 고르는 까닭을 알린다.
+const touchLobby = `<main id="lobby" class="lobby touch-lobby">
+    <section class="loadout-panel">
+      <div class="touch-entry">
+        <div class="eyebrow">ARGUS · 협동 전투</div>
+        <label class="field-label" for="callsign">호출명 <span>게스트로 참가</span></label>
+        <input id="callsign" maxlength="16" autocomplete="nickname" placeholder="대원 이름" value="대원" />
+        <button id="create" class="primary">새 작전 시작 <span>↗</span></button>
+        <div class="join-row"><input id="room-input" aria-label="방 코드" placeholder="방 코드" maxlength="6" autocomplete="off"/><button id="join" class="secondary">참가</button></div>
+        <p id="lobby-error" class="error" role="alert"></p>
+        <button id="lobby-full" type="button" class="touch-button">전체 화면</button>
+      </div>
+      <div class="touch-gear"><p class="touch-gear-note">휴대폰에서는 조준 없이 둘레 모두에 닿는 <b>둘레 기술</b>을 씁니다. 버튼만 누르면 됩니다.</p>${loadoutFields}
+        <p class="combat-intro touch-intro">투입 마나 <b>0</b> · 보급 상자에서 충전 · 기술마다 마나 <b>1</b> · 자연 회복 없음<br>투입 준비 5초 · 아군 피해 없음 · 전원 사망 시 실패</p></div>
+    </section>
+  </main>`;
+// 투입 위치를 고르는 동작이다. 터치 기기에서는 손가락으로 누른다.
+const pick = touchMode ? '누르세요' : '클릭하세요';
+// FIELD NOTES에 적은 피해 값(부분 대응 1·1, 비김 2·1)은 합의한 규칙(docs/combat.md)의 값이다.
+// 서버는 부분 대응 피해 값을 보내지 않으므로, 규칙을 바꾸면 이 문구도 함께 고친다.
+$('app').innerHTML = `
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="ARGUS 홈"><span class="brand-mark">△</span> ARGUS <span class="version">COMBAT TEST / 02</span></a>
+    <div class="top-right"><span id="connection" class="connection"><i></i> 투입 대기</span><span class="build-tag">CO-OP PVE · 1–4</span></div>
+  </header>
+${touchMode ? touchLobby : desktopLobby}
   <main id="operation" class="operation" hidden>
     <aside class="sidebar">
       <div class="eyebrow">OPERATION 001</div><h2>침묵의 전초기지</h2>
@@ -89,12 +120,17 @@ $('app').innerHTML = `
       <div id="canvas-host" class="canvas-host"></div>
       <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span>경과 <b id="elapsed">00:00</b></span></div></div>
       <div id="toast" class="toast" role="status" hidden></div>
-      <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 클릭하세요. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
+      <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 ${pick}. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
       <div id="combat-hud" class="combat-hud" hidden>
         <div class="vitals"><div><span id="my-name">대원</span><b id="hp">6</b><small id="max-hp">/ 6 HP</small><div class="health-bar"><i id="health-fill"></i></div></div>
         <div><span>마나</span><b id="mana">0</b><small id="max-mana">/ 24</small><div class="mana-bar"><i id="mana-fill"></i></div></div></div>
         <div class="skill-bar" id="skill-bar"></div><p id="combat-status" aria-live="polite"></p>
       </div>
+      <div id="touch-controls" class="touch-controls" hidden>
+        <div id="touch-move" class="touch-move" aria-label="이동"><i id="touch-base" class="touch-base" hidden><b id="touch-knob" class="touch-knob"></b></i></div>
+        ${slotKeys.map((_, index) => `<button type="button" class="touch-skill" data-slot="${index + 1}"><b></b><small></small></button>`).join('')}
+      </div>
+      <div class="touch-top"><button id="touch-menu" type="button" class="touch-button">☰ 메뉴</button><button id="touch-map" type="button" class="touch-button">지도</button><button id="touch-full" type="button" class="touch-button">전체 화면</button></div>
       <div class="map-bottom"><span id="controls">클릭 위치 선택 · 캠프는 권장 투입 지점</span><span id="performance">공유 시야</span></div>
       <div id="result" class="result-overlay" hidden><div class="result-card"><span class="eyebrow">OPERATION COMPLETE</span><h2 id="result-title">작전 종료</h2><p id="result-description"></p><div id="result-stats"></div><button id="again" class="primary">다음 작전 준비 <span>↗</span></button></div></div>
     </section>
@@ -125,7 +161,10 @@ const slotOrder: number[] = [];
 // 다시 눌러야 하는 키(staleKeys)는 쥐고 있어도 누른 것으로 치지 않는다. 같은 슬롯의 다른 입력을
 // 새로 눌렀다 떼었을 때 쥐고 있던 키로 기술이 이어지지 않게 한다.
 const keyHeld = (code: string) => keys.has(code) && !staleKeys.has(code);
+// 터치 조작의 상태다. x·y는 조이스틱이 가리키는 이동 방향(길이 1), aim은 마지막으로 움직인 방향, slots는 누르고 있는 기술 버튼이다.
+const touch = { x: 0, y: 0, aim: 0, aimKnown: false, slots: new Set<number>() };
 function slotHeld(slot: number) {
+  if (touch.slots.has(slot)) return true;
   if (slot === 1) return mouseButtons.has(0) || keyHeld('Digit1');
   if (slot === 2) return mouseButtons.has(2) || keyHeld('Digit2');
   if (slot === 3) return keyHeld('Space') || keyHeld('Digit3');
@@ -148,7 +187,7 @@ function pressSlot(slot: number) {
 const staleKeys = new Set<string>();
 // 사망 등으로 살아 있는 상태를 벗어날 때 부른다. 마우스는 syncButtons가 새로 눌린 버튼만 받으므로 비우기만 하면 된다.
 function releaseSkills() {
-  mouseButtons.clear(); slotOrder.length = 0;
+  mouseButtons.clear(); slotOrder.length = 0; releaseTouchSkills();
   for (const code of keys) if (slotFromCode(code) > 0) staleKeys.add(code);
 }
 // 버튼을 겹쳐 누르거나 뗄 때 브라우저는 pointerdown·pointerup 대신 pointermove로만 알린다.
@@ -205,6 +244,7 @@ function renderToast() {
 }
 function clearInput() {
   keys.clear(); mouseButtons.clear(); slotOrder.length = 0; pointerBaseline = true;
+  releaseTouchSkills(); releaseStick();
   if (world) world.control = { x: 0, y: 0, aim: world.control.aim, slot: 0 };
   // 서버는 작전 중 살아 있는 대원의 입력만 받는다. 30Hz 입력과 같은 조건일 때만 멈춤 입력을 보낸다.
   if (me()?.state === 'alive' && snapshot?.phase === 'active') sendInput(0, 0, world?.control.aim ?? 0, 0);
@@ -214,6 +254,8 @@ async function enter(code?: string) {
   if (connecting) return;
   const inputCode = code?.trim().toUpperCase();
   if (inputCode !== undefined && !/^[A-Z2-9]{6}$/.test(inputCode)) { $('lobby-error').textContent = '6자리 방 코드를 입력하세요.'; return; }
+  // 전체 화면은 누름 안에서만 켤 수 있으므로 서버의 답을 기다리기 전에 켠다.
+  if (touchMode) enterFullscreen();
   connecting = true;
   $('lobby-error').textContent = '';
   $<HTMLButtonElement>('create').disabled = $<HTMLButtonElement>('join').disabled = true;
@@ -237,21 +279,27 @@ async function enter(code?: string) {
 }
 
 async function openOperation() {
-  $('lobby').hidden = true; $('operation').hidden = false;
+  $('lobby').hidden = true; $('operation').hidden = false; document.body.classList.add('operating');
   if (!world) {
-    try { world = new World(); await world.init($('canvas-host')); }
+    try { world = new World(); world.clampCamera = !touchMode; await world.init($('canvas-host')); }
     catch { world = undefined; leave(); $('lobby-error').textContent = '그래픽 초기화에 실패했습니다. 브라우저의 하드웨어 가속을 확인해 주세요.'; return; }
     const canvas = world.app.canvas;
     canvas.addEventListener('pointermove', event => {
+      // 터치는 조준에 쓰지 않는다. 손가락이 지나간 자리를 조준으로 치면 기술 버튼을 누를 때마다 방향이 튄다.
+      if (event.pointerType === 'touch') return;
       mouse = { x: event.clientX, y: event.clientY, known: true };
       syncButtons(event.buttons, me()?.state === 'alive');
     });
     canvas.addEventListener('pointerdown', event => {
       if (!world || (event.button !== 0 && event.button !== 2)) return;
-      mouse = { x: event.clientX, y: event.clientY, known: true };
+      // 터치는 투입 위치 고르기에만 쓴다. 기술은 화면의 기술 버튼으로 쓴다.
+      // 손가락은 마우스 버튼 상태(syncButtons)에 넣지 않는다. 다른 포인터 이벤트도 손가락은 건너뛰므로, 넣으면 뗀 것을 맞추지 못한다.
+      const touched = event.pointerType === 'touch';
+      if (touched && me()?.state !== 'waiting') return;
+      if (!touched) mouse = { x: event.clientX, y: event.clientY, known: true };
       if (event.button === 0 && me()?.state === 'waiting' && snapshot?.phase !== 'ended') {
         const point = world.screenToWorld(event.clientX, event.clientY);
-        syncButtons(event.buttons, false, true);
+        if (!touched) syncButtons(event.buttons, false, true);
         // 서버처럼 분대가 본 칸의 빈 지면에만 투입한다.
         const check = world.deployCheck(point);
         if (check === 'unseen') { toast('아직 보지 못한 곳에는 투입할 수 없습니다.'); return; }
@@ -337,6 +385,7 @@ function leave() {
   clearInput();
   if (world) { world.landing = undefined; world.overview = false; world.app.ticker.stop(); }
   $('operation').hidden = true; $('lobby').hidden = false; $('result').hidden = true;
+  document.body.classList.remove('operating', 'menu-open');
   status('투입 대기');
 }
 
@@ -366,7 +415,7 @@ function updateUi() {
     const preparing = p.state === 'deploying';
     $('deploy-kicker').textContent = preparing ? 'DEPLOYMENT IN PROGRESS' : p.hasDeployed ? 'REINFORCEMENT' : 'READY TO DEPLOY';
     $('deploy-title').textContent = preparing ? `${p.deploy.toFixed(1)}초 후 투입합니다` : p.hasDeployed ? '증원할 위치를 선택하세요' : '투입할 위치를 선택하세요';
-    $('deploy-description').textContent = preparing ? '투입이 완료될 때까지 해당 위치의 시야는 열리지 않습니다.' : '분대가 본 곳의 빈 지면을 클릭하세요. 지금 보이지 않는 곳의 안전은 보장되지 않습니다.';
+    $('deploy-description').textContent = preparing ? '투입이 완료될 때까지 해당 위치의 시야는 열리지 않습니다.' : `분대가 본 곳의 빈 지면을 ${pick}. 지금 보이지 않는 곳의 안전은 보장되지 않습니다.`;
     $<HTMLButtonElement>('camp').disabled = preparing;
     $<HTMLButtonElement>('deploy').disabled = preparing || deployRequested || !world?.landing;
     $('deploy').textContent = preparing || deployRequested ? '투입 준비 중…' : world?.landing ? '5초 후 투입 ↗' : '위치 선택 필요';
@@ -389,8 +438,18 @@ function updateUi() {
     }).join('');
     $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고를 읽고 대응하세요 · 기술 사용 중에도 이동 가능';
     $('combat-status').classList.toggle('empty', p.mana === 0);
-
+    // 터치 화면에서는 기술 막대를 숨기고 기술 버튼이 그 일을 한다. 기술 막대처럼 마나 비용과 쓰고 있는 기술의 단계를 보인다.
+    for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill')) {
+      const slot = Number(button.dataset.slot);
+      const skill = p.slots[slot - 1];
+      const definition = s.rules.skills.find(d => d.id === skill)!;
+      const active = current?.slot === slot && current.endsAt > s.now;
+      button.className = `touch-skill skill-${definition.kind}${touch.slots.has(slot) ? ' held' : ''}${p.mana < definition.mana ? ' empty' : ''}${active ? ' active' : ''}`;
+      button.querySelector('b')!.textContent = skillNames[skill];
+      button.querySelector('small')!.textContent = active ? phaseText : `마나 ${definition.mana}`;
+    }
   }
+  $('touch-controls').hidden = !touchMode || !alive || ended;
   $('performance').textContent = `${ping} ms · ${world?.fps ?? 60} FPS · 적 ${world?.shownEnemies ?? 0}/${s.enemies.length}`;
   $('result').hidden = !ended;
   if (ended) {
@@ -443,8 +502,8 @@ function closeReportNote() {
 }
 $('again').addEventListener('click', leave);
 // 캔버스 밖에서 떼거나 움직여도 놓은 버튼은 반영한다. 새로 누르는 것은 캔버스 위에서만 받는다.
-window.addEventListener('pointerup', event => syncButtons(event.buttons, false));
-window.addEventListener('pointermove', event => { if (event.target !== world?.app.canvas) syncButtons(event.buttons, false); });
+window.addEventListener('pointerup', event => { if (event.pointerType !== 'touch') syncButtons(event.buttons, false); });
+window.addEventListener('pointermove', event => { if (event.pointerType !== 'touch' && event.target !== world?.app.canvas) syncButtons(event.buttons, false); });
 window.addEventListener('blur', clearInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
 window.addEventListener('keydown', event => {
@@ -462,14 +521,87 @@ window.addEventListener('keydown', event => {
   if (event.code === 'KeyM' && world) world.overview = !world.overview;
 });
 window.addEventListener('keyup', event => { keys.delete(event.code); staleKeys.delete(event.code); });
+// 이동 조이스틱: 왼쪽 아래를 누르면 그 자리가 가운데가 되고, 끄는 방향으로 걷는다. 가운데의 작은 흔들림은 멈춤으로 본다.
+// 이동은 키보드처럼 늘 같은 빠르기로 한다. 서버는 길이 1보다 짧은 이동을 그만큼 느리게 걷게 하므로 길이를 1로 맞춘다.
+const stickRadius = 56, stickDeadZone = 10;
+let stickPointer: number | null = null;
+let stickOrigin = { x: 0, y: 0 };
+function moveStick(event: PointerEvent) {
+  const dx = event.clientX - stickOrigin.x, dy = event.clientY - stickOrigin.y;
+  const length = Math.hypot(dx, dy);
+  // 손잡이는 받침 밖으로 나가지 않는다. 걷는 방향은 손가락이 받침 밖에 있어도 손가락 쪽이다.
+  const knob = Math.min(1, stickRadius / Math.max(length, 1));
+  $('touch-knob').style.transform = `translate(${dx * knob}px, ${dy * knob}px)`;
+  if (length < stickDeadZone) { touch.x = 0; touch.y = 0; return; }
+  touch.x = dx / length; touch.y = dy / length;
+  touch.aim = Math.atan2(dy, dx); touch.aimKnown = true;
+}
+function releaseStick() {
+  stickPointer = null; touch.x = 0; touch.y = 0;
+  $('touch-base').hidden = true;
+}
+function releaseTouchSkills() {
+  touch.slots.clear();
+  for (const button of document.querySelectorAll('.touch-skill')) button.classList.remove('held');
+}
+$('touch-move').addEventListener('pointerdown', event => {
+  if (stickPointer !== null) return;
+  stickPointer = event.pointerId;
+  $('touch-move').setPointerCapture(event.pointerId);
+  const area = $('touch-move').getBoundingClientRect();
+  stickOrigin = { x: event.clientX, y: event.clientY };
+  Object.assign($('touch-base').style, { left: `${event.clientX - area.left}px`, top: `${event.clientY - area.top}px` });
+  $('touch-base').hidden = false;
+  moveStick(event);
+});
+$('touch-move').addEventListener('pointermove', event => { if (event.pointerId === stickPointer) moveStick(event); });
+for (const type of ['pointerup', 'pointercancel'] as const) {
+  $('touch-move').addEventListener(type, event => { if (event.pointerId === stickPointer) releaseStick(); });
+}
+// 기술 버튼: 누르고 있는 동안 그 슬롯을 쓴다. 키보드처럼 나중에 누른 버튼이 먼저다.
+for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill')) {
+  const slot = Number(button.dataset.slot);
+  button.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    button.setPointerCapture(event.pointerId);
+    touch.slots.add(slot); pressSlot(slot);
+    button.classList.add('held');
+  });
+  const release = () => { touch.slots.delete(slot); button.classList.remove('held'); };
+  button.addEventListener('pointerup', release);
+  button.addEventListener('pointercancel', release);
+  button.addEventListener('lostpointercapture', release);
+}
+$('touch-controls').addEventListener('contextmenu', event => event.preventDefault());
+$('touch-menu').addEventListener('click', () => document.body.classList.toggle('menu-open'));
+$('touch-map').addEventListener('click', () => { if (world) world.overview = !world.overview; });
+// 안드로이드 크롬은 전체 화면으로 주소창을 숨기고 가로로 고정할 수 있다. 아이폰 사파리는 페이지 전체 화면을 지원하지 않아 버튼을 숨긴다.
+// 전체 화면은 누름(사용자 동작) 안에서만 켤 수 있다. 터치 기기에서 작전을 시작하거나 참가하는 누름에서도 켠다.
+function enterFullscreen() {
+  if (!document.fullscreenEnabled || document.fullscreenElement) return;
+  const orientation = screen.orientation as unknown as { lock?: (to: string) => Promise<void> };
+  document.documentElement.requestFullscreen().then(() => orientation.lock?.('landscape')).catch(() => undefined);
+}
+for (const id of ['touch-full', 'lobby-full']) {
+  if (!document.getElementById(id)) continue;
+  $(id).hidden = !document.fullscreenEnabled;
+  $(id).addEventListener('click', () => { if (document.fullscreenElement) void document.exitFullscreen(); else enterFullscreen(); });
+}
+document.addEventListener('fullscreenchange', () => {
+  for (const id of ['touch-full', 'lobby-full']) {
+    if (document.getElementById(id)) $(id).textContent = document.fullscreenElement ? '전체 화면 끄기' : '전체 화면';
+  }
+});
 function sendControl() {
   if (!world || !snapshot || me()?.state !== 'alive' || snapshot.phase !== 'active') return;
   let x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
   let y = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
   const length = Math.hypot(x, y); if (length > 1) { x /= length; y /= length; }
+  if (x === 0 && y === 0) { x = touch.x; y = touch.y; }
   const p = world.mePosition() ?? me()!;
   const aimAt = mouse.known ? world.screenToWorld(mouse.x, mouse.y) : { x: p.x + 1, y: p.y };
-  const aim = Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
+  // 터치로만 조작하면 마우스 위치가 없으므로 마지막으로 움직인 방향을 조준으로 쓴다. 둘레 기술은 조준이 필요 없다.
+  const aim = !mouse.known && touch.aimKnown ? touch.aim : Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
   let slot = 0;
   for (const candidate of slotOrder) { if (slotHeld(candidate)) slot = candidate; }
   world.control = { x, y, aim, slot };

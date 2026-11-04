@@ -15,6 +15,8 @@ interface TestWorld {
   forecast?: { previous: Position; tip: Position };
   pending: unknown[];
   mePosition(): Position | undefined;
+  screenToWorld(clientX: number, clientY: number): Position;
+  clampCamera: boolean;
   labelsById: Map<string, Text>;
   spareLabels: Text[];
   labels: Container;
@@ -269,6 +271,26 @@ test('skills around the player draw a circle of their reach, and an all-directio
   // 둘레 방어는 반지름 28의 고리다. 앞만 막는 받아치기의 방어 호(같은 반지름의 원호)는 그리지 않는다.
   expect(at(shapes.ring.circles, 28)).toBeGreaterThan(0);
   expect(at(shapes.ring.arcs, 28)).toBe(0);
+});
+
+test('the camera stops at the map edge on a PC but keeps the player in the middle on a touch screen', async ({ page }) => {
+  const state = snapshot();
+  // 맵(가로 1920) 오른쪽 끝 가까이에 선 대원이다.
+  Object.assign(state.players[0], { x: 1890, rawX: 1890 * 4096, landingX: 1890 });
+  const result = await page.evaluate(state => {
+    const world = window.testWorld;
+    const host = document.getElementById('host')!.getBoundingClientRect();
+    const middle = () => world.screenToWorld(host.left + host.width / 2, host.top + host.height / 2);
+    world.update(state); world.draw(1 / 60);
+    const clamped = middle();
+    world.clampCamera = false; world.draw(1 / 60);
+    return { clamped, centered: middle() };
+  }, state);
+  // PC 화면은 지도 밖을 보이지 않으므로 화면 가운데가 대원보다 지도 안쪽이다.
+  expect(result.clamped.x).toBeLessThan(1500);
+  // 터치 화면은 대원을 가운데에 둔다. 지도 끝에서도 대원이 구석의 기술 버튼 밑에 그려지지 않는다.
+  expect(result.centered.x).toBeCloseTo(1890, 0);
+  expect(result.centered.y).toBeCloseTo(730, 0);
 });
 
 test('prediction blocks enemy bodies while allowing teammate overlap', async ({ page }) => {

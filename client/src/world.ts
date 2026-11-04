@@ -71,6 +71,9 @@ export class World {
   private averageFrame = 16.7;
   private renderBudget = 10000;
   overview = false;
+  // 지도 끝에서 카메라를 지도 안에 붙잡아 둘지다. 터치 화면은 끄고 늘 대원을 가운데에 둔다.
+  // 붙잡아 두면 지도 끝 가까이에서 대원이 화면 구석의 기술 버튼이나 조이스틱 밑에 그려진다.
+  clampCamera = true;
   landing?: Position;
   fps = 60;
   shownEnemies = 0;
@@ -393,8 +396,10 @@ export class World {
     this.camera.zoom = zoom;
     this.camera.x = overview ? s.map.width / 2 : this.predicted?.x ?? s.map.campX;
     this.camera.y = overview ? s.map.height / 2 : this.predicted?.y ?? s.map.campY;
-    this.camera.x = Math.max(Math.min(width / zoom / 2, s.map.width / 2), Math.min(s.map.width - width / zoom / 2, this.camera.x));
-    this.camera.y = Math.max(Math.min(height / zoom / 2, s.map.height / 2), Math.min(s.map.height - height / zoom / 2, this.camera.y));
+    if (this.clampCamera) {
+      this.camera.x = Math.max(Math.min(width / zoom / 2, s.map.width / 2), Math.min(s.map.width - width / zoom / 2, this.camera.x));
+      this.camera.y = Math.max(Math.min(height / zoom / 2, s.map.height / 2), Math.min(s.map.height - height / zoom / 2, this.camera.y));
+    }
     this.root.scale.set(zoom);
     this.root.position.set(width / 2 - this.camera.x * zoom, height / 2 - this.camera.y * zoom);
     this.labelsById.forEach(label => { label.visible = false; });
