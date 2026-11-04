@@ -690,16 +690,34 @@ public sealed partial class Match
 
     public void Hurt(Player player, double damage)
     {
+        if (TakeDamage(player, damage) && player.Hp <= 0)
+        {
+            Fall(player);
+        }
+    }
+
+    // 전투 판정 중의 피해다. 체력만 깎고, 쓰러짐은 이 틱의 판정이 다 끝난 뒤(ApplyCombatResults)로 미룬다.
+    // 그래서 이 틱의 다른 판정에서는 체력이 다한 대원도 아직 기술을 쓰고 있는 대원이다.
+    private void HurtInCombat(Player player, double damage)
+    {
+        TakeDamage(player, damage);
+    }
+
+    // 살아 있는 대원의 체력을 깎고 효과를 낸다. 깎았으면 true다.
+    private bool TakeDamage(Player player, double damage)
+    {
         if (player.State != "alive" || damage <= 0)
         {
-            return;
+            return false;
         }
         player.Hp = Math.Max(0, player.Hp - damage);
         Effect(player.Position, "hurt", 0.4);
-        if (player.Hp > 0)
-        {
-            return;
-        }
+        return true;
+    }
+
+    // 체력이 다한 대원이 쓰러져 증원을 기다린다.
+    private void Fall(Player player)
+    {
         player.State = "waiting";
         player.Deaths++;
         player.RequestedSlot = 0;

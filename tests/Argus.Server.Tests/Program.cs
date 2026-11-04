@@ -216,9 +216,15 @@ internal static class TestTools
 
     public static PlayerAction Prepare(Fixture fixture, Player player, string skill, double age = 0)
     {
+        return Prepare(fixture, player, fixture.Match.Rules.Skill(skill), age);
+    }
+
+    // 기술 정의를 직접 받는다. id만 바꾼 정의처럼 검사가 만든 기술로도 쓸 수 있다.
+    public static PlayerAction Prepare(Fixture fixture, Player player, SkillDefinition skill, double age = 0)
+    {
         _id++;
         // age초 전에 시작한 기술이다. 틱으로 올려 센다.
-        PlayerAction action = new PlayerAction(_id, fixture.Match.Rules.Skill(skill), 1, fixture.Match.Tick - Rules.ToTicks(age));
+        PlayerAction action = new PlayerAction(_id, skill, 1, fixture.Match.Tick - Rules.ToTicks(age));
         player.Actions.Add(action);
         player.BusyUntilTick = action.EndsTick;
         return action;
@@ -263,10 +269,11 @@ internal static class TestTools
 
     // enemy가 skill로 새 행동을 시작한다. 기술이 arrivesIn초 뒤에 닿도록 시작 틱을 예고 시간만큼 앞당긴다.
     // 그래서 예고를 다 기다리지 않고도 실제 기술의 종류·티어·부분 대응 피해·사거리로 판정받는다. 선딜 배율은 1이다.
-    public static void BeginAction(Fixture fixture, Enemy enemy, EnemySkill skill, double arrivesIn = 0.05)
+    // aim은 행동의 방향(라디안)이다. 기본은 왼쪽(-x)이라, 대원의 오른쪽에 둔 적이 대원 쪽을 향한다.
+    public static void BeginAction(Fixture fixture, Enemy enemy, EnemySkill skill, double arrivesIn = 0.05, double aim = Math.PI)
     {
         _id++;
         long startTick = fixture.Match.Tick + Rules.ToTicks(arrivesIn) - Rules.ToTicks(skill.Windup);
-        enemy.Action = new EnemyAction(_id, skill, Angle.FromRadians(Math.PI), startTick);
+        enemy.Action = new EnemyAction(_id, skill, Angle.FromRadians(aim), startTick);
     }
 }

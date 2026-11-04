@@ -70,6 +70,39 @@ test('four guests deploy, collect mana, cast while moving and reconnect with the
   } finally { await context.close(); }
 });
 
+test('the lobby sends the skill chosen for each kind slot and the free slot', async ({ page }) => {
+  const me = observe(page);
+  // 규칙(rules)은 연결마다 처음 스냅샷에만 담긴다. 로비의 선택지와 견주려고 따로 받아 둔다.
+  let rules: Snapshot['rules'] | undefined;
+  page.on('websocket', ws => ws.on('framereceived', frame => {
+    try { const data = JSON.parse(frame.payload.toString()); if (data.type === 'snapshot' && data.rules) rules = data.rules; } catch { }
+  }));
+  await page.goto('/');
+  // 종류 칸마다 둘레 기술을 고르고 자유 칸에는 받아치기를 고른다.
+  await page.locator('input[name="slot-1"][value="spin"]').check();
+  await page.locator('input[name="slot-2"][value="spinblock"]').check();
+  await page.locator('input[name="slot-3"][value="spingrab"]').check();
+  await page.locator('input[name="free-slot"][value="parry"]').check();
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => me.player?.slots).toEqual(['spin', 'spinblock', 'spingrab', 'parry']);
+  // 로비의 장비 칸 선택지는 서버의 기술 정의와 같아야 한다. 로비는 방에 들어가기 전이라 이 목록을 클라이언트에 따로 적어 두므로,
+  // 서버에 기술을 더하거나 종류를 바꾸면 여기서 잡힌다. 앞의 세 칸은 차례로 타격·방어·잡기 종류다(서버의 Rules.ValidSlots).
+  await expect.poll(() => rules?.skills.length ?? 0).toBeGreaterThan(0);
+  const choices = await page.evaluate(() => Object.fromEntries(['slot-1', 'slot-2', 'slot-3', 'free-slot'].map(name =>
+    [name, [...document.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)].map(input => input.value)])));
+  ['strike', 'block', 'channel'].forEach((kind, index) =>
+    expect(choices[`slot-${index + 1}`], kind).toEqual(rules!.skills.filter(skill => skill.kind === kind).map(skill => skill.id)));
+  expect(choices['free-slot']).toEqual(rules!.skills.map(skill => skill.id));
+  // 명단에는 기본 기술과 다르게 고른 종류 칸과 자유 칸이 보인다.
+  await expect(page.locator('.member.self .roster-loadout')).toContainText('회전 베기 · 회전 방어 · 회전 잡기 · 자유 받아치기');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+  // 기술 막대도 칸 차례대로 고른 기술을 보인다.
+  await expect(page.locator('#skill-bar .skill-slot b')).toHaveText(['회전 베기', '회전 방어', '회전 잡기', '받아치기']);
+  expect(me.errors).toEqual([]);
+});
+
 test('all four input bindings use slots, consume mana on whiffs and keep the free slot after refresh', async ({ page, request }) => {
   const invalid = await request.post('/api/rooms', { data: { slots: ['strike', 'parry', 'grab', 'turret'] } });
   expect(invalid.status()).toBe(400);

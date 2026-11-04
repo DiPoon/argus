@@ -16,8 +16,16 @@ public sealed partial class Match
         }
     }
 
+    // 같은 틱의 판정은 모두 그 틱이 시작할 때의 대원 상태로 한다(2026-11-04 합의). 적은 목록 순서대로 하나씩 판정하므로,
+    // 앞의 판정이 대원의 기술을 끊거나 대원을 쓰러뜨리면 뒤의 판정이 그 결과를 읽어 같은 장면이 적 목록 순서에 따라 다르게 끝난다.
+    // 그래서 판정 도중에는 기술을 끊을 대원만 적어 두고(_interrupted), 쓰러짐도 미룬다. 둘 다 이 틱의 전투가 끝난 뒤 적용한다.
+    // 대원이 받는 피해는 더하기라 순서와 관계없으므로 바로 깎는다. 적이 받는 피해도 그 적의 판정만 읽으므로 바로 준다.
+    private readonly List<Player> _interrupted = new List<Player>();
+
     private void ResolveCombat()
     {
+        // 앞 틱에서 예외로 전투가 중간에 멈췄다면 적어 둔 것이 남아 있을 수 있다. 이 틱의 판정만 적용하도록 비우고 시작한다.
+        _interrupted.Clear();
         ChooseGrabTargets();
         for (int i = 0; i < Enemies.Count; i++)
         {
@@ -37,6 +45,29 @@ public sealed partial class Match
             ResolveFollowups(enemy);
         }
         ResolveStructures();
+        ApplyCombatResults();
+    }
+
+    // 이 틱의 판정이 다 끝난 뒤, 진 대원의 기술을 끊고 체력이 다한 대원을 쓰러뜨린다.
+    private void ApplyCombatResults()
+    {
+        for (int i = 0; i < _interrupted.Count; i++)
+        {
+            Player player = _interrupted[i];
+            for (int j = 0; j < player.Actions.Count; j++)
+            {
+                player.Actions[j].Cancelled = true;
+            }
+        }
+        _interrupted.Clear();
+        for (int i = 0; i < Players.Count; i++)
+        {
+            Player player = Players[i];
+            if (player.State == "alive" && player.Hp <= 0)
+            {
+                Fall(player);
+            }
+        }
     }
 
     private void ChooseGrabTargets()
@@ -61,31 +92,57 @@ public sealed partial class Match
                     action.TargetLocked = true;
                     continue;
                 }
+                // 대상을 바꾸는 곳은 여기 한 곳이고, 판정(ResolveEnemyAction·ResolveIdleEnemy)은 고른 대상을 읽기만 한다.
+                // 지금 대원에게 닿는 공격을 기술이 향한 쪽에서 한 적(몸 판정으로 대응할 적)이 있으면 그중 가장 가까운 적을 고른다.
+                // 그런 적이 없으면 잡기 범위 안에서 가장 가까운 적이다. 공격해 오는 적을 먼저 보는 것은, 아직 아무도 잡지 않은 잡기로
+                // 그 공격에 대응하게 하려는 것이다. 이미 다른 적을 잡았으면(대상을 정했으면) 그 공격에는 대응하지 못한다.
+                Enemy? attacker = null;
+                Fixed attackerDistance = Fixed.Zero;
                 Enemy? nearest = null;
                 Fixed closest = Fixed.Zero;
                 for (int k = 0; k < Enemies.Count; k++)
                 {
                     Enemy enemy = Enemies[k];
-                    Fixed distance = FixedVector.DistanceSquared(player.Position, enemy.Position);
-                    if (enemy.Hp <= 0 || !PlayerContact(player, action, enemy))
+                    if (enemy.Hp <= 0)
                     {
                         continue;
                     }
-                    // 거리가 같으면 id가 작은 적을 고른다. 적 목록의 순서에 기대지 않는다.
-                    if (nearest == null || distance < closest || (distance == closest && enemy.Id < nearest.Id))
+                    bool attacking = enemy.Action != null && enemy.Action.IsActive(Tick) && Incoming(enemy, enemy.Action, player) &&
+                        SkillFaces(player, action, enemy);
+                    bool covers = SkillCovers(player, action.Skill, enemy.Position, enemy.Definition.Radius);
+                    if (!attacking && !covers)
                     {
-                        closest = distance;
+                        continue;
+                    }
+                    // 두 후보 모두 대원에서 적까지의 같은 사선을 쓰므로 한 번만 따라간다.
+                    if (!Map.LineOfSight(player.Position, enemy.Position))
+                    {
+                        continue;
+                    }
+                    Fixed distance = FixedVector.DistanceSquared(player.Position, enemy.Position);
+                    if (attacking && Closer(enemy, distance, attacker, attackerDistance))
+                    {
+                        attacker = enemy;
+                        attackerDistance = distance;
+                    }
+                    if (covers && Closer(enemy, distance, nearest, closest))
+                    {
                         nearest = enemy;
+                        closest = distance;
                     }
                 }
-                // 준비 동작 중에는 매 틱 가장 가까운 적으로 고친다. 범위 안에 아무도 없으면 대상을 비워
-                // 범위를 벗어난 적이 대상으로 남지 않게 한다.
-                if (nearest == null)
+                Enemy? chosen = nearest;
+                if (attacker != null)
+                {
+                    chosen = attacker;
+                }
+                // 준비 동작 중에는 매 틱 다시 고른다. 후보가 없으면 대상을 비워 범위를 벗어난 적이 대상으로 남지 않게 한다.
+                if (chosen == null)
                 {
                     action.Target = null;
                     continue;
                 }
-                action.Target = nearest.Id;
+                action.Target = chosen.Id;
                 // 접촉하는 틱이나 그 뒤에 고른 대상으로 정한다. 접촉 틱에도 다시 고르므로 접촉 순간 가장 가까운 적이 된다.
                 // 접촉 순간 범위에 아무도 없었으면 유효 시간 안에 처음 들어온 적이 대상이 된다.
                 if (Tick >= action.ContactTick)
@@ -96,25 +153,55 @@ public sealed partial class Match
         }
     }
 
+    // candidate가 지금까지 고른 best보다 가까운지 본다. 거리가 같으면 id가 작은 적이다. 적 목록의 순서에 기대지 않는다.
+    private static bool Closer(Enemy candidate, Fixed distance, Enemy? best, Fixed bestDistance)
+    {
+        if (best == null || distance < bestDistance)
+        {
+            return true;
+        }
+        return distance == bestDistance && candidate.Id < best.Id;
+    }
+
     private bool PlayerContact(Player player, PlayerAction action, Enemy enemy)
     {
-        return InReach(player.Position, player.AimDirection, action.Skill.RangeFixed, action.Skill.HalfWidthFixed,
-            enemy.Position, enemy.Definition.Radius);
+        return SkillReaches(player, action.Skill, enemy.Position, enemy.Definition.Radius);
+    }
+
+    // 대원의 기술이 target(반지름 radius인 몸)에 닿는지 본다. 둘레 기술은 대원 둘레의 원, 그 밖에는 조준 방향의 사각형이다.
+    // 몸의 중심이 벽 반대편이면 닿지 않는다.
+    private bool SkillReaches(Player player, SkillDefinition skill, FixedVector target, Fixed radius)
+    {
+        return SkillCovers(player, skill, target, radius) && Map.LineOfSight(player.Position, target);
+    }
+
+    // SkillReaches에서 사선을 뺀 모양만 본다. 같은 사선을 다른 판정과 함께 한 번만 따라갈 때 쓴다.
+    private bool SkillCovers(Player player, SkillDefinition skill, FixedVector target, Fixed radius)
+    {
+        if (skill.Around)
+        {
+            // 거리는 제곱끼리 비교한다.
+            Fixed reach = skill.RangeFixed + radius;
+            return FixedVector.DistanceSquared(player.Position, target) <= reach * reach;
+        }
+        return InShape(player.Position, player.AimDirection, skill.RangeFixed, skill.HalfWidthFixed, target, radius);
+    }
+
+    // forward 방향의 사각형 범위에 target의 몸이 닿고, 몸의 중심 사이가 벽에 가리지 않는지 본다.
+    private bool InReach(FixedVector origin, FixedVector forward, Fixed range, Fixed halfWidth, FixedVector target, Fixed radius)
+    {
+        // 몸의 중심이 벽 반대편이면 좁은 근접 공격도 통과하지 못한다.
+        return InShape(origin, forward, range, halfWidth, target, radius) && Map.LineOfSight(origin, target);
     }
 
     // forward는 조준 방향의 길이 1 벡터다(Player.AimDirection, EnemyAction.Direction). 판정마다 삼각함수를 다시 구하지 않는다.
     // 대상까지의 벡터를 조준 방향의 앞뒤 거리(내적)와 옆 거리(외적의 크기)로 나눠, 사거리와 반폭(대상의 반지름만큼 넓힌)과 비교한다.
-    private bool InReach(FixedVector origin, FixedVector forward, Fixed range, Fixed halfWidth, FixedVector target, Fixed radius)
+    private static bool InShape(FixedVector origin, FixedVector forward, Fixed range, Fixed halfWidth, FixedVector target, Fixed radius)
     {
         FixedVector offset = target - origin;
         Fixed along = offset.Dot(forward);
         Fixed side = Fixed.Abs(offset.Cross(forward));
-        if (along < Fixed.Zero || along > range + radius || side > halfWidth + radius)
-        {
-            return false;
-        }
-        // 몸의 중심이 벽 반대편이면 좁은 근접 공격도 통과하지 못한다.
-        return Map.LineOfSight(origin, target);
+        return along >= Fixed.Zero && along <= range + radius && side <= halfWidth + radius;
     }
 
     // origin에서 aim 방향을 기준으로 target이 전방 120°(방어 각도) 안에 있는지 본다.
@@ -137,9 +224,20 @@ public sealed partial class Match
         return along >= offset.Length() * _guardCosine;
     }
 
-    private bool GuardFaces(Player player, Enemy enemy)
+    // 받아치기의 방어가 적을 향했고 몸의 중심 사이가 벽에 가리지 않는지 본다.
+    private bool GuardFaces(Player player, PlayerAction action, Enemy enemy)
     {
-        return Faces(player.Position, player.AimDirection, enemy.Position) && Map.LineOfSight(player.Position, enemy.Position);
+        return SkillFaces(player, action, enemy) && Map.LineOfSight(player.Position, enemy.Position);
+    }
+
+    // 기술이 향한 쪽에 적이 있는지 방향만 본다. 받아치기의 방어와 몸 판정이 쓴다. 둘레 기술은 모든 방향, 그 밖에는 앞 120°다.
+    private bool SkillFaces(Player player, PlayerAction action, Enemy enemy)
+    {
+        if (action.Skill.Around)
+        {
+            return true;
+        }
+        return Faces(player.Position, player.AimDirection, enemy.Position);
     }
 
     // 대원이 적 행동이 향한 범위 안에 있는지 본다. 타격과 잡기는 그 공격이 닿는 범위다.
@@ -196,20 +294,35 @@ public sealed partial class Match
                 if (action.Skill.GuardsFront)
                 {
                     // 방어 창에 들어온 공격이 없으면 아무 판정도 일어나지 않는다.
-                    if (!incoming || !GuardFaces(player, enemy))
+                    if (!incoming || !GuardFaces(player, action, enemy))
                     {
                         continue;
                     }
                 }
                 else
                 {
-                    if (!PlayerContact(player, action, enemy) || (action.Skill.SingleTarget && action.Target != enemy.Id))
+                    // 몸 판정: 기술을 쓰는 동안 대원 몸에는 그 기술의 상성이 있다(2026-11-01 합의). 적의 공격이 대원에게 닿고 그 공격이
+                    // 기술이 향한 쪽(둘레 기술은 모든 방향, 그 밖에는 앞 120°)에서 왔으면 기술의 사거리와 관계없이 대응으로 친다.
+                    // 받아치기와 같은 판정이다. 적의 공격은 대원의 기술보다 멀리 닿아, 이 판정이 없으면 맞는 기술을 제때 써도 맞기만 하는 거리가 있다.
+                    // 한 명만 판정하는 기술(잡기)은 ChooseGrabTargets가 고른 대상만 판정한다. 여기서는 대상을 바꾸지 않는다.
+                    if (action.Skill.SingleTarget && action.Target != enemy.Id)
+                    {
+                        continue;
+                    }
+                    bool body = incoming && SkillFaces(player, action, enemy);
+                    bool reaches = SkillCovers(player, action.Skill, enemy.Position, enemy.Definition.Radius);
+                    if (!body && !reaches)
+                    {
+                        continue;
+                    }
+                    // 두 판정 모두 대원에서 적까지의 같은 사선을 쓰므로 한 번만 따라간다. 몸의 중심 사이가 벽에 가리면 대응하지 못한다.
+                    if (!Map.LineOfSight(player.Position, enemy.Position))
                     {
                         continue;
                     }
                     // 적 행동의 범위 밖에서 친 대원에게는 그 행동의 상성을 적용하지 않는다(측면 공격).
-                    // 무행동 적을 칠 때처럼 접촉한 순간 일반 피해만 준다.
-                    if (!InActionArea(enemy, attack, player))
+                    // 무행동 적을 칠 때처럼 접촉한 순간 일반 피해만 준다. 공격이 대원에게 닿았다면 범위 안이다.
+                    if (!body && !InActionArea(enemy, attack, player))
                     {
                         if (Tick >= action.ContactTick)
                         {
@@ -217,7 +330,7 @@ public sealed partial class Match
                         }
                         continue;
                     }
-                    initiates = Tick >= action.ContactTick;
+                    initiates = reaches && Tick >= action.ContactTick;
                 }
                 responses.Add(new Response(player, action, initiates));
                 if (initiates)
@@ -320,7 +433,7 @@ public sealed partial class Match
                 // 같은 적 행동에 맞는 대응이 따로 닿으면 판정마다 이 피해를 받는다.
                 // 비김 피해는 대원을 모두 본 뒤에 주므로 이 피해가 먼저다. 이 피해로 쓰러지면 비김 피해는 더하지 않는다.
                 CancelActions(player);
-                Hurt(player, 1);
+                HurtInCombat(player, 1);
                 DamageEnemy(enemy, attack.Skill.PartialDamage, player, "partial");
             }
             else if (priority == 1)
@@ -330,12 +443,12 @@ public sealed partial class Match
                 {
                     drawCredit = best;
                 }
-                Hurt(player, attack.Skill.Tier);
+                HurtInCombat(player, attack.Skill.Tier);
             }
             else
             {
                 CancelActions(player);
-                Hurt(player, attack.Skill.Tier);
+                HurtInCombat(player, attack.Skill.Tier);
             }
         }
         // 비긴 대원이 여럿이어도 비김 효과는 판정마다 하나다. 효과는 적 자리에 그려지므로 대원마다 만들면 겹친다.
@@ -347,11 +460,12 @@ public sealed partial class Match
         }
     }
 
+    // 진 대원의 기술을 끊는다. 이 틱의 다른 판정은 아직 기술을 쓰던 상태로 보도록, 끊는 것은 ApplyCombatResults에서 한다.
     private void CancelActions(Player player)
     {
-        for (int i = 0; i < player.Actions.Count; i++)
+        if (!_interrupted.Contains(player))
         {
-            player.Actions[i].Cancelled = true;
+            _interrupted.Add(player);
         }
     }
 
@@ -453,12 +567,16 @@ public sealed partial class Match
                 {
                     Facility facility = Facilities[k];
                     if (facility.Hp > 0 && !action.HitFacilities.Contains(facility.Id) &&
-                        InReach(player.Position, player.AimDirection, action.Skill.RangeFixed, action.Skill.HalfWidthFixed,
-                            facility.Position, FacilityRadius))
+                        SkillReaches(player, action.Skill, facility.Position, FacilityRadius))
                     {
                         action.HitFacilities.Add(facility.Id);
                         DamageFacility(facility);
                     }
+                }
+                // 벽은 조준 방향의 광선으로 친다. 둘레 기술은 조준하지 않으므로 벽을 치지 않는다.
+                if (action.Skill.Around)
+                {
+                    continue;
                 }
                 FixedVector facing = player.AimDirection;
                 WallHit wall = Map.RayWall(player.Position, player.Position + facing * action.Skill.RangeFixed);
