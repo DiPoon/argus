@@ -96,6 +96,8 @@ const touchLobby = `<main id="lobby" class="lobby touch-lobby">
 const pick = touchMode ? '누르세요' : '클릭하세요';
 // FIELD NOTES에 적은 피해 값(부분 대응 1·1, 비김 2·1)은 합의한 규칙(docs/combat.md)의 값이다.
 // 서버는 부분 대응 피해 값을 보내지 않으므로, 규칙을 바꾸면 이 문구도 함께 고친다.
+// 지도 위쪽의 메뉴 버튼·체력과 마나·경과 시간(.top-row)과 그 아래 알림을 .top-stack으로 묶는다. PC에서는 묶음이 없는 것처럼
+// 각자 제자리에 그리고, 터치 화면에서는 한 줄에 차례로 이어 붙인다(style.css의 터치 조작 절).
 $('app').innerHTML = `
   <header class="topbar">
     <a class="brand" href="/" aria-label="ARGUS 홈"><span class="brand-mark">△</span> ARGUS <span class="version">COMBAT TEST / 02</span></a>
@@ -118,19 +120,20 @@ ${touchMode ? touchLobby : desktopLobby}
     </aside>
     <section id="battlefield" class="battlefield" aria-label="작전 지도">
       <div id="canvas-host" class="canvas-host"></div>
-      <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span>경과 <b id="elapsed">00:00</b></span></div></div>
-      <div id="toast" class="toast" role="status" hidden></div>
+      <div class="top-stack"><div class="top-row">
+        <div class="touch-top"><button id="touch-menu" type="button" class="touch-button">☰ 메뉴</button><button id="touch-map" type="button" class="touch-button">지도</button><button id="touch-full" type="button" class="touch-button">전체 화면</button></div>
+        <div id="combat-hud" class="combat-hud" hidden>
+          <div class="vitals"><div><span id="my-name">대원</span><b id="hp">6</b><small id="max-hp">/ 6 HP</small><div class="health-bar"><i id="health-fill"></i></div></div>
+          <div><span>마나</span><b id="mana">0</b><small id="max-mana">/ 24</small><div class="mana-bar"><i id="mana-fill"></i></div></div></div>
+          <div class="skill-bar" id="skill-bar"></div><p id="combat-status" aria-live="polite"></p>
+        </div>
+        <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span>경과 <b id="elapsed">00:00</b></span></div></div>
+      </div><div id="toast" class="toast" role="status" hidden></div></div>
       <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 ${pick}. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
-      <div id="combat-hud" class="combat-hud" hidden>
-        <div class="vitals"><div><span id="my-name">대원</span><b id="hp">6</b><small id="max-hp">/ 6 HP</small><div class="health-bar"><i id="health-fill"></i></div></div>
-        <div><span>마나</span><b id="mana">0</b><small id="max-mana">/ 24</small><div class="mana-bar"><i id="mana-fill"></i></div></div></div>
-        <div class="skill-bar" id="skill-bar"></div><p id="combat-status" aria-live="polite"></p>
-      </div>
       <div id="touch-controls" class="touch-controls" hidden>
         <div id="touch-move" class="touch-move" aria-label="이동"><i id="touch-base" class="touch-base" hidden><b id="touch-knob" class="touch-knob"></b></i></div>
         ${slotKeys.map((_, index) => `<button type="button" class="touch-skill" data-slot="${index + 1}"><b></b><small></small></button>`).join('')}
       </div>
-      <div class="touch-top"><button id="touch-menu" type="button" class="touch-button">☰ 메뉴</button><button id="touch-map" type="button" class="touch-button">지도</button><button id="touch-full" type="button" class="touch-button">전체 화면</button></div>
       <div class="map-bottom"><span id="controls">클릭 위치 선택 · 캠프는 권장 투입 지점</span><span id="performance">공유 시야</span></div>
       <div id="result" class="result-overlay" hidden><div class="result-card"><span class="eyebrow">OPERATION COMPLETE</span><h2 id="result-title">작전 종료</h2><p id="result-description"></p><div id="result-stats"></div><button id="again" class="primary">다음 작전 준비 <span>↗</span></button></div></div>
     </section>

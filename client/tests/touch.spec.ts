@@ -160,6 +160,91 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
   } finally { await context.close(); }
 });
 
+type Box = { left: number; top: number; right: number; bottom: number } | null;
+// 두 상자가 겹치지 않는다. 숨은 요소(null)는 겹치지 않는 것으로 본다.
+const apart = (a: Box, b: Box) => !a || !b || a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+
+test('the top row, notices and deploy buttons stay on screen and apart on short and narrow phones', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  // 지도 위쪽 줄(메뉴 버튼·체력과 마나·경과 시간)과 알림, 기술 버튼의 자리다. 숨은 요소는 null이다.
+  // 알림은 글이 몇 줄로 그려졌는지도 센다. 폭이 모자라면 짧은 알림도 여러 줄로 꺾인다.
+  const layout = () => page.evaluate(() => {
+    const box = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const r = element.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom } : null;
+    };
+    const line = document.querySelector('#toast div');
+    const range = document.createRange();
+    if (line) range.selectNodeContents(line);
+    return {
+      parts: { menu: box('.touch-top'), hud: box('#combat-hud'), timers: box('.map-top'), toast: box('#toast') },
+      skills: [1, 2, 3, 4].map(slot => box(`.touch-skill[data-slot="${slot}"]`)),
+      stick: box('#touch-move'),
+      noticeLines: line ? range.getClientRects().length : 0,
+      viewport: { width: innerWidth, height: innerHeight },
+    };
+  });
+  const menu = page.getByRole('button', { name: '☰ 메뉴' });
+  // 초대 코드를 복사해 알림을 띄운다. 복사 버튼은 옆 패널(☰ 메뉴) 안에 있다.
+  const showNotice = async () => {
+    await menu.tap();
+    await page.getByRole('button', { name: /초대 코드/ }).tap();
+    await menu.tap();
+    await expect(page.locator('#toast')).toContainText('초대 코드');
+  };
+  // 위쪽 줄의 요소와 알림, 기술 버튼, 조이스틱 자리가 서로 겹치지 않고 화면 안에 있다. 알림은 한두 줄로 읽힌다.
+  const expectApart = async (name: string) => {
+    const at = await layout();
+    const parts = Object.entries(at.parts);
+    for (let i = 0; i < parts.length; i++) {
+      for (let j = i + 1; j < parts.length; j++) expect(apart(parts[i][1], parts[j][1]), `${name}: ${parts[i][0]}·${parts[j][0]}`).toBe(true);
+    }
+    at.skills.forEach((skill, index) => {
+      expect(apart(skill, at.parts.toast), `${name}: 기술 ${index + 1}·알림`).toBe(true);
+      expect(apart(skill, at.parts.hud), `${name}: 기술 ${index + 1}·체력과 마나`).toBe(true);
+      // 조이스틱을 시작하는 자리는 기술 버튼 밑으로 들어가지 않는다.
+      expect(apart(skill, at.stick), `${name}: 기술 ${index + 1}·조이스틱 자리`).toBe(true);
+    });
+    for (const [part, area] of [...parts, ...at.skills.map((skill, index) => [`기술 ${index + 1}`, skill] as const)]) {
+      expect(area, `${name}: ${part}`).not.toBeNull();
+      expect(area!.left >= 0 && area!.top >= 0 && area!.right <= at.viewport.width && area!.bottom <= at.viewport.height, `${name}: ${part} 화면 안`).toBe(true);
+    }
+    expect(at.noticeLines, `${name}: 알림 줄 수`).toBeGreaterThan(0);
+    expect(at.noticeLines, `${name}: 알림 줄 수`).toBeLessThanOrEqual(2);
+  };
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#deploy-panel')).toBeVisible();
+    // 터치 화면에서 새 작전 시작을 누르면 전체 화면이 켜진다. 전체 화면에서는 검사 브라우저가 창 크기를 바꾸지 못하므로 끈다.
+    await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined);
+    // 투입 안내의 버튼은 좁은 세로 화면과 낮은 가로 화면에서도 화면 안에 있다. 자리가 모자라면 글 아래 줄로 내려간다.
+    for (const size of [{ width: 360, height: 740 }, { width: 320, height: 568 }, { width: 568, height: 320 }, { width: 802, height: 293 }]) {
+      await page.setViewportSize(size);
+      for (const button of ['#camp', '#deploy']) await expect(page.locator(button), `${size.width}x${size.height} ${button}`).toBeInViewport({ ratio: 1 });
+    }
+    await page.setViewportSize(phone.viewport);
+    await page.getByRole('button', { name: '캠프 선택' }).tap();
+    await page.locator('#deploy').tap();
+    await expect(page.locator('#touch-controls')).toBeVisible({ timeout: 8000 });
+    // 전체 화면을 다시 켠다. 휴대폰에서 싸울 때의 모습이며, 버튼 글이 "전체 화면 끄기"로 길어져 메뉴 버튼 줄이 넓어진다.
+    await page.locator('#touch-full').tap();
+    await expect(page.locator('#touch-full')).toHaveText('전체 화면 끄기');
+    await showNotice();
+    await expectApart('844x390 전체 화면');
+    await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined);
+    for (const size of [{ width: 802, height: 293 }, { width: 568, height: 320 }, { width: 390, height: 664 }, { width: 360, height: 740 }, { width: 320, height: 568 }]) {
+      await page.setViewportSize(size);
+      await showNotice();
+      await expectApart(`${size.width}x${size.height}`);
+    }
+    await page.screenshot({ path: 'test-results/argus-touch-narrow.png' });
+  } finally { await context.close(); }
+});
+
 test('the end-of-mission card fits a short phone screen below the menu buttons', async ({ browser }) => {
   const context = await browser.newContext(phone);
   const page = await context.newPage();

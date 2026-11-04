@@ -1254,6 +1254,8 @@ kbd {
    왼쪽 아래를 누르면 그 자리에 이동 조이스틱이 생기고, 오른쪽 아래에 기술 버튼 넷이 있다.
    작전 화면에서는 화면을 문질러도 페이지가 스크롤되거나 확대되지 않게 한다. */
 .touch-top { display:none }
+/* 지도 위쪽 줄의 묶음(.top-stack, .top-row)은 PC에서 상자를 만들지 않는다. 안의 경과 시간·체력과 마나·알림은 지금처럼 지도 기준 제자리에 그린다. */
+.top-stack, .top-row { display:contents }
 body.touch.operating { overscroll-behavior:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none }
 body.touch .topbar { display:none }
 body.touch .operation { height:100dvh; min-height:0 }
@@ -1261,22 +1263,29 @@ body.touch .battlefield { touch-action:none }
 body.touch .sidebar { display:none }
 body.touch.menu-open .sidebar { display:flex; position:fixed; z-index:20; top:44px; bottom:0; left:0; width:min(300px,85vw) }
 body.touch .map-title, body.touch #controls { display:none }
-body.touch .map-top { top:8px; right:8px; left:auto }
-body.touch .touch-top { display:flex; position:absolute; top:8px; left:8px; gap:6px; z-index:25 }
+/* 지도 위쪽: 메뉴 버튼, 체력과 마나, 경과 시간을 한 줄에 차례로 놓고, 알림은 그 줄 바로 아래 가운데에 둔다.
+   자리를 px로 박아 두면(예: 체력과 마나를 왼쪽에서 172px) 글꼴에 따라 넓어진 버튼 줄이 덮는다. 한글 글꼴로 그리면 버튼 줄이
+   약 188px이라 실제로 덮었다. 차례로 놓으면 버튼 폭과 관계없이 겹치지 않고, 자리가 모자라면(세로 화면) 다음 줄로 내려간다. */
+body.touch .top-stack { display:flex; flex-direction:column; align-items:center; gap:6px; position:absolute; top:8px; left:8px; right:8px; z-index:25; pointer-events:none }
+body.touch .top-row { display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; align-self:stretch }
+body.touch .touch-top { display:flex; gap:6px; pointer-events:auto }
+body.touch .map-top { position:static; margin-left:auto }
 .touch-button { padding:8px 11px; font-size:11px; background:#17221ee6; border:1px solid #4b5844; color:#d7e0d0 }
-body.touch .combat-hud { top:8px; bottom:auto; left:172px; transform:none; width:auto; padding:6px 12px; gap:4px 12px; grid-template-columns:auto }
+body.touch .combat-hud { position:static; transform:none; width:auto; padding:6px 12px; gap:4px 12px; grid-template-columns:auto }
 body.touch .combat-hud .skill-bar { display:none }
 body.touch .combat-hud .vitals { display:flex; flex-direction:row; gap:16px }
 body.touch .combat-hud .vitals b { font-size:16px }
 body.touch #combat-status { font-size:9px; margin:0 }
-/* 투입 안내는 한 줄로 줄여 아래에 둔다. 좁은 화면 규칙(세로로 쌓기)을 따르면 작은 휴대폰에서 지도의 아래쪽 40%를 덮는다. */
-body.touch .deploy-panel { bottom:8px; width:min(720px,calc(100% - 16px)); padding:8px 12px; gap:12px; flex-direction:row; align-items:center }
+/* 투입 안내는 한 줄로 줄여 아래에 둔다. 좁은 화면 규칙(세로로 쌓기)을 따르면 작은 휴대폰에서 지도의 아래쪽 40%를 덮는다.
+   글과 버튼이 한 줄에 들어가지 않으면(세로 화면) 버튼이 다음 줄로 내려간다. 내려가지 않으면 투입 버튼이 화면 밖으로 밀려난다. */
+body.touch .deploy-panel { bottom:8px; width:min(720px,calc(100% - 16px)); padding:8px 12px; gap:8px 12px; flex-direction:row; flex-wrap:wrap; align-items:center }
+body.touch .deploy-panel > div:first-child { flex:1 1 260px; min-width:0 }
 body.touch #deploy-kicker { display:none }
 body.touch .deploy-panel h3 { font-size:13px; margin:0 0 3px }
 body.touch .deploy-panel p { font-size:9px; max-width:none }
 body.touch .deploy-actions { flex-direction:row; margin:0 0 0 auto; min-width:0 }
 body.touch .deploy-actions button { padding:10px 12px; white-space:nowrap }
-body.touch .toast { top:60px; max-width:calc(100% - 300px) }
+body.touch .toast { position:static; transform:none; max-width:min(420px,100%); padding:8px 14px }
 /* 작전 종료 카드는 여백과 글자를 줄여 위쪽 메뉴 버튼 줄 아래에 둔다. PC 크기 그대로는 높이가 390px이라, 높이 320px
    휴대폰 가로 화면에서 다음 작전 버튼이 화면 밖으로 잘리고 메뉴 버튼이 카드 위를 덮었다.
    가운데 맞춤은 margin:auto로 한다. 화면이 더 낮아 넘치더라도 카드 위쪽이 잘리지 않고 아래로 넘겨 볼 수 있다. */
@@ -1288,7 +1297,8 @@ body.touch #result-stats { margin:12px 0; padding:10px 0 }
 body.touch #result-stats b { font-size:18px }
 body.touch #result-stats span { margin-top:3px }
 .touch-controls { position:absolute; inset:0; z-index:5; pointer-events:none }
-.touch-move { position:absolute; left:0; bottom:0; width:45%; height:78%; pointer-events:auto; touch-action:none }
+/* 조이스틱 자리는 화면의 45%이되, 좁은 세로 화면에서 오른쪽 기술 버튼 무리(폭 188px) 밑으로 들어가지 않게 한다. */
+.touch-move { position:absolute; left:0; bottom:0; width:min(45%,calc(100% - 196px)); height:78%; pointer-events:auto; touch-action:none }
 .touch-base { position:absolute; width:112px; height:112px; margin:-56px 0 0 -56px; border-radius:50%; border:2px solid #cfe3b866; background:#0b121266 }
 .touch-knob { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:#d8ef8acc }
 .touch-skill { position:absolute; width:74px; height:74px; border-radius:50%; pointer-events:auto; touch-action:none;
