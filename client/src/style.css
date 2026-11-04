@@ -1297,7 +1297,8 @@ body.touch #result-stats { margin:12px 0; padding:10px 0 }
 body.touch #result-stats b { font-size:18px }
 body.touch #result-stats span { margin-top:3px }
 .touch-controls { position:absolute; inset:0; z-index:5; pointer-events:none }
-/* 조이스틱 자리는 화면의 45%이되, 좁은 세로 화면에서 오른쪽 기술 버튼 무리(폭 188px) 밑으로 들어가지 않게 한다. */
+/* 조이스틱 자리는 화면의 45%이되, 좁은 세로 화면에서 오른쪽 기술 버튼 무리 밑으로 들어가지 않게 한다.
+   기술 버튼은 크기와 자리가 px로 정해져 있어 무리의 폭이 늘 188px이다. 버튼의 크기나 자리를 바꾸면 이 값도 고친다. */
 .touch-move { position:absolute; left:0; bottom:0; width:min(45%,calc(100% - 196px)); height:78%; pointer-events:auto; touch-action:none }
 .touch-base { position:absolute; width:112px; height:112px; margin:-56px 0 0 -56px; border-radius:50%; border:2px solid #cfe3b866; background:#0b121266 }
 .touch-knob { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:#d8ef8acc }
