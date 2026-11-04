@@ -1277,6 +1277,16 @@ body.touch .deploy-panel p { font-size:9px; max-width:none }
 body.touch .deploy-actions { flex-direction:row; margin:0 0 0 auto; min-width:0 }
 body.touch .deploy-actions button { padding:10px 12px; white-space:nowrap }
 body.touch .toast { top:60px; max-width:calc(100% - 300px) }
+/* 작전 종료 카드는 여백과 글자를 줄여 위쪽 메뉴 버튼 줄 아래에 둔다. PC 크기 그대로는 높이가 390px이라, 높이 320px
+   휴대폰 가로 화면에서 다음 작전 버튼이 화면 밖으로 잘리고 메뉴 버튼이 카드 위를 덮었다.
+   가운데 맞춤은 margin:auto로 한다. 화면이 더 낮아 넘치더라도 카드 위쪽이 잘리지 않고 아래로 넘겨 볼 수 있다. */
+body.touch .result-overlay { display:flex; padding:46px 8px 8px; overflow:auto }
+body.touch .result-card { margin:auto; padding:16px 24px }
+body.touch .result-card h2 { font-size:22px; margin:8px 0 4px }
+body.touch .result-card p { margin:0 }
+body.touch #result-stats { margin:12px 0; padding:10px 0 }
+body.touch #result-stats b { font-size:18px }
+body.touch #result-stats span { margin-top:3px }
 .touch-controls { position:absolute; inset:0; z-index:5; pointer-events:none }
 .touch-move { position:absolute; left:0; bottom:0; width:45%; height:78%; pointer-events:auto; touch-action:none }
 .touch-base { position:absolute; width:112px; height:112px; margin:-56px 0 0 -56px; border-radius:50%; border:2px solid #cfe3b866; background:#0b121266 }

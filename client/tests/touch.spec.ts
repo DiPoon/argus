@@ -160,6 +160,53 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
   } finally { await context.close(); }
 });
 
+test('the end-of-mission card fits a short phone screen below the menu buttons', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  // 작전을 실제로 끝내려면 오래 걸리므로, 서버가 보낸 스냅샷을 작전 종료로 바꿔 화면에 넘긴다. 화면이 그리는 것만 본다.
+  let ending = false;
+  await page.routeWebSocket(/\/ws$/, ws => {
+    const server = ws.connectToServer();
+    server.onMessage(message => {
+      if (ending && typeof message === 'string') {
+        const data = JSON.parse(message);
+        if (data.type === 'snapshot') message = JSON.stringify({ ...data, phase: 'ended', result: 'failure' });
+      }
+      ws.send(message);
+    });
+  });
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#deploy-panel')).toBeVisible();
+    ending = true;
+    const again = page.getByRole('button', { name: '다음 작전 준비' });
+    await expect(again).toBeVisible();
+    // 터치 화면에서 새 작전 시작을 누르면 전체 화면이 켜진다. 전체 화면에서는 검사 브라우저가 창 크기를 바꾸지 못하므로 먼저 끈다.
+    await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined);
+    // 높이 320px 휴대폰 가로 화면에서도 카드 전체가 화면 안에 있다. 위쪽 메뉴 버튼 줄은 카드를 덮지 않고,
+    // 다음 작전 버튼의 가운데를 누르면 그 버튼이 받는다.
+    for (const size of [phone.viewport, { width: 740, height: 320 }, { width: 568, height: 320 }]) {
+      const name = `${size.width}x${size.height}`;
+      await page.setViewportSize(size);
+      await expect(page.locator('.result-card'), name).toBeInViewport({ ratio: 1 });
+      const layout = await page.evaluate(() => {
+        const card = document.querySelector('.result-card')!.getBoundingClientRect();
+        const menu = document.querySelector('.touch-top')!.getBoundingClientRect();
+        const button = document.getElementById('again')!;
+        const area = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(area.left + area.width / 2, area.top + area.height / 2);
+        const menuOverCard = menu.right > card.left && menu.left < card.right && menu.bottom > card.top && menu.top < card.bottom;
+        return { menuOverCard, buttonOnTop: hit !== null && button.contains(hit) };
+      });
+      expect(layout, name).toEqual({ menuOverCard: false, buttonOnTop: true });
+    }
+    await page.screenshot({ path: 'test-results/argus-touch-result.png' });
+    await again.tap();
+    await expect(page.getByRole('button', { name: '새 작전 시작' })).toBeInViewport();
+  } finally { await context.close(); }
+});
+
 test('?touch shows the touch screen on a PC and the PC lobby keeps aimed skills', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('body')).not.toHaveClass(/\btouch\b/);
