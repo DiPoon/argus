@@ -23,10 +23,11 @@ public sealed class Rules
     public const int MaxPlayers = 4;
 
     // 운영 방(생성 작전)의 규칙이다. 엘리트가 나오고 적의 준비 동작은 기본 길이(1배)다.
-    // 기본 규칙(new Rules())은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 준비 동작 두 배)이다.
+    // 한 대원에게는 적이 둘까지만 덤비고, 같은 대원에게 닿는 공격 사이는 1초 넘게 띄운다(공격 토큰).
+    // 기본 규칙(new Rules())은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 준비 동작 두 배)이고 공격 토큰이 없다.
     public static Rules ForGeneratedMission()
     {
-        return new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1 };
+        return new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1, AttackersPerPlayer = 2, AttackSpacing = 1 };
     }
     // 대원 몸의 반지름이다. 판정에 쓰는 고정소수점 값이고, 스냅샷의 규칙에는 실수로 바꿔 보낸다.
     public static readonly Fixed PlayerRadius = Fixed.FromInt(13);
@@ -40,6 +41,18 @@ public sealed class Rules
     // 첫 작전에서는 기본 상성을 익히도록 일반 적만 내보내고 준비 시간을 늘린다.
     public bool AllowEliteEnemies { get; init; } = false;
     public double EnemyWindupMultiplier { get; init; } = 2;
+    // 공격 토큰: 한 대원에게 동시에 덤비는 적의 수다. 그 대원을 노려 행동 중인 적과, 다가가 행동할 차례를 받은 적을 함께 센다.
+    // 0이면 제한하지 않는다. 대원은 기술을 한 번에 하나만 쓰므로, 종류가 다른 예고가 한꺼번에 오면 완벽하게 해도 맞는다.
+    public int AttackersPerPlayer { get; init; } = 0;
+    // 같은 대원에게 닿는 두 적 행동 사이의 최소 간격(초)이다. 0이면 띄우지 않는다.
+    // 가장 긴 기본기인 받아치기(0.98초)보다 길면, 앞 공격을 어떤 기술로 받아도 다음 공격이 닿기 전에 손이 풀린다.
+    public double AttackSpacing { get; init; } = 0;
+    // 공격 토큰을 켰을 때, 차례를 받지 못한 적은 노리는 대원에게서 이 거리(몸 중심 사이) 안으로 더 다가가지 않고 기다린다.
+    // 가장 긴 적 공격이 닿는 거리(사거리 82 + 대원 반지름 13 = 95)와 대원 타격이 닿는 거리(54 + 가장 큰 적 반지름 23 = 77)보다 멀다.
+    public double WaitDistance { get; init; } = 130;
+    // 진 대응이나 부분 대응으로 기술이 끊긴 뒤 다음 기술을 쓸 수 있을 때까지의 시간(초)이다. 원래 끝날 때까지 묶어 두면,
+    // 실수 하나에 둘러싼 다른 적의 공격이 모두 그대로 들어온다. 기술이 원래 이보다 먼저 끝나면 원래대로 끝난다.
+    public double InterruptStagger { get; init; } = 0.3;
     public double PlayerSpeed { get; init; } = 180;
     public double PlayerHealth { get; init; } = 6;
     public int MaxMana { get; init; } = 24;

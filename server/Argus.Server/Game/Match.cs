@@ -61,6 +61,9 @@ public sealed partial class Match
     private readonly Fixed _playerStep;
     // 시야 반경의 제곱이다. 거리 비교는 제곱근을 구하지 않고 제곱끼리 한다.
     private readonly Fixed _visionSquared;
+    // 같은 대원에게 닿는 두 적 행동 사이의 최소 틱 수(Rules.AttackSpacing)와, 차례를 기다리는 적이 멈추는 거리의 제곱(Rules.WaitDistance)이다.
+    private readonly long _attackSpacingTicks;
+    private readonly Fixed _waitDistanceSquared;
     // 캠프 시야 반경의 제곱이다. 캠프 시야는 규칙이 아니라 맵에 정해져 있어 한 번만 구한다.
     private static readonly Fixed CampVisionSquared = Fixed.FromInt(BattleMap.CampVision * BattleMap.CampVision);
     // 입력이 이만큼(0.35초, 11틱) 없으면 대원을 멈춘다. 끊긴 연결이 마지막 입력으로 계속 움직이지 않게 한다.
@@ -111,6 +114,9 @@ public sealed partial class Match
         _playerStep = Fixed.FromDouble(rules.PlayerSpeed) / Rules.TicksPerSecond;
         VisionRange = Fixed.FromDouble(rules.Vision);
         _visionSquared = VisionRange * VisionRange;
+        _attackSpacingTicks = Rules.ToTicks(rules.AttackSpacing);
+        Fixed waitDistance = Fixed.FromDouble(rules.WaitDistance);
+        _waitDistanceSquared = waitDistance * waitDistance;
         // 시설과 보급은 배치의 순서대로 1번부터 번호를 붙인다.
         for (int i = 0; i < layout.Facilities.Count; i++)
         {

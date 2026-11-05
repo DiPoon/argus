@@ -319,7 +319,7 @@ public sealed partial class Match
                 // 맞는 대응이 둘이면 위에서 완전 파훼로 끝나므로 한 판정에 이 경우는 많아야 한 명이다.
                 // 같은 적 행동에 맞는 대응이 따로 닿으면 판정마다 이 피해를 받는다.
                 // 비김 피해는 대원을 모두 본 뒤에 주므로 이 피해가 먼저다. 이 피해로 쓰러지면 비김 피해는 더하지 않는다.
-                CancelActions(player);
+                Interrupt(player);
                 Hurt(player, 1);
                 DamageEnemy(enemy, attack.Skill.PartialDamage, player, "partial");
             }
@@ -334,7 +334,7 @@ public sealed partial class Match
             }
             else
             {
-                CancelActions(player);
+                Interrupt(player);
                 Hurt(player, attack.Skill.Tier);
             }
         }
@@ -347,11 +347,20 @@ public sealed partial class Match
         }
     }
 
-    private void CancelActions(Player player)
+    // 진 대응이나 부분 대응으로 대원의 기술을 끊는다. 끊긴 기술은 판정과 반격을 더 하지 않는다.
+    // 다음 기술은 기술이 원래 끝나는 틱이 아니라 짧은 경직(Rules.InterruptStagger)이 지나면 쓸 수 있다.
+    // 원래 끝날 때까지 묶어 두면, 실수 하나에 둘러싼 다른 적의 공격이 모두 그대로 들어온다.
+    // 기술이 원래 경직보다 먼저 끝나면 원래대로 둔다. 끊긴 기술은 원래 끝나는 틱에 목록에서 빠진다(UpdatePlayer).
+    private void Interrupt(Player player)
     {
         for (int i = 0; i < player.Actions.Count; i++)
         {
             player.Actions[i].Cancelled = true;
+        }
+        long staggerUntil = Tick + Rules.ToTicks(Rules.InterruptStagger);
+        if (staggerUntil < player.BusyUntilTick)
+        {
+            player.BusyUntilTick = staggerUntil;
         }
     }
 

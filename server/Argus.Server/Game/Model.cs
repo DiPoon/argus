@@ -52,6 +52,10 @@ public sealed class Player
     public bool AwaitingFirstConnection;
     public int Kills;
     public int Deaths;
+    // 이 대원을 노린 적 행동 가운데 가장 늦게 닿는(닿을) 틱이다. 노린 적이 없으면 null이다.
+    // 다음 적은 이 틱에서 Rules.AttackSpacing만큼 지난 뒤에 닿게 행동을 시작한다(Match.SpacedFrom).
+    // 그 적이 닿기 전에 쓰러져도 지우지 않는다. 그때는 다음 공격이 조금 늦게 올 뿐이다.
+    public long? LastAttackContactTick;
     // 입력을 받은 적이 없다는 표시다. 입력이 끊겼는지 볼 때 언제나 오래전으로 보이도록 충분히 이른 틱으로 둔다.
     // long.MinValue로 두면 지금 틱에서 뺄 때 넘쳐서 음수가 된다.
     public const long NoInputTick = -1_000_000;
@@ -139,16 +143,20 @@ public sealed class EnemyAction : ITimedAction
     public long ActiveUntilTick { get; }
     public long EndsTick { get; }
     public HashSet<string> HitPlayers { get; } = new HashSet<string>();
+    // 이 행동을 시작할 때 노린 대원의 id다. 공격 토큰이 대원마다 행동 중인 적을 셀 때 쓴다(Match.ChooseAttackers).
+    // 검사가 직접 만든 행동처럼 노린 대원이 없으면 null이고, 어느 대원의 토큰도 차지하지 않는다.
+    public string? TargetId { get; }
 
     // 예고 → 0.25초 공격 창 → 0.65초 회복 순서로 진행한다.
     public const double ActiveSeconds = 0.25;
     public const double RecoverySeconds = 0.65;
 
-    public EnemyAction(int id, EnemySkill skill, Angle aim, long startTick, double windupMultiplier = 1)
+    public EnemyAction(int id, EnemySkill skill, Angle aim, long startTick, double windupMultiplier = 1, string? targetId = null)
     {
         Id = id;
         Skill = skill;
         Aim = aim;
+        TargetId = targetId;
         Direction = aim.Direction();
         // 판정과 클라이언트의 예고가 같은 시간을 사용하도록 실제 접촉 시각에 배율을 적용한다.
         double windup = skill.Windup * windupMultiplier;

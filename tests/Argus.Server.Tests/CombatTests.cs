@@ -12,6 +12,7 @@ internal static class CombatTests
         tests.Add(new TestCase("Empty parry produces a non-RPS followup even against a channel", EmptyParry));
         tests.Add(new TestCase("Front guards block ordinary followup damage without an RPS result", BlockOrdinaryFollowup));
         tests.Add(new TestCase("Losing a parry cancels its followup and does not kill the opponent", InterruptedParry));
+        tests.Add(new TestCase("A lost or partial exchange frees the player after a short stagger, never later than the skill would have ended", InterruptStagger));
         tests.Add(new TestCase("Expired and rear-facing parries cannot defend", InvalidGuards));
         tests.Add(new TestCase("A guard half-angle of a full turn guards every side and a negative one guards none", GuardAngleLimits));
         tests.Add(new TestCase("A grab has a persistent window and one target per activation", SingleGrab));
@@ -115,6 +116,68 @@ internal static class CombatTests
         Near(f.Player.Hp, 5);
         Near(enemy.Hp, 1);
         Check(action.Cancelled);
+    }
+
+    private static void InterruptStagger()
+    {
+        long stagger = Rules.ToTicks(new Rules().InterruptStagger);
+        Equal(stagger, 9L);
+
+        // 진 대응: 잡기 중에 타격을 맞으면 잡기가 끊긴다. 잡기는 시작부터 26틱 동안 묶지만,
+        // 끊긴 틱에서 경직 9틱만 지나면 다음 기술을 쓸 수 있다.
+        Fixture lost = new Fixture();
+        PlayerAction grab = Prepare(lost, lost.Player, "grab");
+        Threat(lost, "strike");
+        long lostTick = StepUntilCancelled(lost, grab);
+        Equal(lost.Player.BusyUntilTick, lostTick + stagger);
+        Check(lost.Player.BusyUntilTick < grab.EndsTick, "경직이 잡기가 원래 끝나는 틱보다 짧지 않습니다");
+        // 경직이 끝나기 전에는 기술 입력을 받아도 새 기술이 나가지 않고, 끝나는 틱에 바로 나간다.
+        lost.Player.Mana = 3;
+        long sequence = 1;
+        while (lost.Match.Tick + 1 < lost.Player.BusyUntilTick)
+        {
+            Check(lost.Match.Input(lost.Player, sequence, 0, 0, 0, 1));
+            sequence++;
+            lost.Match.Step();
+            PlayerAction last = lost.Player.Actions[lost.Player.Actions.Count - 1];
+            Equal(last.Id, grab.Id);
+        }
+        Check(lost.Match.Input(lost.Player, sequence, 0, 0, 0, 1));
+        lost.Match.Step();
+        PlayerAction next = lost.Player.Actions[lost.Player.Actions.Count - 1];
+        Check(next.Id != grab.Id, "경직이 끝났는데 새 기술이 나가지 않았습니다");
+        Equal(next.Skill.Id, "strike");
+        Equal(next.StartedTick, lostTick + stagger);
+
+        // 부분 대응: 혼자 받아치기로 타격 Ⅱ를 받으면 받아치기가 끊기고, 같은 경직 뒤에 다음 기술을 쓸 수 있다.
+        Fixture partial = new Fixture();
+        PlayerAction parry = Prepare(partial, partial.Player, "parry");
+        Threat(partial, "strike", 2, 1);
+        long partialTick = StepUntilCancelled(partial, parry);
+        Equal(partial.Player.BusyUntilTick, partialTick + stagger);
+
+        // 기술이 경직보다 먼저 끝나면 원래대로 둔다. 타격은 시작부터 20틱 동안 묶고 13틱째까지 유효하다.
+        // 11틱 전에 시작한 타격이 다음 틱에 방어에 지면, 남은 8틱이 경직 9틱보다 짧다.
+        Fixture late = new Fixture();
+        PlayerAction strike = Prepare(late, late.Player, "strike", 0.35);
+        Threat(late, "block");
+        long lateTick = StepUntilCancelled(late, strike);
+        Check(strike.EndsTick < lateTick + stagger, "검사 조건이 아닙니다: 타격이 경직보다 늦게 끝납니다");
+        Equal(late.Player.BusyUntilTick, strike.EndsTick);
+    }
+
+    // 기술이 끊길 때까지 한 틱씩 진행하고, 끊긴 틱을 돌려준다.
+    private static long StepUntilCancelled(Fixture fixture, PlayerAction action)
+    {
+        for (int i = 0; i < 30; i++)
+        {
+            fixture.Match.Step();
+            if (action.Cancelled)
+            {
+                return fixture.Match.Tick;
+            }
+        }
+        throw new Exception("기술이 끊기지 않았습니다");
     }
 
     private static void BlockOrdinaryFollowup()

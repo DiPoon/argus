@@ -14,6 +14,9 @@ internal static class EncounterTests
         tests.Add(new TestCase("An enemy touching a wall walks straight along it instead of zigzagging", WallHug));
         tests.Add(new TestCase("Every enemy body is narrower than a cell and walks through a one-cell gap from any side", NarrowGap));
         tests.Add(new TestCase("An enemy chasing along a line that grazes a corner closer than its radius detours instead of stopping", GrazingLine));
+        tests.Add(new TestCase("With attack tokens at most two enemies act on one player, their hits land a second apart and the rest wait out of reach", AttackTokens));
+        tests.Add(new TestCase("When the enemies holding a player's tokens fall, waiting enemies take their turn", TokenHandoff));
+        tests.Add(new TestCase("The state summary tells apart a player's last attack contact and an enemy action's target", AttackStateHash));
     }
 
     private static void InitialPlacement()
@@ -337,5 +340,189 @@ internal static class EncounterTests
                 Near(f.Player.Hp, f.Player.MaxHp - 1);
             }
         }
+    }
+    // 벽으로 두른 30×30칸 빈 맵이다. 캠프는 가운데 (15, 15)이고, 목표와 증원 타원은 검사에 쓰지 않는 구석에 둔다.
+    private static MissionLayout OpenLayout()
+    {
+        int columns = 30;
+        int rows = 30;
+        byte[] tiles = LayoutTests.BorderTiles(columns, rows);
+        FixedVector[] facilities = new FixedVector[] { CellCenter(3, 3) };
+        SupplySpot[] supplies = new SupplySpot[] { new SupplySpot(CellCenter(3, 26), SupplyKind.Field) };
+        SpawnRing ring = new SpawnRing(CellCenter(26, 26), 48, 48);
+        return new MissionLayout(columns, rows, tiles, CellCenter(15, 15), CellCenter(26, 3), facilities, supplies, new EnemySpot[0], ring);
+    }
+
+    // 공격 토큰을 켠 규칙이다. 운영 방(생성 작전)의 값을 그대로 쓰고, 증원은 막는다(적 수 상한 0).
+    private static Rules TokenRules()
+    {
+        Rules mission = Rules.ForGeneratedMission();
+        return new Rules
+        {
+            MaxEnemies = 0,
+            EnemyWindupMultiplier = mission.EnemyWindupMultiplier,
+            AttackersPerPlayer = mission.AttackersPerPlayer,
+            AttackSpacing = mission.AttackSpacing
+        };
+    }
+
+    // 빈 맵 가운데에 투입한 대원 하나와, 대원에게서 240 떨어진 원 위에 고르게 둔 병사 count마리다.
+    // 대원은 아무것도 하지 않고 맞기만 하므로 체력을 넉넉히 준다. 적은 상한을 거치지 않고 직접 넣는다.
+    private static Match CrowdMatch(Rules rules, int count)
+    {
+        MissionLayout layout = OpenLayout();
+        Match match = new Match("CROWD1", rules, SeededRandom.SeedFromNumber(1), layout);
+        Player player = match.Join("p", "pilot")!;
+        player.Connected = true;
+        Check(match.Deploy(player, layout.Camp.X.ToDouble(), layout.Camp.Y.ToDouble()));
+        Advance(match, rules.DeploySeconds + 0.01);
+        Equal(player.State, "alive");
+        player.Hp = 1000;
+        for (int i = 0; i < count; i++)
+        {
+            FixedVector position = player.Position + Angle.FromFraction(i, count).Direction() * 240;
+            match.Enemies.Add(new Enemy(31001 + i, position, EnemyDefinition.Grunt));
+        }
+        return match;
+    }
+
+    // 대원을 노려 행동 중인 적의 수다.
+    private static int ActingOn(Match match, Player player)
+    {
+        int acting = 0;
+        for (int i = 0; i < match.Enemies.Count; i++)
+        {
+            EnemyAction? action = match.Enemies[i].Action;
+            if (action != null && action.TargetId == player.Id)
+            {
+                acting++;
+            }
+        }
+        return acting;
+    }
+
+    private static void AttackTokens()
+    {
+        // 운영 방은 공격 토큰을 켠다. 이 값이 빠지면 아래 검사가 운영과 다른 규칙을 보게 된다.
+        Rules mission = Rules.ForGeneratedMission();
+        Equal(mission.AttackersPerPlayer, 2);
+        Near(mission.AttackSpacing, 1);
+
+        // 병사 여섯이 한꺼번에 몰려와도 한 대원에게는 둘까지만 덤빈다. 같은 대원에게 닿는 공격은 1초(30틱) 넘게 떨어지고,
+        // 차례를 받지 못한 넷은 기다리는 거리(130)에서 멈춰 대원 둘레를 막지 않는다. 움직이는 적은 한 틱에 3.4보다 덜 가므로
+        // 기다리는 적은 126.6보다 멀리 멈춘다. 그래서 대원에게서 120 안에는 언제나 차례를 받은 둘까지만 있다.
+        Rules rules = TokenRules();
+        Match match = CrowdMatch(rules, 6);
+        Player player = match.Players[0];
+        long spacing = Rules.ToTicks(rules.AttackSpacing);
+        Fixed inside = Fixed.FromInt(120 * 120);
+        List<long> contacts = new List<long>();
+        HashSet<int> seen = new HashSet<int>();
+        for (int step = 0; step < 240; step++)
+        {
+            match.Step();
+            int near = 0;
+            for (int i = 0; i < match.Enemies.Count; i++)
+            {
+                Enemy enemy = match.Enemies[i];
+                EnemyAction? action = enemy.Action;
+                if (action != null && action.TargetId == player.Id && seen.Add(action.Id))
+                {
+                    contacts.Add(action.ContactTick);
+                }
+                if (FixedVector.DistanceSquared(enemy.Position, player.Position) < inside)
+                {
+                    near++;
+                }
+            }
+            int acting = ActingOn(match, player);
+            Check(acting <= 2, $"{match.Tick}틱에 적 {acting}마리가 한 대원에게 행동 중입니다");
+            Check(near <= 2, $"{match.Tick}틱에 적 {near}마리가 대원에게서 120 안에 있습니다");
+        }
+        Check(contacts.Count >= 4, $"8초 동안 대원을 노린 행동이 {contacts.Count}번뿐입니다");
+        for (int i = 1; i < contacts.Count; i++)
+        {
+            long gap = contacts[i] - contacts[i - 1];
+            Check(gap >= spacing, $"두 공격이 {gap}틱 차이로 닿습니다. 간격은 {spacing}틱 이상이어야 합니다");
+        }
+
+        // 토큰을 끄면 같은 자리의 병사들이 한꺼번에 덤빈다. 위 검사가 토큰 없이는 실패한다는 확인이다.
+        Match open = CrowdMatch(new Rules { MaxEnemies = 0, EnemyWindupMultiplier = 1 }, 6);
+        Player alone = open.Players[0];
+        int most = 0;
+        for (int step = 0; step < 240; step++)
+        {
+            open.Step();
+            int acting = ActingOn(open, alone);
+            if (acting > most)
+            {
+                most = acting;
+            }
+        }
+        Check(most >= 3, $"토큰이 없는데도 한꺼번에 덤빈 적이 {most}마리뿐입니다");
+    }
+
+    private static void TokenHandoff()
+    {
+        // 처음 4초 동안은 차례를 받은 두 적만 대원을 노린다. 그 둘이 쓰러지면 기다리던 적이 차례를 받아 다가와 대원을 노린다.
+        Match match = CrowdMatch(TokenRules(), 6);
+        Player player = match.Players[0];
+        HashSet<int> first = new HashSet<int>();
+        for (int step = 0; step < 120; step++)
+        {
+            match.Step();
+            for (int i = 0; i < match.Enemies.Count; i++)
+            {
+                EnemyAction? action = match.Enemies[i].Action;
+                if (action != null && action.TargetId == player.Id)
+                {
+                    first.Add(match.Enemies[i].Id);
+                }
+            }
+        }
+        Equal(first.Count, 2);
+        for (int i = 0; i < match.Enemies.Count; i++)
+        {
+            if (first.Contains(match.Enemies[i].Id))
+            {
+                match.Enemies[i].Hp = 0;
+            }
+        }
+        // 쓰러진 적은 이번 틱의 판정이 끝나면 빠진다.
+        match.Step();
+        Equal(match.Enemies.Count, 4);
+        HashSet<int> next = new HashSet<int>();
+        for (int step = 0; step < 120; step++)
+        {
+            match.Step();
+            Check(ActingOn(match, player) <= 2, $"{match.Tick}틱에 적 셋 이상이 한 대원에게 행동 중입니다");
+            for (int i = 0; i < match.Enemies.Count; i++)
+            {
+                EnemyAction? action = match.Enemies[i].Action;
+                if (action != null && action.TargetId == player.Id)
+                {
+                    next.Add(match.Enemies[i].Id);
+                }
+            }
+        }
+        Equal(next.Count, 2);
+    }
+
+    private static void AttackStateHash()
+    {
+        // 상태 요약에서 빠진 필드는 두 방에서 갈라져도 결정론 검사와 기록 재생이 잡지 못한다.
+        // 그 필드만 다른 두 방은 요약이 달라야 한다.
+        Match first = CrowdMatch(TokenRules(), 1);
+        Match second = CrowdMatch(TokenRules(), 1);
+        Equal(second.StateHash(), first.StateHash());
+        second.Players[0].LastAttackContactTick = 100;
+        Check(second.StateHash() != first.StateHash(), "대원을 노린 마지막 공격의 틱만 다른데 상태 요약이 같습니다");
+
+        Match aimed = CrowdMatch(TokenRules(), 1);
+        Match unaimed = CrowdMatch(TokenRules(), 1);
+        EnemySkill skill = EnemyDefinition.Grunt.Skills[0];
+        aimed.Enemies[0].Action = new EnemyAction(31100, skill, Angle.Zero, aimed.Tick, 1, aimed.Players[0].Id);
+        unaimed.Enemies[0].Action = new EnemyAction(31100, skill, Angle.Zero, unaimed.Tick, 1, null);
+        Check(aimed.StateHash() != unaimed.StateHash(), "적 행동이 노린 대원만 다른데 상태 요약이 같습니다");
     }
 }

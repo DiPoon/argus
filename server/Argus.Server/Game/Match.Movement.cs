@@ -280,24 +280,27 @@ public sealed partial class Match
 
     private void UpdateEnemies()
     {
+        // 행동이 끝난 적은 먼저 행동을 비운다. 아래에서 대원마다 행동 중인 적을 셀 때 빠져야 한다.
         for (int i = 0; i < Enemies.Count; i++)
         {
             Enemy enemy = Enemies[i];
-            if (enemy.Hp <= 0)
+            if (enemy.Action != null && enemy.Action.EndsTick <= Tick)
+            {
+                enemy.Action = null;
+            }
+        }
+        // 행동하지 않는 적마다 쫓을 대원과 그 거리의 제곱을 먼저 구한다. 이 메서드 안에서 대원은 움직이지 않고
+        // 적은 자기 차례에만 움직이므로, 미리 구해도 적마다 차례에 구한 것과 같다.
+        Player?[] targets = new Player?[Enemies.Count];
+        Fixed[] distances = new Fixed[Enemies.Count];
+        for (int i = 0; i < Enemies.Count; i++)
+        {
+            Enemy enemy = Enemies[i];
+            if (enemy.Hp <= 0 || enemy.Action != null)
             {
                 continue;
             }
-            if (enemy.Action != null)
-            {
-                if (enemy.Action.EndsTick > Tick)
-                {
-                    continue;
-                }
-                enemy.Action = null;
-            }
             // 가장 가까운 살아 있는 대원을 쫓는다. 거리가 같으면 먼저 참가한 대원이다.
-            Player? target = null;
-            Fixed closest = Fixed.Zero;
             for (int j = 0; j < Players.Count; j++)
             {
                 Player player = Players[j];
@@ -306,26 +309,46 @@ public sealed partial class Match
                     continue;
                 }
                 Fixed distance = FixedVector.DistanceSquared(player.Position, enemy.Position);
-                if (target == null || distance < closest)
+                if (targets[i] == null || distance < distances[i])
                 {
-                    closest = distance;
-                    target = player;
+                    distances[i] = distance;
+                    targets[i] = player;
                 }
             }
-            if (target == null)
+        }
+        bool[] allowed = ChooseAttackers(targets, distances);
+
+        for (int i = 0; i < Enemies.Count; i++)
+        {
+            Enemy enemy = Enemies[i];
+            Player? target = targets[i];
+            if (enemy.Hp <= 0 || enemy.Action != null || target == null)
             {
                 continue;
             }
+            Fixed closest = distances[i];
             FixedVector direct = target.Position - enemy.Position;
             bool sight = Map.LineOfSight(enemy.Position, target.Position);
-            if (Tick >= enemy.NextActionTick && closest < Fixed.FromInt(EngageDistance * EngageDistance) && sight)
+            if (allowed[i] && Tick >= enemy.NextActionTick && closest < Fixed.FromInt(EngageDistance * EngageDistance) && sight &&
+                SpacedFrom(target, enemy))
             {
                 int index = _random.NextInt(0, enemy.Definition.Skills.Length);
                 EnemySkill skill = enemy.Definition.Skills[index];
                 _nextId++;
-                enemy.Action = new EnemyAction(_nextId, skill, Angle.Of(direct), Tick, Rules.EnemyWindupMultiplier);
+                enemy.Action = new EnemyAction(_nextId, skill, Angle.Of(direct), Tick, Rules.EnemyWindupMultiplier, target.Id);
                 // 회복이 끝난 틱에서 0.25초(8틱) 쉰 뒤 다음 행동을 고른다.
                 enemy.NextActionTick = enemy.Action.EndsTick + Rules.ToTicks(0.25);
+                // 같은 대원을 노리는 다음 적은 이 행동이 닿은 뒤 간격을 두고 닿게 한다(SpacedFrom).
+                if (!target.LastAttackContactTick.HasValue || enemy.Action.ContactTick > target.LastAttackContactTick.Value)
+                {
+                    target.LastAttackContactTick = enemy.Action.ContactTick;
+                }
+                continue;
+            }
+            // 차례를 받지 못한 적은 대원에게서 기다리는 거리(Rules.WaitDistance) 안으로 더 다가가지 않는다.
+            // 몸으로 대원 둘레를 막아 가두지 않게 하고, 차례가 나면 가까운 적부터 다가가게 한다.
+            if (!allowed[i] && closest <= _waitDistanceSquared)
+            {
                 continue;
             }
 
@@ -372,6 +395,90 @@ public sealed partial class Match
             }
             enemy.Position = moved;
         }
+    }
+
+    // 공격 토큰: 이번 틱에 행동을 시작하거나 대원에게 다가가도 되는 적을 고른다. targets와 distances는 적마다 쫓는 대원과
+    // 그 거리의 제곱이고, 행동 중인 적은 쫓는 대원이 없다(null). 대원마다 그 대원을 노려 행동 중인 적을 세고, 남은 자리
+    // (Rules.AttackersPerPlayer)만큼 그 대원을 쫓는 적 가운데 가까운 적부터 차례를 준다. 거리가 같으면 id가 작은 적이다.
+    // 차례는 틱마다 다시 고른다. 행동을 마친 적은 대개 대원 바로 곁이라 다시 차례를 받고, 그 적이 쓰러지면 기다리던 적 가운데
+    // 가장 가까운 적이 받는다. 토큰을 끄면(0) 모든 적이 차례를 받는다.
+    private bool[] ChooseAttackers(Player?[] targets, Fixed[] distances)
+    {
+        bool[] allowed = new bool[Enemies.Count];
+        if (Rules.AttackersPerPlayer <= 0)
+        {
+            for (int i = 0; i < allowed.Length; i++)
+            {
+                allowed[i] = true;
+            }
+            return allowed;
+        }
+        for (int p = 0; p < Players.Count; p++)
+        {
+            Player player = Players[p];
+            if (player.State != "alive")
+            {
+                continue;
+            }
+            int engaged = 0;
+            for (int i = 0; i < Enemies.Count; i++)
+            {
+                Enemy enemy = Enemies[i];
+                if (enemy.Hp > 0 && enemy.Action != null && enemy.Action.TargetId == player.Id)
+                {
+                    engaged++;
+                }
+            }
+            // 남은 자리마다, 이 대원을 쫓으면서 아직 차례를 받지 않은 적 가운데 가장 가까운 적을 하나씩 고른다.
+            for (int slot = engaged; slot < Rules.AttackersPerPlayer; slot++)
+            {
+                int nearest = -1;
+                for (int i = 0; i < Enemies.Count; i++)
+                {
+                    if (allowed[i] || targets[i] != player)
+                    {
+                        continue;
+                    }
+                    if (nearest < 0 || distances[i] < distances[nearest] ||
+                        (distances[i] == distances[nearest] && Enemies[i].Id < Enemies[nearest].Id))
+                    {
+                        nearest = i;
+                    }
+                }
+                if (nearest < 0)
+                {
+                    break;
+                }
+                allowed[nearest] = true;
+            }
+        }
+        return allowed;
+    }
+
+    // 이 적이 지금 행동을 시작해도, 같은 대원을 노린 앞 행동이 닿은 틱에서 Rules.AttackSpacing이 지난 뒤에 닿는지 본다.
+    // 기술은 행동을 시작할 때 무작위로 고르므로 고르기 전에 가장 짧은 준비 동작으로 따진다. 고른 뒤에 따지면 맞지 않을 때
+    // 뽑은 난수를 버려야 하고, 준비 동작이 긴 기술이 더 자주 뽑힌다. 준비 동작의 틱 수는 EnemyAction과 같은 식으로 구한다.
+    private bool SpacedFrom(Player target, Enemy enemy)
+    {
+        if (_attackSpacingTicks <= 0 || !target.LastAttackContactTick.HasValue)
+        {
+            return true;
+        }
+        long shortest = -1;
+        EnemySkill[] skills = enemy.Definition.Skills;
+        for (int i = 0; i < skills.Length; i++)
+        {
+            long windup = Rules.ToTicks(skills[i].Windup * Rules.EnemyWindupMultiplier);
+            if (shortest < 0 || windup < shortest)
+            {
+                shortest = windup;
+            }
+        }
+        if (shortest < 0)
+        {
+            return true;
+        }
+        return Tick + shortest >= target.LastAttackContactTick.Value + _attackSpacingTicks;
     }
 
     // 정한 방향에 이웃 적과의 분리 방향을 더해 이번 틱의 이동을 구한다. 둘이 맞서 방향이 없어지면 0 벡터다.

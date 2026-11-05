@@ -131,6 +131,7 @@ public sealed partial class Match
         hasher.AddBool(player.AwaitingFirstConnection);
         hasher.AddInt(player.Kills);
         hasher.AddInt(player.Deaths);
+        hasher.AddOptionalLong(player.LastAttackContactTick);
     }
 
     private static void AddEnemyState(StateHasher hasher, Enemy enemy)
@@ -161,5 +162,6 @@ public sealed partial class Match
         hasher.AddLong(action.ActiveUntilTick);
         hasher.AddLong(action.EndsTick);
         hasher.AddTextSet(action.HitPlayers);
+        hasher.AddOptionalText(action.TargetId);
     }
 }
