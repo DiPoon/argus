@@ -67,7 +67,7 @@ $('app').innerHTML = `
         <div class="progress"><i id="extract-progress"></i></div>
       </div>
       <div class="side-section"><div class="section-label">SQUAD <span id="team-count">1 / 4</span></div><div id="roster"></div></div>
-      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>Ⅱ(대응 2)로 표시된 엘리트 행동은 이기는 기술이 둘 겹쳐야 파훼됩니다. 혼자 이기는 기술을 맞히면 나와 엘리트가 1씩 잃고, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다. 동료와 맞추세요. 타격 예고가 끝날 무렵 받아치세요. 너무 일찍 쓰면 방어가 먼저 끝납니다.</p><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
+      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>적의 예고 위에 받아칠 키가 뜹니다. ×2가 붙은 엘리트의 Ⅱ 행동은 이기는 기술이 둘 겹쳐야 파훼됩니다. 혼자 이기는 기술을 맞히면 나와 엘리트가 1씩 잃고, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다. 동료와 맞추세요. 타격 예고는 고리가 3/4쯤 찼을 때 받아치세요. 너무 일찍 쓰면 방어가 먼저 끝나고, 고리가 다 찬 뒤에는 늦습니다.</p><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
     </aside>
     <section id="battlefield" class="battlefield" aria-label="작전 지도">
       <div id="canvas-host" class="canvas-host"></div>
@@ -367,11 +367,12 @@ function updateUi() {
     const phaseText = current?.phase === 'interrupted' ? '중단됨' : current?.phase === 'followup' ? '일반 반격' : current?.phase === 'recovery' ? '후딜레이' : current ? skillNames[current.skill as Skill] : '준비';
     $('skill-bar').innerHTML = p.slots.map((skill, index) => {
       const definition = s.rules.skills.find(d => d.id === skill)!;
-      const active = current?.slot === index + 1 && current.endsAt > s.now;
+      // 끊긴 기술은 짧은 경직(busy)이 끝나면 원래 끝날 시각 전이라도 다음 기술을 쓸 수 있으므로 더 사용 중으로 보이지 않는다.
+      const active = current?.slot === index + 1 && current.endsAt > s.now && (current.phase !== 'interrupted' || p.busy > 0);
       const busy = Math.max(0, Math.min(1, p.busy / (current ? s.rules.skills.find(d => d.id === current.skill)!.duration : 1)));
       return `<div class="skill-slot skill-${definition.kind} ${active ? 'active' : ''} ${p.mana < definition.mana ? 'empty' : ''}" data-slot="${index + 1}"><kbd>${slotKeys[index]}</kbd><b>${skillNames[skill]}</b><small>${active ? phaseText : `마나 ${definition.mana}`}</small><i style="width:${100 * busy}%"></i></div>`;
     }).join('');
-    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고를 읽고 대응하세요 · 기술 사용 중에도 이동 가능';
+    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '적 예고 위의 키로 받아치세요 · 기술 사용 중에도 이동 가능';
     $('combat-status').classList.toggle('empty', p.mana === 0);
 
   }

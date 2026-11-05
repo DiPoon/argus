@@ -5,6 +5,20 @@ import { affinityNames, type Affinity, type CombatAction, type Control, type Pos
 
 const colors = { floor: 0x141e20, lit: 0x253335, grid: 0x304044, wall: 0x657372, edge: 0x94a29a, unknown: 0x0b1315, lime: 0xdfff80, teal: 0x77cec2, red: 0xf28068, gold: 0xeabd73 };
 const affinityColors: Record<Affinity, number> = { strike: 0xf28068, block: 0x77cec2, channel: 0xc0a1f5, none: 0xeabd73 };
+// 적의 행동을 이기는 상성이다(타격 < 방어 < 잡기 < 타격). 서버의 Affinity.Beats와 같은 관계다.
+const counterOf: Partial<Record<Affinity, Affinity>> = { strike: 'block', block: 'channel', channel: 'strike' };
+// 슬롯마다 누르는 키다. 적 예고 위에 받아칠 키로 띄운다.
+const slotKeyNames = ['좌클릭', '우클릭', 'Space', 'Q'];
+// 적 행동을 받아칠 키와 그 기술의 상성이다. 내 장비에서 그 상성을 가진 첫 슬롯의 키를 고른다(기본 슬롯 1~3이 먼저다).
+// 상성 싸움에서 가장 어려운 것이 "무엇으로 받을지 떠올리기"라, 예고에서 키를 바로 읽게 한다.
+function counterKey(kind: Affinity, slots: readonly string[], skills: readonly { id: string; kind: Affinity }[]) {
+  const counter = counterOf[kind];
+  if (!counter) return undefined;
+  for (let i = 0; i < slots.length && i < slotKeyNames.length; i++) {
+    if (skills.find(d => d.id === slots[i])?.kind === counter) return { key: slotKeyNames[i], kind: counter };
+  }
+  return undefined;
+}
 const team = [colors.lime, colors.teal, 0xaeb5fa, 0xf2c981];
 const unitOutline = { color: 0x111a1a, width: 2.5 };
 
@@ -463,8 +477,13 @@ export class World {
         }
       }
       if (action && now < action.activeUntil) {
-        const suffix = action.tier === 2 ? 'Ⅱ · 대응 2' : 'Ⅰ';
-        this.label(`enemy-action-${enemy.id}`, `${affinityNames[action.kind]} ${suffix}`, p.x, p.y - r - 26, affinityColors[action.kind], 13);
+        // 위 줄은 적이 하는 행동, 아래 줄(크게)은 내가 누를 키다. 키는 받아칠 기술의 색으로 그려 기술 칸의 색과 맞춘다.
+        // Ⅱ 행동은 이기는 기술 둘이 겹쳐야 파훼되므로 ×2를 붙인다(동료와 함께, 혼자면 두 번).
+        this.label(`enemy-kind-${enemy.id}`, `${affinityNames[action.kind]} ${action.tier === 2 ? 'Ⅱ' : 'Ⅰ'}`, p.x, p.y - r - 42, affinityColors[action.kind], 11);
+        const answer = counterKey(action.kind, me?.slots ?? ['strike', 'parry', 'grab'], s.rules.skills);
+        if (answer) {
+          this.label(`enemy-action-${enemy.id}`, `${answer.key}${action.tier === 2 ? ' ×2' : ''}`, p.x, p.y - r - 26, affinityColors[answer.kind], 14);
+        }
       }
     }
     s.players.forEach((player, index) => {

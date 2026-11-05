@@ -132,27 +132,52 @@ test('120 enemy replacements reuse labels and keep a bounded spare pool, includi
   expect(result.visible).toBe(result.baseline);
 });
 
-test('enemy tells refresh color and disappear immediately with lost visibility', async ({ page }) => {
+// 서버가 보내는 세 기본기의 정의다. 예고 위의 받아칠 키는 이 정의의 상성(kind)으로 고른다.
+function basicSkills(): Snapshot['rules']['skills'] {
+  const common = { mana: 1, guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: false, followupBreaksStructures: false };
+  return [
+    { ...common, id: 'strike', kind: 'strike', contactAfter: .18, activeSeconds: .42, duration: .66, range: 54, halfWidth: 10, breaksStructures: true },
+    { ...common, id: 'parry', kind: 'block', contactAfter: 0, activeSeconds: .55, duration: .98, range: 54, halfWidth: 10, guardsFront: true, hasFollowup: true, followupBreaksStructures: true },
+    { ...common, id: 'grab', kind: 'channel', contactAfter: .12, activeSeconds: .65, duration: .85, range: 48, halfWidth: 8, singleTarget: true },
+  ];
+}
+
+test('enemy tells show the key that counters them, refresh with the action and disappear immediately with lost visibility', async ({ page }) => {
   const state = snapshot();
+  state.rules.skills = basicSkills();
   state.enemies = [elite(900)];
   state.enemies[0].action = { id: 901, skill: 'strike', kind: 'strike', slot: 0, tier: 2, phase: 'telegraph',
     aim: Math.PI, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, followupUntil: 11.25, endsAt: 12, range: 82, halfWidth: 24 };
   const result = await page.evaluate(state => {
     const world = window.testWorld;
+    // 아래 줄은 받아칠 키(받아칠 기술의 색), 위 줄은 적의 행동(적 행동의 색)이다.
+    const read = () => {
+      const key = world.labelsById.get('enemy-action-900')!;
+      const kind = world.labelsById.get('enemy-kind-900')!;
+      return { key: key.text, keyColor: key.style.fill, kind: kind.text, kindColor: kind.style.fill };
+    };
     world.update(structuredClone(state)); world.draw(1 / 60);
+    const strike = read();
     const label = world.labelsById.get('enemy-action-900')!;
-    const first = { text: label.text, color: label.style.fill };
     state.enemies[0].action!.kind = 'channel';
     state.enemies[0].action!.tier = 1;
     world.update(structuredClone(state)); world.draw(1 / 60);
-    const changed = { text: label.text, color: label.style.fill };
+    const channel = read();
+    state.enemies[0].action!.kind = 'block';
+    world.update(structuredClone(state)); world.draw(1 / 60);
+    const block = read();
     state.enemies = [];
     world.update(structuredClone(state)); world.draw(1 / 60);
     // 라벨은 재사용을 위해 파괴하지 않고 숨겨 둔다. 사라진 적의 예고가 화면에 남지 않으면 된다.
-    return { first, changed, removed: !world.labelsById.has('enemy-action-900'), hidden: !label.visible };
+    return {
+      strike, channel, block, hidden: !label.visible,
+      removed: !world.labelsById.has('enemy-action-900') && !world.labelsById.has('enemy-kind-900'),
+    };
   }, state);
-  expect(result.first).toEqual({ text: '타격 Ⅱ · 대응 2', color: 0xf28068 });
-  expect(result.changed).toEqual({ text: '잡기 Ⅰ', color: 0xc0a1f5 });
+  // 타격은 받아치기(우클릭)가, 잡기는 타격(좌클릭)이, 방어는 잡기(Space)가 이긴다. Ⅱ 행동은 이기는 기술 둘이 필요하다.
+  expect(result.strike).toEqual({ key: '우클릭 ×2', keyColor: 0x77cec2, kind: '타격 Ⅱ', kindColor: 0xf28068 });
+  expect(result.channel).toEqual({ key: '좌클릭', keyColor: 0xf28068, kind: '잡기 Ⅰ', kindColor: 0xc0a1f5 });
+  expect(result.block).toEqual({ key: 'Space', keyColor: 0xc0a1f5, kind: '방어 Ⅰ', kindColor: 0x77cec2 });
   expect(result.removed).toBe(true); expect(result.hidden).toBe(true);
 });
 
