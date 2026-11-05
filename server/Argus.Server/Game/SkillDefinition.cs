@@ -165,13 +165,15 @@ public sealed class EnemyDefinition
             new EnemySkill("channel", 1, 0, 0.95, 68, 18)
         });
 
-    // 철위병은 타격과 방어를 강화한다. 두 행동 모두 부분 대응하면 피해 1을 받는다.
+    // 철위병은 방어만 강화한다. 혼자 잡기로 막으면(부분 대응) 피해 1을 받는다.
+    // 몸 색이 방어 색(청록)이므로 강화한 행동도 방어 하나로 맞춘다. 타격까지 2티어였을 때는 방어 색인 적이 2티어 타격을 써서
+    // 휴대폰 시험에서 헷갈렸다(2026-11-05 사용자 결정). 타격은 티어만 낮추고 선딜·사거리·폭은 2티어 때 그대로 둔다.
     // 몸 반지름은 칸의 절반(24)보다 작게 둔다. 반지름이 24면 적이 따라가는 칸 가운데 줄이 벽 모서리에 딱 붙어,
     // 반올림으로 조금만 벗어나도 모서리에 걸린 채 멈춘다(EncounterTests의 NarrowGap).
     public static readonly EnemyDefinition Warden = new EnemyDefinition("warden", "철위병", Fixed.FromInt(23), 2, 76,
         new EnemySkill[]
         {
-            new EnemySkill("strike", 2, 1, 1.1, 82, 24),
+            new EnemySkill("strike", 1, 0, 1.1, 82, 24),
             new EnemySkill("block", 2, 1, 1.2, 78, 24),
             new EnemySkill("channel", 1, 0, 1, 68, 18)
         });
