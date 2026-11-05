@@ -204,6 +204,31 @@ test('a skill key held through deployment does not cast after landing until it i
   expect(me.errors).toEqual([]);
 });
 
+test('a skill key pressed and released between two input sends still casts once', async ({ page }) => {
+  const me = observe(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => me.player?.state).toBe('waiting');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+  await page.keyboard.down('KeyD'); await page.keyboard.down('KeyS');
+  await page.waitForTimeout(470);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
+  await expect.poll(() => me.player?.mana).toBe(24);
+  // 입력은 1/30초마다 보낸다. 누름과 뗌을 한 작업 안에서 일으켜, 두 입력 사이에 눌렀다 뗀 짧은 누름을 만든다.
+  // 이런 누름도 다음 입력에 한 번 실려 기술이 나가야 한다. 2026-11-05 휴대폰 시험에서는 짧게 누른 회전 방어가 나가지 않았다.
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1' }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Digit1' }));
+  });
+  await expect.poll(() => me.player?.mana).toBe(23);
+  // 한 번만 나간다. 뗀 뒤에 다시 나가지 않는다.
+  await page.waitForTimeout(1500);
+  expect(me.player!.mana).toBe(23);
+  expect(me.errors).toEqual([]);
+});
+
 test('a mouse button held while the window loses focus is not a new press when it comes back', async ({ page }) => {
   const me = observe(page);
   await page.goto('/');

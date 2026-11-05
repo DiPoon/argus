@@ -33,7 +33,12 @@ public sealed class Player
     public int MaxMana;
     // 지금 기술이 끝나 다음 기술을 시작할 수 있는 틱이다.
     public long BusyUntilTick;
+    // 마지막으로 받은 입력의 슬롯이다. 0이면 아무 기술도 누르지 않은 것이다. 새 입력이 오면 고쳐 쓴다.
     public int RequestedSlot;
+    // 지난 틱 진행 뒤에 받은 입력 가운데 기술을 누른 마지막 슬롯이다. 0이면 누른 입력이 없었다.
+    // 누른 입력 뒤에 뗀 입력이 다음 틱 진행 전에 함께 오면 RequestedSlot은 0이 되지만, 그 틱에는 이 값으로 누른 것으로 본다.
+    // 틱마다 비우므로 다음 틱으로 넘어가지 않는다. 기술을 쓰는 중에 누른 것을 쌓아 두었다가 나중에 내보내지는 않는다.
+    public int PressedSlot;
     public List<PlayerAction> Actions { get; } = new List<PlayerAction>();
     // 입력을 마지막으로 받은 틱이다. 받은 적이 없으면 NoInputTick이다.
     public long LastInputTick = NoInputTick;

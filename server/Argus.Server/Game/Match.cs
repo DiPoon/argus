@@ -348,6 +348,13 @@ public sealed partial class Match
         }
         player.Aim = Angle.FromRadians(aim);
         player.RequestedSlot = slot;
+        // 누른 입력은 따로 기억한다. 서버는 틱마다 한 번만 슬롯을 보므로, 기억하지 않으면 다음 틱 진행 전에 뒤따라온
+        // 뗀 입력이 누름을 덮어 기술이 나가지 않는다. 2026-11-05 휴대폰 시험에서 입력이 0.17초 끊겼다가 [누름, 뗌]이
+        // 한꺼번에 와서 누른 회전 방어가 나가지 않았다.
+        if (slot > 0)
+        {
+            player.PressedSlot = slot;
+        }
         return true;
     }
 
@@ -358,6 +365,7 @@ public sealed partial class Match
         player.DisconnectedTick = Tick;
         player.Move = FixedVector.Zero;
         player.RequestedSlot = 0;
+        player.PressedSlot = 0;
     }
 
     // HTTP로 참가만 하고 아직 WebSocket으로 접속하지 않은 자리로 둔다. 짧은 유예(FirstConnectSeconds) 안에
@@ -520,6 +528,7 @@ public sealed partial class Match
             player.Actions.Clear();
             player.BusyUntilTick = Tick;
             player.RequestedSlot = 0;
+            player.PressedSlot = 0;
             player.State = "alive";
             player.HasDeployed = true;
             player.Move = FixedVector.Zero;
@@ -588,6 +597,7 @@ public sealed partial class Match
         {
             player.Move = FixedVector.Zero;
             player.RequestedSlot = 0;
+            player.PressedSlot = 0;
         }
         player.Position = MoveBody(player.Position, player.Move * _playerStep, Rules.PlayerRadius, null);
         for (int i = player.Actions.Count - 1; i >= 0; i--)
@@ -597,14 +607,22 @@ public sealed partial class Match
                 player.Actions.RemoveAt(i);
             }
         }
-        if (player.RequestedSlot > 0 && Tick >= player.BusyUntilTick)
+        // 지난 틱 뒤에 누른 입력이 왔으면, 그 뒤에 뗀 입력이 와서 지금 슬롯이 0이어도 이번 틱은 누른 것으로 본다.
+        // 누른 기억은 이번 틱에만 쓰고 비운다. 기술을 쓰는 중이라 시작하지 못하면 그대로 버린다.
+        int slot = player.RequestedSlot;
+        if (player.PressedSlot > 0)
         {
-            SkillDefinition skill = Rules.Skill(player.Slots[player.RequestedSlot - 1]);
+            slot = player.PressedSlot;
+        }
+        player.PressedSlot = 0;
+        if (slot > 0 && Tick >= player.BusyUntilTick)
+        {
+            SkillDefinition skill = Rules.Skill(player.Slots[slot - 1]);
             if (player.Mana >= skill.Mana)
             {
                 player.Mana -= skill.Mana;
                 _nextId++;
-                PlayerAction action = new PlayerAction(_nextId, skill, player.RequestedSlot, Tick);
+                PlayerAction action = new PlayerAction(_nextId, skill, slot, Tick);
                 player.Actions.Add(action);
                 player.BusyUntilTick = action.EndsTick;
             }
@@ -721,6 +739,7 @@ public sealed partial class Match
         player.State = "waiting";
         player.Deaths++;
         player.RequestedSlot = 0;
+        player.PressedSlot = 0;
         player.Actions.Clear();
         player.Move = FixedVector.Zero;
         Note($"{player.Name} 사망 · 증원 위치를 선택하세요");

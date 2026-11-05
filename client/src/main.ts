@@ -180,17 +180,21 @@ function slotFromCode(code: string) {
   if (code === 'KeyQ' || code === 'Digit4') return 4;
   return 0;
 }
+// 마지막으로 입력을 보낸 뒤에 누른 슬롯이다(가장 나중에 누른 것). 다음 입력을 보내기 전에 떼었어도 그 입력에 한 번은 싣는다.
+// 입력은 1/30초마다 보내므로, 그 사이에 눌렀다 뗀 짧은 누름이나 브라우저가 잠깐 멈춘 사이의 누름이 빠지지 않게 한다(2026-11-05 휴대폰 시험).
+let pressedSinceSend = 0;
 function pressSlot(slot: number) {
   const index = slotOrder.indexOf(slot);
   if (index >= 0) slotOrder.splice(index, 1);
   slotOrder.push(slot);
+  pressedSinceSend = slot;
 }
 // 살아 있지 않을 때 누른 기술 키와, 살아 있는 상태를 벗어날 때 눌려 있던 기술 키다. 떼었다 다시 눌러야 기술이 나간다.
 // 그대로 두면 투입을 기다리며 쥔 키가 착지 뒤 마나가 차는 순간부터 기술을 계속 낸다.
 const staleKeys = new Set<string>();
 // 사망 등으로 살아 있는 상태를 벗어날 때 부른다. 마우스는 syncButtons가 새로 눌린 버튼만 받으므로 비우기만 하면 된다.
 function releaseSkills() {
-  mouseButtons.clear(); slotOrder.length = 0; releaseTouchSkills();
+  mouseButtons.clear(); slotOrder.length = 0; pressedSinceSend = 0; releaseTouchSkills();
   for (const code of keys) if (slotFromCode(code) > 0) staleKeys.add(code);
 }
 // 버튼을 겹쳐 누르거나 뗄 때 브라우저는 pointerdown·pointerup 대신 pointermove로만 알린다.
@@ -246,7 +250,7 @@ function renderToast() {
   if (toastLines.length > 0) toastTimer = window.setTimeout(renderToast, Math.min(...toastLines.map(line => line.until)) - now);
 }
 function clearInput() {
-  keys.clear(); mouseButtons.clear(); slotOrder.length = 0; pointerBaseline = true;
+  keys.clear(); mouseButtons.clear(); slotOrder.length = 0; pressedSinceSend = 0; pointerBaseline = true;
   releaseTouchSkills(); releaseStick();
   if (world) world.control = { x: 0, y: 0, aim: world.control.aim, slot: 0 };
   // 서버는 작전 중 살아 있는 대원의 입력만 받는다. 30Hz 입력과 같은 조건일 때만 멈춤 입력을 보낸다.
@@ -607,6 +611,10 @@ function sendControl() {
   const aim = !mouse.known && touch.aimKnown ? touch.aim : Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
   let slot = 0;
   for (const candidate of slotOrder) { if (slotHeld(candidate)) slot = candidate; }
+  // 지난 입력 뒤에 누른 슬롯은 이미 떼었어도 이번 입력에 한 번 싣는다. 가장 나중에 누른 것이므로 쥐고 있는 슬롯보다 앞선다.
+  // 서버도 두 틱 사이에 누른 입력이 한 번이라도 오면 그 틱에는 누른 것으로 본다(Player.PressedSlot).
+  if (pressedSinceSend > 0) slot = pressedSinceSend;
+  pressedSinceSend = 0;
   world.control = { x, y, aim, slot };
   sendInput(x, y, aim, slot);
 }
