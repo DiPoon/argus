@@ -328,13 +328,14 @@ test('the end-of-mission card fits a short phone screen below the menu buttons',
   const page = await context.newPage();
   // 작전을 실제로 끝내려면 오래 걸리므로, 서버가 보낸 스냅샷을 작전 종료로 바꿔 화면에 넘긴다. 화면이 그리는 것만 본다.
   let ending = false;
+  let nextNotice = 9000;
   await page.routeWebSocket(/\/ws$/, ws => {
     const server = ws.connectToServer();
     server.onMessage(message => {
       if (ending && typeof message === 'string') {
         const data = JSON.parse(message);
-        // 작전이 끝나는 순간의 안내도 함께 보낸다.
-        if (data.type === 'snapshot') message = JSON.stringify({ ...data, phase: 'ended', result: 'failure', notices: [...data.notices, { id: 9999, at: data.now, text: '대원 사망 · 증원 위치를 선택하세요' }, { id: 10000, at: data.now, text: '전원 사망 · 작전 실패' }] });
+        // 작전이 끝날 때의 안내도 함께 보낸다. 알림이 3.5초 뒤 저절로 사라져 검사가 통과하지 않게 스냅샷마다 새 안내를 보내 계속 띄운다.
+        if (data.type === 'snapshot') message = JSON.stringify({ ...data, phase: 'ended', result: 'failure', notices: [...data.notices, { id: nextNotice++, at: data.now, text: '전원 사망 · 작전 실패' }] });
       }
       ws.send(message);
     });
@@ -367,7 +368,8 @@ test('the end-of-mission card fits a short phone screen below the menu buttons',
         return { menuOverCard, buttonOnTop: hit !== null && button.contains(hit) };
       });
       expect(layout, name).toEqual({ menuOverCard: false, buttonOnTop: true });
-      // 작전이 끝날 때의 알림은 카드를 가리지 않는다. 같은 말이 카드에 적혀 있다.
+      // 작전이 끝날 때의 알림은 카드를 가리지 않는다. 같은 말이 카드에 적혀 있다. 알림은 살아 있는데 보이지만 않는다.
+      await expect(page.locator('#toast div').first(), name).toBeAttached();
       await expect(page.locator('#toast'), name).toBeHidden();
     }
     await page.screenshot({ path: 'test-results/argus-touch-result.png' });
