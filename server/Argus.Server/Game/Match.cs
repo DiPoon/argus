@@ -534,7 +534,6 @@ public sealed partial class Match
             player.Actions.Clear();
             player.BusyUntilTick = Tick;
             player.RequestedSlot = 0;
-            player.PressedSlot = 0;
             player.State = "alive";
             player.HasDeployed = true;
             player.Move = FixedVector.Zero;
@@ -603,7 +602,6 @@ public sealed partial class Match
         {
             player.Move = FixedVector.Zero;
             player.RequestedSlot = 0;
-            player.PressedSlot = 0;
         }
         player.Position = MoveBody(player.Position, player.Move * _playerStep, Rules.PlayerRadius, null);
         for (int i = player.Actions.Count - 1; i >= 0; i--)
@@ -746,7 +744,6 @@ public sealed partial class Match
         player.State = "waiting";
         player.Deaths++;
         player.RequestedSlot = 0;
-        player.PressedSlot = 0;
         player.Actions.Clear();
         player.Move = FixedVector.Zero;
         Note($"{player.Name} 사망 · 증원 위치를 선택하세요");
