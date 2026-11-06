@@ -460,6 +460,24 @@ test('fingers that stay on the joystick and skill buttons keep working through l
     await fingers.up(1);
     await expect.poll(() => last()?.slot).toBe(0);
     await expect(skillButton).not.toHaveClass(/\bheld\b/);
+
+    // 잡아 둔 포인터를 놓치면 조이스틱을 비운다. 비우지 않으면 다음 손가락의 누름을 받지 못해 걸을 수 없다.
+    await page.evaluate(() => {
+      const area = document.getElementById('touch-move')!;
+      area.addEventListener('pointerdown', event => { area.dataset.pointer = String(event.pointerId); });
+    });
+    await fingers.down(0, center.x, center.y);
+    await expect(page.locator('#touch-base')).toBeVisible();
+    await page.evaluate(() => {
+      const area = document.getElementById('touch-move')!;
+      area.dispatchEvent(new PointerEvent('lostpointercapture', { pointerId: Number(area.dataset.pointer) }));
+    });
+    await expect(page.locator('#touch-base')).toBeHidden();
+    await fingers.up(0);
+    await fingers.down(0, center.x, center.y);
+    await fingers.move(0, center.x - 50, center.y);
+    await expect.poll(() => last()?.moveX).toBe(-1);
+    await fingers.up(0);
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
@@ -474,8 +492,19 @@ test('a skill button pressed between two operations does not cast in the next on
     await page.goto('/');
     await page.getByRole('button', { name: '새 작전 시작' }).tap();
     await deployAtCamp(page);
-    await page.getByRole('button', { name: '☰ 메뉴' }).tap();
-    await page.getByRole('button', { name: '작전에서 나가기 ↗' }).tap();
+    // 조이스틱과 기술 버튼을 쥔 채 나가도 손가락 상태가 다음 작전으로 넘어가지 않는다.
+    const fingers = new Fingers(await context.newCDPSession(page));
+    const stick = (await page.locator('#touch-move').boundingBox())!;
+    const button = (await page.locator('.touch-skill[data-slot="1"]').boundingBox())!;
+    await fingers.down(0, stick.x + stick.width * .45, stick.y + stick.height * .6);
+    await fingers.down(1, button.x + button.width / 2, button.y + button.height / 2);
+    await expect(page.locator('#touch-base')).toBeVisible();
+    await expect(page.locator('.touch-skill.held')).toHaveCount(1);
+    await page.evaluate(() => document.getElementById('leave')!.click());
+    await expect(page.getByRole('button', { name: '새 작전 시작' })).toBeVisible();
+    expect(await page.evaluate(() => ({ base: document.getElementById('touch-base')!.hidden, held: document.querySelectorAll('.touch-skill.held').length }))).toEqual({ base: true, held: 0 });
+    await fingers.up(1);
+    await fingers.up(0);
     // 새 방의 첫 스냅샷이 오기 전이다. 지난 작전의 기술 버튼이 남아 있지 않다.
     wire.holding = true;
     await page.getByRole('button', { name: '새 작전 시작' }).tap();

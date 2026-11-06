@@ -17,6 +17,7 @@ internal static class EquipmentTests
         tests.Add(new TestCase("A short press over a held skill starts the pressed skill, and the held skill repeats after it", ShortPressOverHeld));
         tests.Add(new TestCase("An input without press only holds, so a held slot gone by the tick does not start", HeldWithoutPress));
         tests.Add(new TestCase("An input with a press outside the slots is refused whole", PressOutOfRange));
+        tests.Add(new TestCase("A press cut off by a disconnect before the next tick does not start", PressThenDisconnect));
     }
 
     // 입력을 순번대로 보내는 도우미다. held는 입력의 slot(지금 쥐고 있는 슬롯), pressed는 press(지난 입력 뒤에 누른 슬롯)다.
@@ -222,6 +223,18 @@ internal static class EquipmentTests
         Check(!pad.F.Match.Input(player, 0, 1, 0, 0, 0, -1));
         Equal(player.LastSequence, -1L);
         Equal(player.Move.LengthSquared(), Fixed.Zero);
+        pad.F.Match.Step();
+        Equal(player.Actions.Count, 0);
+        Equal(player.Mana, 24);
+    }
+
+    private static void PressThenDisconnect()
+    {
+        // 누른 입력이 온 뒤 다음 틱 전에 연결이 끊겼다. 끊긴 대원은 입력이 멈춘 몸이므로 기술도 나가지 않는다.
+        Pad pad = new Pad();
+        Player player = pad.F.Player;
+        pad.Send(2, 2);
+        pad.F.Match.Disconnect(player);
         pad.F.Match.Step();
         Equal(player.Actions.Count, 0);
         Equal(player.Mana, 24);
