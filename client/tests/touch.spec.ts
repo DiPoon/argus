@@ -555,6 +555,29 @@ test('the touch operation screen stays the same across the widths of the PC rule
   } finally { await context.close(); }
 });
 
+test('the page leaves no room for the phone to zoom, reload or go back in the middle of an operation', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const fontSize = (selector: string) => page.evaluate(selector => getComputedStyle(document.querySelector(selector)!).fontSize, selector);
+  const overscroll = (selector: string) => page.evaluate(selector => getComputedStyle(document.querySelector(selector)!).overscrollBehaviorY, selector);
+  try {
+    await page.goto('/');
+    // 아이폰 Safari는 글자가 16px보다 작은 입력란에 초점이 가면 화면을 확대하고 되돌리지 않는다.
+    expect(await fontSize('#callsign')).toBe('16px');
+    expect(await fontSize('#room-input')).toBe('16px');
+    expect(await fontSize('#report-text')).toBe('16px');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await deployAtCamp(page);
+    // 당겨서 새로고침은 뷰포트의 값을 따르고 Chromium은 이 값을 html에서만 읽는다. 서랍과 결과 화면의 스크롤이 페이지로 넘치지 않아야 한다.
+    expect(await overscroll('html')).toBe('none');
+    expect(await overscroll('.sidebar')).toBe('contain');
+    expect(await overscroll('.result-overlay')).toBe('contain');
+    // 왼쪽 끝은 OS의 뒤로 가기 제스처 자리다. 조이스틱 자리는 그 안쪽에서 시작한다.
+    const stick = (await page.locator('#touch-move').boundingBox())!;
+    expect(stick.x).toBeGreaterThanOrEqual(24);
+  } finally { await context.close(); }
+});
+
 test('on a PC screen a finger still aims and casts like the mouse', async ({ page }) => {
   const wire = await relay(page);
   await page.goto('/');

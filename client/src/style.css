@@ -1256,7 +1256,14 @@ kbd {
 .touch-top { display:none }
 /* 지도 위쪽 줄의 묶음(.top-stack, .top-row)은 PC에서 상자를 만들지 않는다. 안의 경과 시간·체력과 마나·알림은 지금처럼 지도 기준 제자리에 그린다. */
 .top-stack, .top-row { display:contents }
-body.touch.operating { overscroll-behavior:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none }
+/* 당겨서 새로고침은 뷰포트의 overscroll-behavior를 따르고, Chromium은 이 값을 html에서만 읽는다. 서랍과 결과 화면은 전장의
+   touch-action:none 밖이라 맨 위에서 아래로 끌면 스크롤이 페이지로 이어져 작전 중에 페이지가 다시 불릴 수 있다. */
+html:has(body.touch.operating) { overscroll-behavior:none }
+body.touch .sidebar, body.touch .result-overlay { overscroll-behavior:contain }
+body.touch.operating { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none }
+/* 아이폰 Safari는 글자 크기가 16px보다 작은 입력란에 초점이 가면 화면을 확대하고, 입력을 마쳐도 되돌리지 않는다.
+   작전 화면은 touch-action:none이라 지도에서 오므려 줄일 수도 없다. */
+body.touch input { font-size:16px }
 body.touch .topbar { display:none }
 body.touch .operation { height:100dvh; min-height:0 }
 body.touch .battlefield { touch-action:none }
@@ -1305,9 +1312,10 @@ body.touch #result-stats { margin:12px 0; padding:10px 0 }
 body.touch #result-stats b { font-size:18px }
 body.touch #result-stats span { margin-top:3px }
 .touch-controls { position:absolute; inset:0; z-index:5; pointer-events:none }
-/* 조이스틱 자리는 화면의 45%이되, 좁은 세로 화면에서 오른쪽 기술 버튼 무리 밑으로 들어가지 않게 한다.
-   기술 버튼은 크기와 자리가 px로 정해져 있어 무리의 폭이 늘 188px이다. 버튼의 크기나 자리를 바꾸면 이 값도 고친다. */
-.touch-move { position:absolute; left:0; bottom:0; width:min(45%,calc(100% - 196px)); height:78%; pointer-events:auto; touch-action:none }
+/* 조이스틱 자리는 화면의 45%까지이되, 좁은 세로 화면에서 오른쪽 기술 버튼 무리 밑으로 들어가지 않게 한다.
+   기술 버튼은 크기와 자리가 px로 정해져 있어 무리의 폭이 늘 188px이다. 버튼의 크기나 자리를 바꾸면 이 값도 고친다.
+   왼쪽 끝은 OS의 뒤로 가기 제스처 자리이고 touch-action으로 막을 수 없으므로 안쪽으로 들인다. */
+.touch-move { --edge:max(24px,env(safe-area-inset-left)); position:absolute; left:var(--edge); bottom:0; width:min(calc(45% - var(--edge)),calc(100% - 196px - var(--edge))); height:78%; pointer-events:auto; touch-action:none }
 .touch-base { position:absolute; width:112px; height:112px; margin:-56px 0 0 -56px; border-radius:50%; border:2px solid #cfe3b866; background:#0b121266 }
 .touch-knob { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:#d8ef8acc }
 .touch-skill { position:absolute; width:74px; height:74px; border-radius:50%; pointer-events:auto; touch-action:none;
