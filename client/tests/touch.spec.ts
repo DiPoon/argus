@@ -163,6 +163,8 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     await expect(page.locator('#touch-controls')).toBeVisible();
     await expect(page.locator('.touch-skill b')).toHaveText(['회전 베기', '회전 방어', '회전 잡기', '회전 잡기']);
     await expect(page.locator('.touch-skill small')).toHaveText(['마나 1', '마나 1', '마나 1', '마나 1']);
+    // 터치 화면에서는 숨은 기술 막대를 만들지 않는다. 보이는 기술 버튼만 갱신한다.
+    await expect(page.locator('#skill-bar .skill-slot')).toHaveCount(0);
 
     const fingers = new Fingers(await context.newCDPSession(page));
     const stick = (await page.locator('#touch-move').boundingBox())!;
@@ -198,6 +200,7 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     await expect.poll(() => me.player?.actions.at(-1)?.slot).toBe(1);
     expect(me.player!.actions.at(-1)!.skill).toBe('spin');
     await expect(skillButton).toHaveClass(/\bheld\b/);
+    await expect(skillButton).toHaveClass(/\bactive\b/);
     const casting = me.player!;
     await expect.poll(() => me.player?.x).toBeLessThan(casting.x - 15);
     // 기술 버튼의 손가락만 뗀다. 조이스틱을 민 손가락은 그대로라 대원은 계속 걷는다.
@@ -517,6 +520,41 @@ test('on a touch screen a pen is like a finger: the map casts nothing and the ai
   } finally { await context.close(); }
 });
 
+test('the touch operation screen stays the same across the widths of the PC rules', async ({ browser }) => {
+  const context = await browser.newContext({ ...phone, viewport: { width: 1200, height: 360 } });
+  const page = await context.newPage();
+  // 보이는 요소의 계산된 값이다. 자리를 나타내는 값(left 등)은 폭에 따라 달라지므로 보지 않는다.
+  const styles = () => page.evaluate(() => {
+    const names = ['display', 'flexGrow', 'flexBasis', 'justifyContent', 'columnGap', 'fontSize', 'paddingTop', 'paddingLeft', 'minWidth'] as const;
+    const shown = [...document.querySelectorAll('#operation, #operation *')].filter(element => element.tagName !== 'CANVAS' && element.getClientRects().length > 0);
+    return shown.map(element => {
+      const style = getComputedStyle(element);
+      return `${element.tagName}#${element.id}.${element.classList[0] ?? ''} ${names.map(name => style[name]).join(' ')}`;
+    });
+  });
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#deploy-panel')).toBeVisible();
+    await leaveFullscreen(page);
+    await expect(page.locator('#deploy')).toBeVisible();
+    const compare = async (name: string) => {
+      for (const [wide, narrow] of [[1101, 1100], [761, 760]]) {
+        await page.setViewportSize({ width: wide, height: 360 });
+        const before = await styles();
+        await page.setViewportSize({ width: narrow, height: 360 });
+        expect(await styles(), `${name} ${wide}→${narrow}`).toEqual(before);
+      }
+    };
+    await compare('투입 대기');
+    await deployAtCamp(page);
+    await expect(page.locator('#toast')).toBeHidden();
+    await compare('작전');
+    await page.getByRole('button', { name: '☰ 메뉴' }).tap();
+    await compare('서랍');
+  } finally { await context.close(); }
+});
+
 test('on a PC screen a finger still aims and casts like the mouse', async ({ page }) => {
   const wire = await relay(page);
   await page.goto('/');
@@ -526,6 +564,9 @@ test('on a PC screen a finger still aims and casts like the mouse', async ({ pag
   await page.locator('#deploy').click();
   await expect(page.locator('#combat-hud')).toBeVisible({ timeout: 8000 });
   await expect.poll(() => wire.inputs.length).toBeGreaterThan(0);
+  // PC 화면에서는 숨은 터치 기술 버튼을 채우지 않는다. 보이는 기술 막대만 갱신한다.
+  await expect(page.locator('#skill-bar .skill-slot')).toHaveCount(4);
+  await expect(page.locator('.touch-skill b').first()).toHaveText('');
   const before = wire.inputs.at(-1)!.aim;
   const finger = (type: string, button: number, buttons: number) => page.evaluate(([type, button, buttons]) => {
     document.querySelector('canvas')!.dispatchEvent(new PointerEvent(type as string, { bubbles: true, pointerType: 'touch', pointerId: 5, button: button as number, buttons: buttons as number, clientX: 300, clientY: 150 }));

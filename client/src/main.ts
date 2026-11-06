@@ -457,24 +457,31 @@ function updateUi() {
     $('mana-fill').style.width = `${100 * p.mana / p.maxMana}%`;
     const current = p.actions.at(-1);
     const phaseText = current?.phase === 'interrupted' ? '중단됨' : current?.phase === 'followup' ? '일반 반격' : current?.phase === 'recovery' ? '후딜레이' : current ? skillNames[current.skill as Skill] : '준비';
-    $('skill-bar').innerHTML = p.slots.map((skill, index) => {
-      const definition = s.rules.skills.find(d => d.id === skill)!;
-      const active = current?.slot === index + 1 && current.endsAt > s.now;
-      const busy = Math.max(0, Math.min(1, p.busy / (current ? s.rules.skills.find(d => d.id === current.skill)!.duration : 1)));
-      return `<div class="skill-slot skill-${definition.kind} ${active ? 'active' : ''} ${p.mana < definition.mana ? 'empty' : ''}" data-slot="${index + 1}"><kbd>${slotKeys[index]}</kbd><b>${skillNames[skill]}</b><small>${active ? phaseText : `마나 ${definition.mana}`}</small><i style="width:${100 * busy}%"></i></div>`;
-    }).join('');
-    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고를 읽고 대응하세요 · 기술 사용 중에도 이동 가능';
-    $('combat-status').classList.toggle('empty', p.mana === 0);
-    // 터치 화면에서는 기술 막대를 숨기고 기술 버튼이 그 일을 한다. 기술 막대처럼 마나 비용과 쓰고 있는 기술의 단계를 보인다.
-    for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill')) {
-      const slot = Number(button.dataset.slot);
+    // 기술 칸 하나의 표시다. 기술 막대와 터치 기술 버튼이 같은 규칙을 쓴다.
+    const slotView = (slot: number) => {
       const skill = p.slots[slot - 1];
       const definition = s.rules.skills.find(d => d.id === skill)!;
       const active = current?.slot === slot && current.endsAt > s.now;
-      button.className = `touch-skill skill-${definition.kind}${touchedSlots().has(slot) ? ' held' : ''}${p.mana < definition.mana ? ' empty' : ''}${active ? ' active' : ''}`;
-      button.querySelector('b')!.textContent = skillNames[skill];
-      button.querySelector('small')!.textContent = active ? phaseText : `마나 ${definition.mana}`;
+      return { name: skillNames[skill], kind: definition.kind, active, empty: p.mana < definition.mana, note: active ? phaseText : `마나 ${definition.mana}` };
+    };
+    // 터치 화면에서는 기술 막대를 숨기고 기술 버튼이 그 일을 한다. 보이는 쪽만 갱신한다.
+    if (touchMode) {
+      for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill')) {
+        const slot = Number(button.dataset.slot);
+        const view = slotView(slot);
+        button.className = `touch-skill skill-${view.kind}${touchedSlots().has(slot) ? ' held' : ''}${view.empty ? ' empty' : ''}${view.active ? ' active' : ''}`;
+        button.querySelector('b')!.textContent = view.name;
+        button.querySelector('small')!.textContent = view.note;
+      }
+    } else {
+      const busy = Math.max(0, Math.min(1, p.busy / (current ? s.rules.skills.find(d => d.id === current.skill)!.duration : 1)));
+      $('skill-bar').innerHTML = p.slots.map((_, index) => {
+        const view = slotView(index + 1);
+        return `<div class="skill-slot skill-${view.kind} ${view.active ? 'active' : ''} ${view.empty ? 'empty' : ''}" data-slot="${index + 1}"><kbd>${slotKeys[index]}</kbd><b>${view.name}</b><small>${view.note}</small><i style="width:${100 * busy}%"></i></div>`;
+      }).join('');
     }
+    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고를 읽고 대응하세요 · 기술 사용 중에도 이동 가능';
+    $('combat-status').classList.toggle('empty', p.mana === 0);
   }
   $('touch-controls').hidden = !touchMode || !alive || ended;
   $('performance').textContent = `${ping} ms · ${world?.fps ?? 60} FPS · 적 ${world?.shownEnemies ?? 0}/${s.enemies.length}`;
