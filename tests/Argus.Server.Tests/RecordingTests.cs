@@ -115,8 +115,14 @@ internal static class RecordingTests
                 {
                     slot = 1 + (tick / 8 + i) % 4;
                 }
+                // 쥐고 있는 슬롯과 다른 틱에 짧게 누른 슬롯도 보낸다. 다시 돌릴 때 빠지면 기술이 나가지 않아 갈라진다.
+                int press = 0;
+                if (tick % 8 == 4)
+                {
+                    press = 1 + (tick / 8 + i) % 4;
+                }
                 sequence++;
-                bool accepted = match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), aim, slot);
+                bool accepted = match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), aim, slot, press);
                 if (accepted && i == 0 && tick >= 600 && session.TamperIndex < 0)
                 {
                     session.TamperIndex = recorder.Records.Count - 1;
@@ -173,6 +179,7 @@ internal static class RecordingTests
         changed.MoveY = -original.MoveY;
         changed.Aim = original.Aim;
         changed.Slot = original.Slot;
+        changed.Press = original.Press;
         List<MatchRecord> tampered = new List<MatchRecord>(session.Records);
         tampered[session.TamperIndex] = changed;
 

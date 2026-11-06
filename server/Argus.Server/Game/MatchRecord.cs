@@ -19,6 +19,8 @@ public sealed class MatchRecord
     public double? MoveY { get; set; }
     public double? Aim { get; set; }
     public int? Slot { get; set; }
+    // 입력의 누름이다. 누른 슬롯이 없는 입력에는 적지 않는다.
+    public int? Press { get; set; }
     public string? Hash { get; set; }
     // 제보 내용, 또는 기록이 끝난 이유다.
     public string? Text { get; set; }
@@ -36,8 +38,9 @@ public sealed class MatchRecord
 // 시드가 들어 있으므로 이 파일은 서버 밖으로 내보내지 않는다. 시드를 알면 진행 중인 방의 숨은 적을 미리 알 수 있다.
 public sealed class RecordingHeader
 {
-    // 기록 형식의 판 번호다. 줄의 모양을 바꾸면 올린다. 2부터 머리에 작전 배치(Layout)를 적고, 3부터 보급마다 종류를 적는다.
-    public int Format { get; set; } = 3;
+    // 기록 형식의 판 번호다. 줄의 모양을 바꾸면 올린다. 2부터 머리에 작전 배치(Layout)를 적고, 3부터 보급마다 종류를 적고,
+    // 4부터 입력 줄에 누름(Press)을 적는다.
+    public int Format { get; set; } = 4;
     // 기록한 서버의 코드 버전(어셈블리 버전과 커밋)이다. 다른 코드로 재생하면 같은 결과가 나오지 않을 수 있다.
     public string Version { get; set; } = "";
     public string Room { get; set; } = "";

@@ -180,7 +180,7 @@ function slotFromCode(code: string) {
   if (code === 'KeyQ' || code === 'Digit4') return 4;
   return 0;
 }
-// 마지막으로 입력을 보낸 뒤에 누른 슬롯이다(가장 나중에 누른 것). 다음 입력을 보내기 전에 떼었어도 그 입력에 한 번은 싣는다.
+// 마지막으로 입력을 보낸 뒤에 누른 슬롯이다(가장 나중에 누른 것). 다음 입력을 보내기 전에 떼었어도 그 입력의 press로 한 번은 보낸다.
 // 입력은 1/30초마다 보내므로, 그 사이에 눌렀다 뗀 짧은 누름이나 브라우저가 잠깐 멈춘 사이의 누름이 빠지지 않게 한다(2026-11-05 휴대폰 시험).
 let pressedSinceSend = 0;
 function pressSlot(slot: number) {
@@ -226,9 +226,9 @@ function send(value: object) {
   return true;
 }
 // 입력을 보내고, 서버가 확인할 때까지 화면 예측에 쓰도록 기록한다. 실제로 보낸 입력만 기록한다.
-function sendInput(x: number, y: number, aim: number, slot: number) {
+function sendInput(x: number, y: number, aim: number, slot: number, press = 0) {
   const seq = sequence++;
-  if (send({ type: 'input', seq, moveX: x, moveY: y, aim, slot })) world?.recordInput(seq, x, y);
+  if (send({ type: 'input', seq, moveX: x, moveY: y, aim, slot, press })) world?.recordInput(seq, x, y);
 }
 function status(text: string, connected = false) { $('connection').innerHTML = `<i class="${connected ? 'online' : ''}"></i> ${escape(text)}`; }
 function toast(text: string, merge = true) {
@@ -611,12 +611,12 @@ function sendControl() {
   const aim = !mouse.known && touch.aimKnown ? touch.aim : Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
   let slot = 0;
   for (const candidate of slotOrder) { if (slotHeld(candidate)) slot = candidate; }
-  // 지난 입력 뒤에 누른 슬롯은 이미 떼었어도 이번 입력에 한 번 싣는다. 가장 나중에 누른 것이므로 쥐고 있는 슬롯보다 앞선다.
-  // 서버도 두 틱 사이에 누른 입력이 한 번이라도 오면 그 틱에는 누른 것으로 본다(Player.PressedSlot).
-  if (pressedSinceSend > 0) slot = pressedSinceSend;
+  // slot은 지금 쥐고 있는 슬롯만 뜻한다. 지난 입력 뒤에 누른 슬롯은 이미 떼었어도 press로 한 번 따로 보낸다.
+  // 서버는 입력이 몰려 와도 틱마다 누름을 쥐고 있음보다 먼저 쓰고, 그 틱에만 쓴다(Player.PressedSlot).
+  const press = pressedSinceSend;
   pressedSinceSend = 0;
   world.control = { x, y, aim, slot };
-  sendInput(x, y, aim, slot);
+  sendInput(x, y, aim, slot, press);
 }
 // 입력은 서버의 틱과 같은 빠르기(초당 30번)로 보낸다. 클라이언트 예측이 보낸 입력 하나를 한 틱으로 치기 때문이다.
 // setInterval(…, 1000 / 30)은 브라우저가 33ms로 내려 초당 30.3번이 되고 예측이 조금씩 앞서므로, 보낼 시각을 1/30초씩 더해 정한다.

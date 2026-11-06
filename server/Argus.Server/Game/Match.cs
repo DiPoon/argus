@@ -312,7 +312,7 @@ public sealed partial class Match
         return true;
     }
 
-    public bool Input(Player player, long sequence, double moveX, double moveY, double aim, int slot)
+    public bool Input(Player player, long sequence, double moveX, double moveY, double aim, int slot, int press = 0)
     {
         if (Recorder != null)
         {
@@ -323,9 +323,14 @@ public sealed partial class Match
             record.MoveY = moveY;
             record.Aim = aim;
             record.Slot = slot;
+            // 누른 슬롯이 없는 입력이 대부분이라 있을 때만 적는다. 없으면 다시 돌릴 때 0으로 읽는다.
+            if (press != 0)
+            {
+                record.Press = press;
+            }
             Recorder.Write(record);
         }
-        if (Phase == "ended" || player.State != "alive" || slot < 0 || slot > 4)
+        if (Phase == "ended" || player.State != "alive" || slot < 0 || slot > 4 || press < 0 || press > 4)
         {
             return false;
         }
@@ -348,12 +353,13 @@ public sealed partial class Match
         }
         player.Aim = Angle.FromRadians(aim);
         player.RequestedSlot = slot;
-        // 누른 입력은 따로 기억한다. 서버는 틱마다 한 번만 슬롯을 보므로, 기억하지 않으면 다음 틱 진행 전에 뒤따라온
-        // 뗀 입력이 누름을 덮어 기술이 나가지 않는다. 2026-11-05 휴대폰 시험에서 입력이 0.17초 끊겼다가 [누름, 뗌]이
-        // 한꺼번에 와서 누른 회전 방어가 나가지 않았다.
-        if (slot > 0)
+        // 누름(press)은 쥐고 있음(slot)과 따로 기억한다. 서버는 틱마다 한 번만 슬롯을 보므로, 기억하지 않으면 다음 틱 진행 전에
+        // 뒤따라온 입력이 누름을 덮어 기술이 나가지 않는다. 2026-11-05 휴대폰 시험에서 입력이 0.17초 끊겼다가 [누름, 뗌]이
+        // 한꺼번에 와서 누른 회전 방어가 나가지 않았다. slot으로 누름을 짐작하면 쥐고 있던 기술이 손을 뗀 뒤에 한 번 더 나가고,
+        // 다른 기술을 쥔 채 짧게 누른 기술이 덮인다.
+        if (press > 0)
         {
-            player.PressedSlot = slot;
+            player.PressedSlot = press;
         }
         return true;
     }
@@ -607,7 +613,8 @@ public sealed partial class Match
                 player.Actions.RemoveAt(i);
             }
         }
-        // 지난 틱 뒤에 누른 입력이 왔으면, 그 뒤에 뗀 입력이 와서 지금 슬롯이 0이어도 이번 틱은 누른 것으로 본다.
+        // 지난 틱 뒤에 누른 슬롯이 있으면 쥐고 있는 슬롯보다 먼저 쓴다. 나중에 누른 것이 나간다는 규칙과 같고,
+        // 그 뒤에 뗀 입력이 와서 쥐고 있는 슬롯이 0이어도 이번 틱은 누른 것으로 본다.
         // 누른 기억은 이번 틱에만 쓰고 비운다. 기술을 쓰는 중이라 시작하지 못하면 그대로 버린다.
         int slot = player.RequestedSlot;
         if (player.PressedSlot > 0)

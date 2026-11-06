@@ -400,8 +400,15 @@ internal static class Program
                         {
                             continue;
                         }
+                        // press는 없어도 된다. 없으면 이 입력에 새로 누른 슬롯이 없는 것이다.
+                        int press = 0;
+                        if (root.TryGetProperty("press", out JsonElement pressedSlot) &&
+                            (pressedSlot.ValueKind != JsonValueKind.Number || !pressedSlot.TryGetInt32(out press)))
+                        {
+                            continue;
+                        }
                         room.Match.Input(player, seq, Number(root, "moveX"), Number(root, "moveY"),
-                            Number(root, "aim"), slot);
+                            Number(root, "aim"), slot, press);
                     }
                 }
                 else if (type == "deploy")
