@@ -630,6 +630,11 @@ test('on a PC screen a finger still aims and casts like the mouse', async ({ pag
   expect(wire.inputs.at(-1)!.slot).toBe(1);
   await finger('pointerup', 0, 0);
   await expect.poll(() => wire.inputs.at(-1)?.slot).toBe(0);
+  // 손가락을 끌면 브라우저가 화면 밀기로 받아 pointerup 대신 pointercancel을 보낸다. 이때도 뗀 것이다.
+  await finger('pointerdown', 0, 1);
+  await expect.poll(() => wire.inputs.at(-1)?.slot).toBe(1);
+  await finger('pointercancel', 0, 0);
+  await expect.poll(() => wire.inputs.at(-1)?.slot).toBe(0);
 });
 
 test('the drawer closes when the player falls, so it does not cover the deploy buttons', async ({ browser }) => {

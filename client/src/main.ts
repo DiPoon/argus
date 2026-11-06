@@ -536,7 +536,10 @@ function closeReportNote() {
 }
 $('again').addEventListener('click', leave);
 // 캔버스 밖에서 떼거나 움직여도 놓은 버튼은 반영한다. 새로 누르는 것은 캔버스 위에서만 받는다.
-window.addEventListener('pointerup', event => { if (!fingerLike(event)) syncButtons(event.buttons, false); });
+// PC 화면의 손가락을 끌면 브라우저가 화면 밀기로 받아 pointerup 대신 pointercancel을 보낸다. 받지 않으면 기술이 눌린 채로 남는다.
+for (const type of ['pointerup', 'pointercancel'] as const) {
+  window.addEventListener(type, event => { if (!fingerLike(event)) syncButtons(event.buttons, false); });
+}
 window.addEventListener('pointermove', event => { if (!fingerLike(event) && event.target !== world?.app.canvas) syncButtons(event.buttons, false); });
 window.addEventListener('blur', clearInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
