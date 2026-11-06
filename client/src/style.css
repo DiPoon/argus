@@ -1261,7 +1261,8 @@ body.touch .topbar { display:none }
 body.touch .operation { height:100dvh; min-height:0 }
 body.touch .battlefield { touch-action:none }
 body.touch .sidebar { display:none }
-body.touch.menu-open .sidebar { display:flex; position:fixed; z-index:20; top:44px; bottom:0; left:0; width:min(300px,85vw) }
+/* 서랍은 위쪽 줄과 알림 아래에서 시작한다(--top-stack은 main.ts가 잰다). 세로 화면에서는 위쪽 줄이 두 줄이 되고 알림도 쌓이므로 px로 정하면 서랍 머리를 덮는다. */
+body.touch.menu-open .sidebar { display:flex; position:fixed; z-index:20; top:var(--top-stack,44px); bottom:0; left:0; width:min(300px,85vw) }
 body.touch .map-title, body.touch #controls { display:none }
 /* 지도 위쪽: 메뉴 버튼, 체력과 마나, 경과 시간을 한 줄에 차례로 놓고, 알림은 그 줄 바로 아래 가운데에 둔다.
    자리를 px로 박아 두면(예: 체력과 마나를 왼쪽에서 172px) 글꼴에 따라 넓어진 버튼 줄이 덮는다. 한글 글꼴로 그리면 버튼 줄이
@@ -1289,7 +1290,9 @@ body.touch .toast { position:static; transform:none; max-width:min(420px,100%); 
 /* 작전 종료 카드는 여백과 글자를 줄여 위쪽 메뉴 버튼 줄 아래에 둔다. PC 크기 그대로는 높이가 390px이라, 높이 320px
    휴대폰 가로 화면에서 다음 작전 버튼이 화면 밖으로 잘리고 메뉴 버튼이 카드 위를 덮었다.
    가운데 맞춤은 margin:auto로 한다. 화면이 더 낮아 넘치더라도 카드 위쪽이 잘리지 않고 아래로 넘겨 볼 수 있다. */
-body.touch .result-overlay { display:flex; padding:46px 8px 8px; overflow:auto }
+body.touch .result-overlay { display:flex; padding:calc(var(--top-stack,43px) + 3px) 8px 8px; overflow:auto }
+/* 작전이 끝날 때의 알림은 카드에 같은 말이 있으므로 보이지 않는다. 낮은 화면에서는 3.5초 동안 카드 머리를 가리거나 다음 작전 버튼을 화면 밖으로 밀어낸다. */
+body.touch:not(.menu-open):has(#result:not([hidden])) .toast { display:none }
 body.touch .result-card { margin:auto; padding:16px 24px }
 body.touch .result-card h2 { font-size:22px; margin:8px 0 4px }
 body.touch .result-card p { margin:0 }

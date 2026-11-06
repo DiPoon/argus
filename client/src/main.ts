@@ -27,6 +27,9 @@ const chosenSkill = (name: string) => document.querySelector<HTMLInputElement>(`
 // 손가락으로 조작하는 기기다. 작전 화면에 이동 조이스틱과 기술 버튼을 띄운다. 주소에 ?touch를 붙이면 PC에서도 띄운다.
 const touchMode = matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).has('touch');
 document.body.classList.toggle('touch', touchMode);
+// 터치 화면에서는 마우스가 아닌 포인터(손가락·펜)를 손가락처럼 다룬다. 지도에서 기술을 내지 않고 조준에도 쓰지 않는다.
+// PC 화면에는 터치 조작이 없으므로, 터치스크린 노트북의 손가락은 마우스 구실을 한다.
+const fingerLike = (event: PointerEvent) => touchMode && event.pointerType !== 'mouse';
 // 터치 기기의 로비에서는 둘레 기술만 고른다. 손가락으로는 조준하면서 기술을 쓰기 어렵다(2026-11-03 휴대폰 시험).
 // 화면에서 고를 수 있는 기술만 줄인다. 서버는 어느 기기에서 온 참가든 같은 규칙(Rules.ValidSlots)으로 받는다.
 const offered = (skills: Skill[]) => touchMode ? skills.filter(skill => aroundSkills.includes(skill)) : skills;
@@ -139,6 +142,12 @@ ${touchMode ? touchLobby : desktopLobby}
     </section>
   </main>`;
 
+// 터치 화면의 서랍과 작전 종료 카드는 지도 위쪽 줄과 알림 아래에서 시작한다. 그 높이는 화면 폭과 글자와 알림 수에 달려 있어 px로 정하지 않고 재서 쓴다.
+if (touchMode) {
+  const topStack = document.querySelector('.top-stack')!;
+  new ResizeObserver(() => document.body.style.setProperty('--top-stack', `${topStack.getBoundingClientRect().bottom}px`)).observe(topStack);
+}
+
 let guest: Guest | undefined;
 let snapshot: Snapshot | undefined;
 let socket: WebSocket | undefined;
@@ -164,10 +173,12 @@ const slotOrder: number[] = [];
 // 다시 눌러야 하는 키(staleKeys)는 쥐고 있어도 누른 것으로 치지 않는다. 같은 슬롯의 다른 입력을
 // 새로 눌렀다 떼었을 때 쥐고 있던 키로 기술이 이어지지 않게 한다.
 const keyHeld = (code: string) => keys.has(code) && !staleKeys.has(code);
-// 터치 조작의 상태다. x·y는 조이스틱이 가리키는 이동 방향(길이 1), aim은 마지막으로 움직인 방향, slots는 누르고 있는 기술 버튼이다.
-const touch = { x: 0, y: 0, aim: 0, aimKnown: false, slots: new Set<number>() };
+// 터치 조작의 상태다. x·y는 조이스틱이 가리키는 이동 방향(길이 1), aim은 마지막으로 움직인 방향,
+// pointers는 기술 버튼을 누르고 있는 손가락(포인터 id → 슬롯)이다. 한 버튼을 두 손가락으로 누르면 둘 다 떼어야 뗀 것이다.
+const touch = { x: 0, y: 0, aim: 0, aimKnown: false, pointers: new Map<number, number>() };
+const touchedSlots = () => new Set(touch.pointers.values());
 function slotHeld(slot: number) {
-  if (touch.slots.has(slot)) return true;
+  if (touchedSlots().has(slot)) return true;
   if (slot === 1) return mouseButtons.has(0) || keyHeld('Digit1');
   if (slot === 2) return mouseButtons.has(2) || keyHeld('Digit2');
   if (slot === 3) return keyHeld('Space') || keyHeld('Digit3');
@@ -250,8 +261,10 @@ function renderToast() {
   if (toastLines.length > 0) toastTimer = window.setTimeout(renderToast, Math.min(...toastLines.map(line => line.until)) - now);
 }
 function clearInput() {
-  keys.clear(); mouseButtons.clear(); slotOrder.length = 0; pressedSinceSend = 0; pointerBaseline = true;
-  releaseTouchSkills(); releaseStick();
+  keys.clear(); mouseButtons.clear(); pressedSinceSend = 0; pointerBaseline = true;
+  // 조이스틱과 기술 버튼을 쥔 손가락은 비우지 않는다. 포인터를 잡아 두므로 뗀 것은 늘 알 수 있다.
+  // 비우면 움직이지 않는 손가락은 새 이벤트가 오지 않아 되살릴 길이 없다. 쥐고 있던 키는 자동 반복으로 되살아난다.
+  slotOrder.splice(0, slotOrder.length, ...touchedSlots());
   if (world) world.control = { x: 0, y: 0, aim: world.control.aim, slot: 0 };
   // 서버는 작전 중 살아 있는 대원의 입력만 받는다. 30Hz 입력과 같은 조건일 때만 멈춤 입력을 보낸다.
   if (me()?.state === 'alive' && snapshot?.phase === 'active') sendInput(0, 0, world?.control.aim ?? 0, 0);
@@ -292,16 +305,16 @@ async function openOperation() {
     catch { world = undefined; leave(); $('lobby-error').textContent = '그래픽 초기화에 실패했습니다. 브라우저의 하드웨어 가속을 확인해 주세요.'; return; }
     const canvas = world.app.canvas;
     canvas.addEventListener('pointermove', event => {
-      // 터치는 조준에 쓰지 않는다. 손가락이 지나간 자리를 조준으로 치면 기술 버튼을 누를 때마다 방향이 튄다.
-      if (event.pointerType === 'touch') return;
+      // 손가락은 조준에 쓰지 않는다. 손가락이 지나간 자리를 조준으로 치면 기술 버튼을 누를 때마다 방향이 튄다.
+      if (fingerLike(event)) return;
       mouse = { x: event.clientX, y: event.clientY, known: true };
       syncButtons(event.buttons, me()?.state === 'alive');
     });
     canvas.addEventListener('pointerdown', event => {
       if (!world || (event.button !== 0 && event.button !== 2)) return;
-      // 터치는 투입 위치 고르기에만 쓴다. 기술은 화면의 기술 버튼으로 쓴다.
+      // 손가락은 투입 위치 고르기에만 쓴다. 기술은 화면의 기술 버튼으로 쓴다.
       // 손가락은 마우스 버튼 상태(syncButtons)에 넣지 않는다. 다른 포인터 이벤트도 손가락은 건너뛰므로, 넣으면 뗀 것을 맞추지 못한다.
-      const touched = event.pointerType === 'touch';
+      const touched = fingerLike(event);
       if (touched && me()?.state !== 'waiting') return;
       if (!touched) mouse = { x: event.clientX, y: event.clientY, known: true };
       if (event.button === 0 && me()?.state === 'waiting' && snapshot?.phase !== 'ended') {
@@ -316,6 +329,8 @@ async function openOperation() {
     });
     canvas.addEventListener('contextmenu', event => event.preventDefault());
   }
+  // 로비에 있는 동안 창이나 화면 방향이 바뀌면, Pixi는 숨은 작전 화면의 크기를 0으로 읽고 예전 캔버스 크기를 그대로 둔다. 보인 뒤에 다시 맞춘다.
+  world.app.resize();
   world.app.ticker.start();
   connect();
 }
@@ -356,9 +371,10 @@ function connect() {
     const wasEnded = previous?.phase === 'ended';
     snapshot = { ...wire, walls, rules, map };
     if (me()?.state !== 'waiting') deployRequested = false;
-    if (wasAlive && me()?.state !== 'alive') releaseSkills();
+    // 서랍을 연 채 쓰러지거나 작전이 끝나면 서랍을 닫는다. 서랍이 투입 버튼이나 다음 작전 버튼을 덮으면 플레이어가 알아채기 어렵다.
+    if (wasAlive && me()?.state !== 'alive') { releaseSkills(); closeMenu(); }
     // 작전이 끝나는 순간 한 번만 입력을 비운다. 끝난 뒤의 스냅샷마다 비울 필요는 없다.
-    if (!wasEnded && snapshot.phase === 'ended') clearInput();
+    if (!wasEnded && snapshot.phase === 'ended') { clearInput(); closeMenu(); }
     sequence = Math.max(sequence, (me()?.ack ?? -1) + 1);
     status('분대 연결됨', true);
     world!.update(snapshot);
@@ -383,15 +399,19 @@ function connect() {
   });
 }
 
+function closeMenu() { document.body.classList.remove('menu-open'); }
+
 function leave() {
   guest = undefined; snapshot = undefined; lastNotice = 0; sequence = 0;
   closeReportNote();
   sessionStorage.removeItem('argus-guest');
   window.clearTimeout(reconnectTimer);
   socket?.close(); socket = undefined;
+  // 손가락 상태를 다음 작전으로 넘기지 않는다. 터치 조작도 숨긴다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아 지난 작전의 버튼이 남는다.
+  releaseStick(); releaseTouchSkills();
   clearInput();
   if (world) { world.landing = undefined; world.overview = false; world.app.ticker.stop(); }
-  $('operation').hidden = true; $('lobby').hidden = false; $('result').hidden = true;
+  $('operation').hidden = true; $('lobby').hidden = false; $('result').hidden = true; $('touch-controls').hidden = true;
   document.body.classList.remove('operating', 'menu-open');
   status('투입 대기');
 }
@@ -451,7 +471,7 @@ function updateUi() {
       const skill = p.slots[slot - 1];
       const definition = s.rules.skills.find(d => d.id === skill)!;
       const active = current?.slot === slot && current.endsAt > s.now;
-      button.className = `touch-skill skill-${definition.kind}${touch.slots.has(slot) ? ' held' : ''}${p.mana < definition.mana ? ' empty' : ''}${active ? ' active' : ''}`;
+      button.className = `touch-skill skill-${definition.kind}${touchedSlots().has(slot) ? ' held' : ''}${p.mana < definition.mana ? ' empty' : ''}${active ? ' active' : ''}`;
       button.querySelector('b')!.textContent = skillNames[skill];
       button.querySelector('small')!.textContent = active ? phaseText : `마나 ${definition.mana}`;
     }
@@ -509,8 +529,8 @@ function closeReportNote() {
 }
 $('again').addEventListener('click', leave);
 // 캔버스 밖에서 떼거나 움직여도 놓은 버튼은 반영한다. 새로 누르는 것은 캔버스 위에서만 받는다.
-window.addEventListener('pointerup', event => { if (event.pointerType !== 'touch') syncButtons(event.buttons, false); });
-window.addEventListener('pointermove', event => { if (event.pointerType !== 'touch' && event.target !== world?.app.canvas) syncButtons(event.buttons, false); });
+window.addEventListener('pointerup', event => { if (!fingerLike(event)) syncButtons(event.buttons, false); });
+window.addEventListener('pointermove', event => { if (!fingerLike(event) && event.target !== world?.app.canvas) syncButtons(event.buttons, false); });
 window.addEventListener('blur', clearInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
 window.addEventListener('keydown', event => {
@@ -548,7 +568,7 @@ function releaseStick() {
   $('touch-base').hidden = true;
 }
 function releaseTouchSkills() {
-  touch.slots.clear();
+  touch.pointers.clear();
   for (const button of document.querySelectorAll('.touch-skill')) button.classList.remove('held');
 }
 $('touch-move').addEventListener('pointerdown', event => {
@@ -562,7 +582,8 @@ $('touch-move').addEventListener('pointerdown', event => {
   moveStick(event);
 });
 $('touch-move').addEventListener('pointermove', event => { if (event.pointerId === stickPointer) moveStick(event); });
-for (const type of ['pointerup', 'pointercancel'] as const) {
+// 포인터를 놓치면 lostpointercapture가 온다. 그때 비우지 않으면 다음 손가락의 누름을 받지 못한다.
+for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
   $('touch-move').addEventListener(type, event => { if (event.pointerId === stickPointer) releaseStick(); });
 }
 // 기술 버튼: 누르고 있는 동안 그 슬롯을 쓴다. 키보드처럼 나중에 누른 버튼이 먼저다.
@@ -570,11 +591,16 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill'
   const slot = Number(button.dataset.slot);
   button.addEventListener('pointerdown', event => {
     event.preventDefault();
+    // 키보드·마우스처럼 살아 있을 때의 누름만 받는다. 살아 있지 않을 때의 누름이 착지 뒤 첫 입력에 실려 나가지 않게 한다.
+    if (me()?.state !== 'alive') return;
     button.setPointerCapture(event.pointerId);
-    touch.slots.add(slot); pressSlot(slot);
+    touch.pointers.set(event.pointerId, slot); pressSlot(slot);
     button.classList.add('held');
   });
-  const release = () => { touch.slots.delete(slot); button.classList.remove('held'); };
+  const release = (event: PointerEvent) => {
+    touch.pointers.delete(event.pointerId);
+    button.classList.toggle('held', touchedSlots().has(slot));
+  };
   button.addEventListener('pointerup', release);
   button.addEventListener('pointercancel', release);
   button.addEventListener('lostpointercapture', release);
