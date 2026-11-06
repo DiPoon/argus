@@ -5,6 +5,12 @@ import { affinityNames, type Affinity, type CombatAction, type Control, type Pos
 
 const colors = { floor: 0x141e20, lit: 0x253335, grid: 0x304044, wall: 0x657372, edge: 0x94a29a, unknown: 0x0b1315, lime: 0xdfff80, teal: 0x77cec2, red: 0xf28068, gold: 0xeabd73 };
 const affinityColors: Record<Affinity, number> = { strike: 0xf28068, block: 0x77cec2, channel: 0xc0a1f5, none: 0xeabd73 };
+// 적의 tiers는 타격·방어·잡기 순서다. 엘리트의 몸 색은 그 엘리트가 쓰는 2티어 행동의 종류이고, 2티어 행동이 없으면 병사의 색이다.
+const tierKinds: Affinity[] = ['strike', 'block', 'channel'];
+const bodyColor = (tiers: number[]) => {
+  const index = tiers.indexOf(2);
+  return index >= 0 ? affinityColors[tierKinds[index]] : 0xd2b49b;
+};
 const team = [colors.lime, colors.teal, 0xaeb5fa, 0xf2c981];
 const unitOutline = { color: 0x111a1a, width: 2.5 };
 
@@ -452,7 +458,7 @@ export class World {
       const r = enemy.radius;
       const action = enemy.action;
       if (action) this.drawAction(u, p, action, now, false);
-      const color = enemy.kind === 'warden' ? colors.teal : enemy.kind === 'breaker' ? colors.red : 0xd2b49b;
+      const color = bodyColor(enemy.tiers);
       if (enemy.kind === 'warden') {
         u.poly([p.x, p.y - r, p.x + r, p.y - r * .4, p.x + r * .8, p.y + r * .7,
           p.x, p.y + r, p.x - r * .8, p.y + r * .7, p.x - r, p.y - r * .4]).fill(color).stroke(unitOutline);

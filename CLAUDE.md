@@ -159,7 +159,7 @@ cd client && PLAYWRIGHT_BROWSERS_PATH=$D/browsers LD_LIBRARY_PATH=$D/root/usr/li
 
 수치와 정의의 위치: `Game/Rules.cs`(기술 비용·유효 시간, `AllowEliteEnemies`, `EnemyWindupMultiplier`, 체력·마나·시야), `Game/SkillDefinition.cs`(`Affinity`, `EnemySkill`, `EnemyDefinition`의 Grunt/Breaker/Warden), `Game/Model.cs`(`Player`·`Enemy`·`PlayerAction`·`EnemyAction` 상태와 중복 판정 기록용 `HashSet`).
 
-엘리트의 몸 색(`world.ts`)이 그 엘리트가 쓰는 2티어 행동의 종류다. 분쇄자는 빨간 몸에 타격 Ⅱ, 철위병은 청록 몸에 방어 Ⅱ다. 합의 규칙 "크기와 특징으로 어떤 2티어 기술을 쓰는지 알아볼 수 있게 한다"를 따른다. 철위병의 타격도 2티어였을 때 휴대폰 시험에서 헷갈려 2026-11-05에 1티어로 낮췄다. 적 정의의 티어를 바꾸면 색도 함께 본다(`CombatTests`의 `WardenStrike`).
+엘리트의 몸 색(`world.ts`)이 그 엘리트가 쓰는 2티어 행동의 종류다. 분쇄자는 빨간 몸에 타격 Ⅱ, 철위병은 청록 몸에 방어 Ⅱ다. 합의 규칙 "크기와 특징으로 어떤 2티어 기술을 쓰는지 알아볼 수 있게 한다"를 따른다. 철위병의 타격도 2티어였을 때 휴대폰 시험에서 헷갈려 2026-11-05에 1티어로 낮췄다. 몸 색은 `bodyColor`가 적의 `tiers`와 상성 색(`affinityColors`)에서 구하므로, 티어나 상성 색을 바꾸면 몸 색도 함께 바뀐다(`CombatTests`의 `WardenStrike`, `world.spec.ts`의 몸 색 검사).
 
 운영 방(생성 작전)은 `Rules.ForGeneratedMission`(엘리트 켬, 선딜 배율 1)을 쓰고, 처음 적은 시설마다 병사·분쇄자·철위병이다. 기본 규칙(`new Rules()`)은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 선딜 두 배)이다. 처음 배치하는 자리와 종류는 작전 배치(`MissionLayout.InitialEnemySpots`의 `EnemySpot`)가 정한다. 엘리트를 끈 작전에서는 엘리트 자리(`EnemyDefinition.IsElite`, 2티어 기술이 있는 적)에도 병사를 둔다. 자리가 막혀 있으면 생성자가 예외를 낸다(`PlaceInitialEnemy`). `AddEnemy`는 막힌 자리를 아무 표시 없이 건너뛰므로, 처음 배치에 그대로 쓰면 적이 빠져도 알 수 없다. 증원(`SpawnEnemy`)은 막히면 다른 각도를 다시 뽑으므로 그대로 둔다.
 

@@ -157,6 +157,18 @@ test('enemy tells refresh color and disappear immediately with lost visibility',
   expect(result.removed).toBe(true); expect(result.hidden).toBe(true);
 });
 
+test('an elite body takes the color of the kind of its tier 2 action', async ({ page }) => {
+  const state = snapshot();
+  state.enemies = [elite(900), { ...elite(901), tiers: [1, 2, 1] }, { ...elite(902), tiers: [1, 1, 2] }];
+  const colorsOf = await page.evaluate(state => {
+    const world = window.testWorld;
+    world.update(state); world.draw(1 / 60);
+    return [900, 901, 902].map(id => world.labelsById.get(`enemy-type-${id}`)!.style.fill);
+  }, state);
+  // 예고 라벨이 쓰는 상성 색과 같아야 한다. 이 색을 바꾸면 몸 색도 함께 바뀐다.
+  expect(colorsOf).toEqual([0xf28068, 0x77cec2, 0xc0a1f5]);
+});
+
 test('gauges and guard arcs start their own path instead of a line from an earlier point', async ({ page }) => {
   const state = snapshot();
   // 적의 예고 게이지, 대원의 받아치기 방어 호, 탈출 진행도는 모두 원호로 그린다.
