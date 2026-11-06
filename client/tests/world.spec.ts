@@ -16,7 +16,6 @@ interface TestWorld {
   pending: unknown[];
   mePosition(): Position | undefined;
   screenToWorld(clientX: number, clientY: number): Position;
-  clampCamera: boolean;
   labelsById: Map<string, Text>;
   spareLabels: Text[];
   labels: Container;
@@ -273,24 +272,19 @@ test('skills around the player draw a circle of their reach, and an all-directio
   expect(at(shapes.ring.arcs, 28)).toBe(0);
 });
 
-test('the camera stops at the map edge on a PC but keeps the player in the middle on a touch screen', async ({ page }) => {
+test('the camera keeps the player in the middle at the edge of the map', async ({ page }) => {
   const state = snapshot();
-  // 맵(가로 1920) 오른쪽 끝 가까이에 선 대원이다.
-  Object.assign(state.players[0], { x: 1890, rawX: 1890 * 4096, landingX: 1890 });
-  const result = await page.evaluate(state => {
+  // 맵(가로 1920, 세로 1440)의 오른쪽 아래 구석 가까이에 선 대원이다.
+  Object.assign(state.players[0], { x: 1890, y: 1410, rawX: 1890 * 4096, rawY: 1410 * 4096, landingX: 1890, landingY: 1410 });
+  const middle = await page.evaluate(state => {
     const world = window.testWorld;
     const host = document.getElementById('host')!.getBoundingClientRect();
-    const middle = () => world.screenToWorld(host.left + host.width / 2, host.top + host.height / 2);
     world.update(state); world.draw(1 / 60);
-    const clamped = middle();
-    world.clampCamera = false; world.draw(1 / 60);
-    return { clamped, centered: middle() };
+    return world.screenToWorld(host.left + host.width / 2, host.top + host.height / 2);
   }, state);
-  // PC 화면은 지도 밖을 보이지 않으므로 화면 가운데가 대원보다 지도 안쪽이다.
-  expect(result.clamped.x).toBeLessThan(1500);
-  // 터치 화면은 대원을 가운데에 둔다. 지도 끝에서도 대원이 구석의 기술 버튼 밑에 그려지지 않는다.
-  expect(result.centered.x).toBeCloseTo(1890, 0);
-  expect(result.centered.y).toBeCloseTo(730, 0);
+  // 지도 끝에 붙잡으면 대원이 화면 구석으로 밀려 PC의 전투 HUD나 터치 화면의 기술 버튼 밑에 그려진다.
+  expect(middle.x).toBeCloseTo(1890, 0);
+  expect(middle.y).toBeCloseTo(1410, 0);
 });
 
 test('prediction blocks enemy bodies while allowing teammate overlap', async ({ page }) => {

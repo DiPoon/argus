@@ -301,7 +301,7 @@ async function enter(code?: string) {
 async function openOperation() {
   $('lobby').hidden = true; $('operation').hidden = false; document.body.classList.add('operating');
   if (!world) {
-    try { world = new World(); world.clampCamera = !touchMode; await world.init($('canvas-host')); }
+    try { world = new World(); await world.init($('canvas-host')); }
     catch { world = undefined; leave(); $('lobby-error').textContent = '그래픽 초기화에 실패했습니다. 브라우저의 하드웨어 가속을 확인해 주세요.'; return; }
     const canvas = world.app.canvas;
     canvas.addEventListener('pointermove', event => {
