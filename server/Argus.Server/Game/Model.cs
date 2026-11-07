@@ -156,8 +156,8 @@ public sealed class EnemyAction : ITimedAction
     {
         Id = id;
         Skill = skill;
-        Aim = aim;
-        Direction = aim.Direction();
+        // 방향과 방향 벡터는 Turn 한 곳에서 함께 정한다.
+        Turn(aim);
         TargetId = targetId;
         // 판정과 클라이언트의 예고가 같은 시간을 사용하도록 실제 접촉 시각에 배율을 적용한다.
         double windup = skill.Windup * windupMultiplier;

@@ -312,6 +312,23 @@ public sealed partial class Match
         return true;
     }
 
+    // id로 대원을 찾는다. id가 null이거나 그런 대원이 없으면 null이다.
+    public Player? FindPlayer(string? id)
+    {
+        if (id == null)
+        {
+            return null;
+        }
+        for (int i = 0; i < Players.Count; i++)
+        {
+            if (Players[i].Id == id)
+            {
+                return Players[i];
+            }
+        }
+        return null;
+    }
+
     public bool Input(Player player, long sequence, double moveX, double moveY, double aim, int slot, int press = 0)
     {
         if (Recorder != null)

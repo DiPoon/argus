@@ -321,16 +321,14 @@ internal static class Program
     // 그 대원이 그 순간 받았을 스냅샷이다. 시야 밖 적은 서버가 보낼 때처럼 빠져 있다.
     private static void PrintSnapshot(Match match, string playerId)
     {
-        for (int i = 0; i < match.Players.Count; i++)
+        Player? player = match.FindPlayer(playerId);
+        if (player == null)
         {
-            if (match.Players[i].Id == playerId)
-            {
-                byte[] json = Snapshot.Create(match, match.Players[i], RoomHost.Json);
-                Console.WriteLine("스냅샷:");
-                Console.WriteLine(Encoding.UTF8.GetString(json));
-                return;
-            }
+            Console.WriteLine($"그 순간 방에 대원 {playerId}가 없습니다.");
+            return;
         }
-        Console.WriteLine($"그 순간 방에 대원 {playerId}가 없습니다.");
+        byte[] json = Snapshot.Create(match, player, RoomHost.Json);
+        Console.WriteLine("스냅샷:");
+        Console.WriteLine(Encoding.UTF8.GetString(json));
     }
 }

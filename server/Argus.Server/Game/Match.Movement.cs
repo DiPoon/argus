@@ -283,18 +283,8 @@ public sealed partial class Match
     // 처음 노린 대원만 보므로, 다른 대원을 노리는 적은 동료가 옆에서 칠 수 있다.
     private void TurnToTarget(Enemy enemy, EnemyAction action)
     {
-        if (action.TargetId == null)
-        {
-            return;
-        }
-        Player? target = null;
-        for (int i = 0; i < Players.Count; i++)
-        {
-            if (Players[i].Id == action.TargetId)
-            {
-                target = Players[i];
-            }
-        }
+        // 검사가 직접 만든 행동처럼 노린 대원이 없으면 null이라 돌지 않는다.
+        Player? target = FindPlayer(action.TargetId);
         if (target == null || target.State != "alive")
         {
             return;
@@ -321,8 +311,9 @@ public sealed partial class Match
             {
                 if (enemy.Action.EndsTick > Tick)
                 {
-                    // 예고하는 동안에는 노린 대원 쪽으로 돈다. 공격 창이 열린 뒤에는 그때의 방향을 유지하므로,
-                    // 공격 창에 옆으로 피하면 빗나가고 측면이 된다.
+                    // 예고하는 동안에는 노린 대원 쪽으로 돈다. 공격 창이 열리면 직전 틱의 방향을 유지한다.
+                    // 공격은 창이 열리는 첫 틱에 판정되므로 노린 대원은 걸어서 피할 수 없다(한 틱에 6을 걷고, 공격의 가운데 줄에서
+                    // 26~37 안이면 맞는다). 의도한 것이다. 피하기는 앞으로 추가될 대시 같은 기술이 맡는다(2026-11-08 사용자 결정).
                     if (Tick < enemy.Action.ContactTick)
                     {
                         TurnToTarget(enemy, enemy.Action);
