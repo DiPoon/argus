@@ -523,6 +523,8 @@ internal static class LifecycleTests
             JsonElement root = json.RootElement;
             double now = root.GetProperty("now").GetDouble();
             JsonElement action = root.GetProperty("players")[0].GetProperty("actions")[0];
+            // 노린 대원(target)은 적의 행동에만 있다. 대원의 기술에는 빠진다.
+            Check(!action.TryGetProperty("target", out JsonElement _), "대원의 기술에 노린 대원이 담겼습니다");
             // 방금 시작한 기술의 startedAt은 같은 틱의 now와 정확히 같다.
             Equal(action.GetProperty("startedAt").GetDouble(), now);
             string[] times = new string[] { "contactAt", "activeUntil", "followupUntil", "endsAt" };

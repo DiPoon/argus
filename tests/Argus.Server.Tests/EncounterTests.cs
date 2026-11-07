@@ -358,6 +358,8 @@ internal static class EncounterTests
         Enemy enemy = Telegraphing(f, GruntSkill("strike"));
         EnemyAction action = enemy.Action!;
         Equal(action.TargetId, f.Player.Id);
+        // 화면이 나를 노린 예고를 알아보도록 스냅샷에도 노린 대원이 담긴다.
+        Equal(Snapshot.CreateShared(f.Match).Enemies[0].Action!.Target, f.Player.Id);
         f.Player.Position = enemy.Position + FixedVector.FromInt(0, 50);
         f.Match.Step();
         Equal(action.Aim.Units, Angle.Of(f.Player.Position - enemy.Position).Units);
