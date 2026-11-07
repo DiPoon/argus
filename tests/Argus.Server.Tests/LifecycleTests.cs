@@ -556,19 +556,13 @@ internal static class LifecycleTests
         Check(followupUntil > parry.ActiveUntilTick, "반격 구간이 비어 있습니다");
 
         // 유효 시간이 끝나기 직전까지는 방어이고, 끝나는 틱부터 반격이다.
-        while (match.Tick < parry.ActiveUntilTick - 1)
-        {
-            match.Step();
-        }
+        StepUntil(match, parry.ActiveUntilTick - 1);
         Equal(SnapshotPhase(match, player), "active");
         match.Step();
         Equal(SnapshotPhase(match, player), "followup");
 
         // 반격의 마지막 틱까지 반격이고, 보낸 followupUntil의 틱에서 회복으로 바뀐다.
-        while (match.Tick < followupUntil - 1)
-        {
-            match.Step();
-        }
+        StepUntil(match, followupUntil - 1);
         using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(match, player, RoomHost.Json)))
         {
             JsonElement action = json.RootElement.GetProperty("players")[0].GetProperty("actions")[0];

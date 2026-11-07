@@ -205,6 +205,15 @@ internal static class TestTools
         }
     }
 
+    // tick이 될 때까지 한 틱씩 진행한다. Advance는 초를 받아 틱으로 올려 세고, 이것은 틱을 정확히 맞춘다.
+    public static void StepUntil(Match match, long tick)
+    {
+        while (match.Tick < tick)
+        {
+            match.Step();
+        }
+    }
+
     public static Player Ally(Fixture fixture, string id)
     {
         Player ally = fixture.Match.Join(id, id)!;
