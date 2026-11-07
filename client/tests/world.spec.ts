@@ -169,6 +169,39 @@ test('an elite body takes the color of the kind of its tier 2 action', async ({ 
   expect(colorsOf).toEqual([0xf28068, 0x77cec2, 0xc0a1f5]);
 });
 
+test('a turning telegraph is drawn turning between snapshots, the short way round', async ({ page }) => {
+  // 적은 예고하는 동안 노린 대원 쪽으로 돈다. 스냅샷은 0.1초마다 오므로, 방향도 위치처럼 이전 스냅샷과 이어 그린다.
+  // 적의 눈(반지름 3의 점)이 적 가운데에서 어느 쪽에 있는지로 그린 방향을 잰다.
+  const telegraph = (id: number, aim: number) => ({ id, skill: 'strike', kind: 'strike' as const, slot: 0, tier: 1, phase: 'telegraph' as const,
+    aim, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, followupUntil: 11.25, endsAt: 12, range: 82, halfWidth: 24 });
+  const pairs = [[0, Math.PI / 2, 921, 921], [0, Math.PI / 2, 921, 922], [3, -3, 921, 921]];
+  const drawn = await page.evaluate(async ([pairs, actions]) => {
+    type Step = { action: string; data: number[] };
+    type Drawing = { context: { instructions: { data: { path?: { instructions: Step[] } } }[] } };
+    const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; units: Drawing };
+    const result: number[] = [];
+    for (let index = 0; index < (pairs as number[][]).length; index++) {
+      const [first, second] = actions as unknown[][];
+      world.update(first[index]); world.update(second[index]);
+      // 셋째는 조금 기다려 중간쯤 돈 방향을 그린다. 받은 직후에는 어느 쪽으로 돌든 이전 방향 가까이에 있어 구분되지 않는다.
+      if (index === 2) await new Promise(resolve => setTimeout(resolve, 20));
+      world.draw(1 / 60);
+      const eyes = world.units.context.instructions.flatMap(i => i.data.path?.instructions ?? [])
+        .filter(step => step.action === 'circle' && step.data[2] === 3);
+      const [x, y] = eyes[0].data;
+      result.push(Math.atan2(y - 730, x - 460));
+    }
+    return result;
+  }, [pairs, [pairs.map(([aim, , id]) => ({ ...snapshot(), now: 10.1, enemies: [{ ...elite(920), action: telegraph(id, aim) }] })),
+    pairs.map(([, aim, , id]) => ({ ...snapshot(), now: 10.2, enemies: [{ ...elite(920), action: telegraph(id, aim) }] }))]]);
+  // 같은 행동이면 받은 직후에는 아직 이전 방향 가까이에 있다.
+  expect(drawn[0]).toBeLessThan(Math.PI / 4);
+  // 새 행동이면 이어 그리지 않고 새 방향을 그린다.
+  expect(drawn[1]).toBeCloseTo(Math.PI / 2, 1);
+  // 3에서 -3으로 돌면 0을 지나는 먼 쪽이 아니라 π를 지나는 짧은 쪽으로 돈다. 먼 쪽이면 중간에 0 가까이를 지난다.
+  expect(Math.abs(drawn[2])).toBeGreaterThan(2.9);
+});
+
 test('gauges and guard arcs start their own path instead of a line from an earlier point', async ({ page }) => {
   const state = snapshot();
   // 적의 예고 게이지, 대원의 받아치기 방어 호, 탈출 진행도는 모두 원호로 그린다.

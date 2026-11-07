@@ -444,6 +444,13 @@ export class World {
     const u = this.units.clear();
     const alpha = Math.min(1, elapsed * 1000 / this.interval);
     const interpolate = (p: Position, old?: Position) => old ? { x: old.x + (p.x - old.x) * alpha, y: old.y + (p.y - old.y) * alpha } : p;
+    // 적은 예고하는 동안 노린 대원 쪽으로 돈다. 스냅샷은 0.1초마다 오므로, 같은 행동의 방향은 위치처럼 이전 스냅샷과 이어
+    // 그린다. 그러지 않으면 예고가 0.1초마다 뚝뚝 돈다. 차이는 -π~π로 맞춰 짧은 쪽으로 돈다.
+    const turning = (action: CombatAction | null, old?: CombatAction | null) => {
+      if (!action || !old || old.id !== action.id) return action;
+      const turn = Math.atan2(Math.sin(action.aim - old.aim), Math.cos(action.aim - old.aim));
+      return { ...action, aim: old.aim + turn * alpha };
+    };
     const oldEnemies = new Map(this.previous?.enemies.map(e => [e.id, e]));
     let enemies = s.enemies;
     if (enemies.length > this.renderBudget) {
@@ -454,9 +461,10 @@ export class World {
     // 현재 공개된 적만 그린다. 시야에서 빠진 적과 기술 예고는 즉시 제거한다.
     const now = s.now + elapsed;
     for (const enemy of enemies) {
-      const p = interpolate(enemy, oldEnemies.get(enemy.id));
+      const old = oldEnemies.get(enemy.id);
+      const p = interpolate(enemy, old);
       const r = enemy.radius;
-      const action = enemy.action;
+      const action = turning(enemy.action, old?.action);
       if (action) this.drawAction(u, p, action, now, false);
       const color = bodyColor(enemy.tiers);
       if (enemy.kind === 'warden') {
