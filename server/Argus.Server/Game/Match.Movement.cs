@@ -278,6 +278,36 @@ public sealed partial class Match
         return push;
     }
 
+    // 예고하는 적이 행동을 시작할 때 노린 대원 쪽으로 돈다. 도는 빠르기에 한도는 없다(docs/combat.md 시험 설정).
+    // 노린 대원이 쓰러졌거나 나갔으면 다른 대원으로 바꾸지 않고 마지막 방향을 유지한다.
+    // 처음 노린 대원만 보므로, 다른 대원을 노리는 적은 동료가 옆에서 칠 수 있다.
+    private void TurnToTarget(Enemy enemy, EnemyAction action)
+    {
+        if (action.TargetId == null)
+        {
+            return;
+        }
+        Player? target = null;
+        for (int i = 0; i < Players.Count; i++)
+        {
+            if (Players[i].Id == action.TargetId)
+            {
+                target = Players[i];
+            }
+        }
+        if (target == null || target.State != "alive")
+        {
+            return;
+        }
+        FixedVector offset = target.Position - enemy.Position;
+        // 몸이 겹칠 만큼 가까우면 방향을 정할 수 없으므로 그대로 둔다. 몸 충돌 때문에 정상 진행에서는 일어나지 않는다.
+        if (offset.LengthSquared() < TinyLengthSquared)
+        {
+            return;
+        }
+        action.Turn(Angle.Of(offset));
+    }
+
     private void UpdateEnemies()
     {
         for (int i = 0; i < Enemies.Count; i++)
@@ -291,6 +321,12 @@ public sealed partial class Match
             {
                 if (enemy.Action.EndsTick > Tick)
                 {
+                    // 예고하는 동안에는 노린 대원 쪽으로 돈다. 공격 창이 열린 뒤에는 그때의 방향을 유지하므로,
+                    // 공격 창에 옆으로 피하면 빗나가고 측면이 된다.
+                    if (Tick < enemy.Action.ContactTick)
+                    {
+                        TurnToTarget(enemy, enemy.Action);
+                    }
                     continue;
                 }
                 enemy.Action = null;
@@ -323,7 +359,7 @@ public sealed partial class Match
                 int index = _random.NextInt(0, enemy.Definition.Skills.Length);
                 EnemySkill skill = enemy.Definition.Skills[index];
                 _nextId++;
-                enemy.Action = new EnemyAction(_nextId, skill, Angle.Of(direct), Tick, Rules.EnemyWindupMultiplier);
+                enemy.Action = new EnemyAction(_nextId, skill, Angle.Of(direct), Tick, Rules.EnemyWindupMultiplier, target.Id);
                 // 회복이 끝난 틱에서 0.25초(8틱) 쉰 뒤 다음 행동을 고른다.
                 enemy.NextActionTick = enemy.Action.EndsTick + Rules.ToTicks(0.25);
                 continue;

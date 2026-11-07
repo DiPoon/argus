@@ -8,6 +8,8 @@
 
 `/health`의 `protocol`과 snapshot의 `version`은 5이다.
 
+v5 안에서 바뀜(2026-11-08): 적의 기술 객체 `aim`이 예고 동안 노린 대원 쪽으로 바뀔 수 있다. 이전에는 기술 시작 시 고정했다. 형식은 그대로라 버전은 그대로 5다.
+
 v5 안에서 추가(2026-11-06): 입력에 지난 입력 뒤에 누른 슬롯 `press`가 늘었다. `slot`은 쥐고 있는 슬롯만 뜻한다. `press`를 보내지 않는 클라이언트도 그대로 동작하므로 버전은 그대로 5다.
 
 v5 안에서 추가(2026-10-31): `rules.skills`에 조준하지 않는 둘레 기술 셋(`spin`·`spinblock`·`spingrab`, 상성 종류만 다름)과 기술별 동작 `around`가 늘었다. 앞의 세 장비 칸은 그 종류의 기술 가운데 하나, 자유 칸은 여섯 기술 가운데 하나를 받는다. 값과 기술이 추가되기만 해서 버전은 그대로 5다.
@@ -150,6 +152,8 @@ tiers([타격, 방어, 채널]), action(null 또는 기술 객체)
 id, skill, kind, slot, tier, phase,
 aim, startedAt, contactAt, activeUntil, followupUntil, endsAt, range, halfWidth
 ```
+
+적의 기술 객체 `aim`은 예고(`telegraph`) 동안 그 행동이 노린 대원 쪽으로 바뀔 수 있다. 공격 창(`active`)부터는 바뀌지 않는다.
 
 시간 필드는 서버 `now`와 같은 절대 시간이며 틱 시각이다(맨 위 시간 필드 참고). 반격은 `activeUntil`부터 `followupUntil` 전까지다. 반격이 없는 기술과 적의 행동은 두 값이 같다. `phase`는 telegraph / active / followup / recovery / interrupted. 플레이어의 후속 반격은 `kind: "none"`이며 RPS가 없다. 적의 telegraph에는 이미 상성이 있고 recovery에는 없다. `slot`은 플레이어 1~4, 적은 0이다. 미래 표적 ID나 숨겨진 적의 좌표는 기술 객체에 포함하지 않는다.
 

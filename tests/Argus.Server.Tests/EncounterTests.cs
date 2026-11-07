@@ -14,6 +14,12 @@ internal static class EncounterTests
         tests.Add(new TestCase("An enemy touching a wall walks straight along it instead of zigzagging", WallHug));
         tests.Add(new TestCase("Every enemy body is narrower than a cell and walks through a one-cell gap from any side", NarrowGap));
         tests.Add(new TestCase("An enemy chasing along a line that grazes a corner closer than its radius detours instead of stopping", GrazingLine));
+        tests.Add(new TestCase("A telegraphing enemy turns toward its target, so stepping aside does not leave the attack", TelegraphTracksTarget));
+        tests.Add(new TestCase("A player who steps aside during a telegraph meets its affinity instead of flanking it", SidestepMeetsAffinity));
+        tests.Add(new TestCase("Once the attack window opens the enemy keeps its direction, so a dodge in the window still works", WindowKeepsDirection));
+        tests.Add(new TestCase("An enemy keeps turning to the player it chose even when a teammate comes closer", TargetStaysChosen));
+        tests.Add(new TestCase("An enemy whose target falls during the telegraph keeps its last direction", FallenTargetKeepsDirection));
+        tests.Add(new TestCase("The state summary tells apart enemy actions that differ only in their target", TargetInStateHash));
     }
 
     private static void InitialPlacement()
@@ -297,6 +303,126 @@ internal static class EncounterTests
         Check(enemy.Position.Y > start.Y + Fixed.FromInt(60), "아래로 내려가지 않았습니다");
         // 몸이 지나갈 수 있는 직선이므로 옆으로 흔들리지 않아야 한다.
         Check(Fixed.Abs(enemy.Position.X - start.X) < Fixed.One, "벽에 붙은 적이 직진하지 않고 옆으로 흔들립니다");
+    }
+
+    // 대원 오른쪽 50의 병사가 kind 기술 하나만 쓰게 하고, 한 틱 진행해 서버가 스스로 그 대원을 노린 행동을 시작하게 한다.
+    // 병사는 움직이지 않는다(Target). 선딜 배율은 규칙의 값이고, 기본 규칙은 두 배다.
+    private static Enemy Telegraphing(Fixture f, string kind)
+    {
+        EnemySkill? skill = null;
+        for (int i = 0; i < EnemyDefinition.Grunt.Skills.Length; i++)
+        {
+            if (EnemyDefinition.Grunt.Skills[i].Kind == kind)
+            {
+                skill = EnemyDefinition.Grunt.Skills[i];
+            }
+        }
+        Check(skill != null, $"병사에게 {kind} 기술이 없습니다");
+        EnemyDefinition single = new EnemyDefinition("grunt", "병사", Fixed.FromInt(13), 1, 0, new EnemySkill[] { skill! });
+        Enemy enemy = Target(f, single);
+        enemy.NextActionTick = f.Match.Tick;
+        f.Match.Step();
+        Check(enemy.Action != null, "적이 행동을 시작하지 않았습니다");
+        return enemy;
+    }
+
+    // tick이 될 때까지 진행한다.
+    private static void StepUntil(Fixture f, long tick)
+    {
+        while (f.Match.Tick < tick)
+        {
+            f.Match.Step();
+        }
+    }
+
+    private static void TelegraphTracksTarget()
+    {
+        // 병사가 대원을 노려 타격을 예고한다. 대원이 예고 중에 병사의 옆으로 돌아가면 병사도 그쪽으로 돈다.
+        Fixture f = new Fixture();
+        Enemy enemy = Telegraphing(f, "strike");
+        EnemyAction action = enemy.Action!;
+        Equal(action.TargetId, f.Player.Id);
+        f.Player.Position = enemy.Position + FixedVector.FromInt(0, 50);
+        f.Match.Step();
+        Equal(action.Aim.Units, Angle.Of(f.Player.Position - enemy.Position).Units);
+        // 대원이 그 자리에 있으면 타격을 맞는다. 예전에는 처음 방향으로 쳐서 옆으로 비킨 대원에게 닿지 않았다.
+        StepUntil(f, action.ActiveUntilTick);
+        Near(f.Player.Hp, f.Player.MaxHp - 1);
+    }
+
+    private static void SidestepMeetsAffinity()
+    {
+        // 2026-11-05 사용자 제보의 장면이다. 예고를 보고 옆으로 비켜 서서 상성이 지는 기술(회전 잡기)을 쓴다.
+        // 예전에는 대원이 타격의 범위 밖이라 측면 공격이 되어, 상성과 관계없이 일반 피해 1로 병사를 쓰러뜨렸다.
+        // 이제 병사가 대원 쪽으로 돌았으므로 타격이 잡기를 이긴다. 대원이 피해 1을 받고 병사는 살아 있다.
+        Fixture f = new Fixture();
+        Enemy enemy = Telegraphing(f, "strike");
+        EnemyAction action = enemy.Action!;
+        f.Player.Position = enemy.Position + FixedVector.FromInt(0, 50);
+        // 타격이 닿기 세 틱 전에 회전 잡기를 시작한다. 타격이 닿을 때 회전 잡기는 준비 동작 중이다.
+        StepUntil(f, action.ContactTick - 3);
+        Prepare(f, f.Player, "spingrab");
+        StepUntil(f, action.EndsTick);
+        Near(f.Player.Hp, f.Player.MaxHp - 1);
+        Near(enemy.Hp, 1);
+    }
+
+    private static void WindowKeepsDirection()
+    {
+        // 예고가 끝나고 공격 창이 열리는 틱에 대원이 옆으로 피한다. 병사는 더 돌지 않으므로 타격이 빗나간다.
+        Fixture f = new Fixture();
+        Enemy enemy = Telegraphing(f, "strike");
+        EnemyAction action = enemy.Action!;
+        StepUntil(f, action.ContactTick - 1);
+        int aim = action.Aim.Units;
+        f.Player.Position = enemy.Position + FixedVector.FromInt(0, 50);
+        StepUntil(f, action.EndsTick - 1);
+        Equal(action.Aim.Units, aim);
+        Near(f.Player.Hp, f.Player.MaxHp);
+    }
+
+    private static void TargetStaysChosen()
+    {
+        // 병사는 가장 가까운 대원을 노려 예고한다. 예고 중에 동료가 더 가까이 와도 처음 노린 대원 쪽으로 돈다.
+        // 그래서 다른 대원을 노리는 적은 동료가 옆에서 칠 수 있다.
+        Fixture f = new Fixture();
+        Player ally = Ally(f, "ally");
+        ally.Position = f.Player.Position + FixedVector.FromInt(-60, 0);
+        Enemy enemy = Telegraphing(f, "strike");
+        EnemyAction action = enemy.Action!;
+        Equal(action.TargetId, f.Player.Id);
+        ally.Position = enemy.Position + FixedVector.FromInt(0, -40);
+        f.Player.Position = enemy.Position + FixedVector.FromInt(0, 50);
+        f.Match.Step();
+        Equal(action.Aim.Units, Angle.Of(f.Player.Position - enemy.Position).Units);
+    }
+
+    private static void FallenTargetKeepsDirection()
+    {
+        // 예고 중에 노린 대원이 쓰러지면, 다른 대원 쪽으로 바꾸지 않고 마지막 방향을 유지한다.
+        Fixture f = new Fixture();
+        Player ally = Ally(f, "ally");
+        ally.Position = f.Player.Position + FixedVector.FromInt(-60, 0);
+        Enemy enemy = Telegraphing(f, "strike");
+        EnemyAction action = enemy.Action!;
+        int aim = action.Aim.Units;
+        ally.Position = enemy.Position + FixedVector.FromInt(0, -40);
+        f.Player.State = "waiting";
+        f.Match.Step();
+        Equal(action.Aim.Units, aim);
+    }
+
+    private static void TargetInStateHash()
+    {
+        // 노린 대원도 진행 상태다. "상태 필드는 모두 StateHash에 넣는다"는 규칙대로 요약에 든다.
+        // 같은 방의 같은 적에서 행동의 노린 대원만 바꿔 비교한다. 방이나 적이 다르면 다른 값 때문에 요약이 달라진다.
+        Fixture f = new Fixture();
+        Enemy enemy = Target(f);
+        EnemySkill skill = EnemyDefinition.Grunt.Skills[0];
+        enemy.Action = new EnemyAction(901, skill, Angle.Zero, f.Match.Tick, 1, f.Player.Id);
+        string chosen = f.Match.StateHash();
+        enemy.Action = new EnemyAction(901, skill, Angle.Zero, f.Match.Tick, 1, null);
+        Check(chosen != f.Match.StateHash(), "노린 대원만 다른데 상태 요약이 같습니다");
     }
 
     private static void LongerWindup()
