@@ -186,7 +186,12 @@ public static class MatchReplay
             {
                 slot = record.Slot.Value;
             }
-            match.Input(player, sequence, Value(record.MoveX), Value(record.MoveY), Value(record.Aim), slot);
+            int press = 0;
+            if (record.Press.HasValue)
+            {
+                press = record.Press.Value;
+            }
+            match.Input(player, sequence, Value(record.MoveX), Value(record.MoveY), Value(record.Aim), slot, press);
         }
         else if (record.Type == "disconnect")
         {

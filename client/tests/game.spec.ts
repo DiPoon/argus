@@ -204,6 +204,69 @@ test('a skill key held through deployment does not cast after landing until it i
   expect(me.errors).toEqual([]);
 });
 
+test('a skill key pressed and released between two input sends still casts once', async ({ page }) => {
+  const me = observe(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => me.player?.state).toBe('waiting');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+  await page.keyboard.down('KeyD'); await page.keyboard.down('KeyS');
+  await page.waitForTimeout(470);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
+  await expect.poll(() => me.player?.mana).toBe(24);
+  // 입력은 1/30초마다 보낸다. 누름과 뗌을 한 작업 안에서 일으켜, 두 입력 사이에 눌렀다 뗀 짧은 누름을 만든다.
+  // 이런 누름도 다음 입력에 한 번 실려 기술이 나가야 한다. 2026-11-05 휴대폰 시험에서는 짧게 누른 회전 방어가 나가지 않았다.
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1' }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Digit1' }));
+  });
+  await expect.poll(() => me.player?.mana).toBe(23);
+  // 한 번만 나간다. 뗀 뒤에 다시 나가지 않는다.
+  await page.waitForTimeout(1500);
+  expect(me.player!.mana).toBe(23);
+  expect(me.errors).toEqual([]);
+});
+
+test('a press goes out once in press, apart from the slot that stays held', async ({ page }) => {
+  const me = observe(page);
+  const inputs: { slot: number; press: number }[] = [];
+  page.on('websocket', ws => ws.on('framesent', frame => {
+    try { const data = JSON.parse(frame.payload.toString()); if (data.type === 'input') inputs.push(data); } catch { }
+  }));
+  // 누름과 뗌을 한 작업 안에서 일으켜, 두 입력 사이에 눌렀다 뗀 짧은 누름을 만든다.
+  const tap = (code: string) => page.evaluate(code => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code }));
+  }, code);
+  const pressed = (slot: number) => inputs.filter(input => input.press === slot);
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => me.player?.state).toBe('waiting');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+
+  // 쥐고 있는 기술은 slot으로 계속 보내고, 누른 순간의 입력 하나에만 press가 실린다.
+  await page.keyboard.down('Digit1');
+  await expect.poll(() => inputs.filter(input => input.slot === 1).length).toBeGreaterThan(3);
+  expect(pressed(1).map(input => input.slot)).toEqual([1]);
+  // 쥔 채 다른 기술을 짧게 누른다. 서버가 짧은 누름을 쥐고 있음으로 여기지 않게 slot은 쥐고 있는 기술 그대로다.
+  await tap('Digit2');
+  await expect.poll(() => pressed(2).length).toBe(1);
+  expect(pressed(2)[0].slot).toBe(1);
+  await page.keyboard.up('Digit1');
+  await expect.poll(() => inputs.at(-1)?.slot).toBe(0);
+  // 아무것도 쥐지 않고 짧게 누르면 slot은 0이다. 기술을 쓰는 중이어서 서버가 버려도, 뒤늦게 나갈 쥐고 있음이 남지 않는다.
+  await tap('Digit3');
+  await expect.poll(() => pressed(3).length).toBe(1);
+  expect(pressed(3)[0].slot).toBe(0);
+  await page.waitForTimeout(200);
+  expect(inputs.filter(input => input.press > 0)).toHaveLength(3);
+  expect(me.errors).toEqual([]);
+});
+
 test('a mouse button held while the window loses focus is not a new press when it comes back', async ({ page }) => {
   const me = observe(page);
   await page.goto('/');
@@ -376,7 +439,14 @@ test('wire protocol rejects forged state, invalid slots, replay and stolen ident
     send({ type: 'input', seq: 1, moveX: 0, moveY: 0, aim: 0, slot: 9 });
     send({ type: 'input', seq: 1, moveX: 0, moveY: 0, aim: 0, slot: 2.5 });
     send({ type: 'input', seq: 1, moveX: 0, moveY: 0, aim: 0, slot: 'strike' });
+    send({ type: 'input', seq: 1, moveX: 0, moveY: 0, aim: 0, slot: 0, press: 9 });
+    send({ type: 'input', seq: 1, moveX: 0, moveY: 0, aim: 0, slot: 0, press: -1 });
+    send({ type: 'input', seq: 1, moveX: 0, moveY: 0, aim: 0, slot: 0, press: 2.5 });
+    send({ type: 'input', seq: 1, moveX: 0, moveY: 0, aim: 0, slot: 0, press: 'strike' });
     send({ type: 'input', seq: 0, moveX: 1, moveY: 0, aim: 0, slot: 0 });
+    // 앞의 입력은 모두 거절되므로 받은 순번이 그대로다. 잘못 받았다면 순번 1이 ack에 나타난다.
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(self()!.ack).toBe(0);
     send({ type: 'loadout', slots: ['strike', 'parry', 'grab', 'grab'] });
     send({ type: 'deploy', x: 1000, y: 700 });
     send({ type: 'input', seq: 2, moveX: 0, moveY: 0, aim: 0, slot: 1 });

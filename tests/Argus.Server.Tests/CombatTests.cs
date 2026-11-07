@@ -25,6 +25,7 @@ internal static class CombatTests
         tests.Add(new TestCase("Grabs landing apart on one warden shield are separate partial judgments, each costing the warden one", StaggeredPartials));
         tests.Add(new TestCase("Tier-two draws deal two to each drawing player and one per draw to the elite, with one draw effect per judgment", EliteDraw));
         tests.Add(new TestCase("Reduced HP leaves skill tiers unchanged; a weak skill can still be fully broken", WeakPhase));
+        tests.Add(new TestCase("Each elite's tier-two action matches its body color; one block breaks a warden's strike", WardenStrike));
         tests.Add(new TestCase("Wall cover prevents melee hits between otherwise clear endpoints", Cover));
         tests.Add(new TestCase("The wall ray finds exact corners, edges, starting walls and both directions without rounding", RayWallEdges));
         tests.Add(new TestCase("Melee destroys walls and mission facilities through normal inputs", Structures));
@@ -482,8 +483,36 @@ internal static class CombatTests
         Advance(f.Match, 0.2);
         Near(elite.Hp, 0);
         Near(f.Player.Hp, 6);
-        Equal(elite.Definition.Skills[0].Tier, 2);
+        // 철위병은 방어만 2티어다(2026-11-05부터 타격은 1티어).
+        Equal(elite.Definition.Skills[0].Tier, 1);
         Equal(elite.Definition.Skills[1].Tier, 2);
+    }
+
+    private static void WardenStrike()
+    {
+        // 엘리트가 어떤 2티어 행동을 쓰는지 몸 색으로 알아보게 한다(합의 규칙: 크기와 특징으로 알아보게 한다).
+        // 분쇄자는 몸이 타격 색(빨강)이고 타격만 2티어다. 철위병은 몸이 방어 색(청록)이고 방어만 2티어다.
+        // 색은 클라이언트(world.ts)가 적 종류로 고른다. 철위병의 타격이 2티어였을 때 휴대폰 시험에서 헷갈렸다(2026-11-05).
+        Equal(EnemyDefinition.Breaker.Skills[0].Tier, 2);
+        Equal(EnemyDefinition.Breaker.Skills[1].Tier, 1);
+        Equal(EnemyDefinition.Breaker.Skills[2].Tier, 1);
+        Equal(EnemyDefinition.Warden.Skills[0].Tier, 1);
+        Equal(EnemyDefinition.Warden.Skills[1].Tier, 2);
+        Equal(EnemyDefinition.Warden.Skills[2].Tier, 1);
+        // 그래서 철위병의 타격은 혼자 방어 하나로 완전 파훼된다. 대원은 피해가 없고, 철위병은 체력과 관계없이 쓰러진다.
+        Fixture f = new Fixture();
+        EnemySkill strike = EnemyDefinition.Warden.Skills[0];
+        Enemy warden = Threat(f, EnemyDefinition.Warden, strike, 0.2);
+        Prepare(f, f.Player, CounterFor(f.Match.Rules, strike.Kind));
+        Advance(f.Match, 0.3);
+        Near(f.Player.Hp, f.Player.MaxHp);
+        Check(!f.Match.Enemies.Contains(warden), "철위병의 타격을 혼자 방어로 막았는데 쓰러지지 않았습니다");
+        Equal(f.Player.Kills, 1);
+        // 대원이 받는 피해도 행동의 티어다. 대응하지 않고 맞으면 피해 1이다(2티어였을 때는 2).
+        Fixture hit = new Fixture();
+        Threat(hit, EnemyDefinition.Warden, strike, 0.2);
+        Advance(hit.Match, 0.3);
+        Near(hit.Player.Hp, hit.Player.MaxHp - 1);
     }
 
     private static void RayWallEdges()

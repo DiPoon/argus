@@ -1249,3 +1249,111 @@ kbd {
   .vitals>div { flex:1 }
   .skill-slot { min-height:70px }
 }
+
+/* 터치 조작: 손가락으로 조작하는 기기(body.touch)에서만 보인다.
+   왼쪽 아래를 누르면 그 자리에 이동 조이스틱이 생기고, 오른쪽 아래에 기술 버튼 넷이 있다.
+   작전 화면에서는 화면을 문질러도 페이지가 스크롤되거나 확대되지 않게 한다. */
+.touch-top { display:none }
+/* 지도 위쪽 줄의 묶음(.top-stack, .top-row)은 PC에서 상자를 만들지 않는다. 안의 경과 시간·체력과 마나·알림은 지금처럼 지도 기준 제자리에 그린다. */
+.top-stack, .top-row { display:contents }
+/* 당겨서 새로고침은 뷰포트의 overscroll-behavior를 따르고, Chromium은 이 값을 html에서만 읽는다. 서랍과 결과 화면은 전장의
+   touch-action:none 밖이라 맨 위에서 아래로 끌면 스크롤이 페이지로 이어져 작전 중에 페이지가 다시 불릴 수 있다. */
+html:has(body.touch.operating) { overscroll-behavior:none }
+body.touch .sidebar, body.touch .result-overlay { overscroll-behavior:contain }
+body.touch.operating { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none }
+/* 아이폰 Safari는 글자 크기가 16px보다 작은 입력란에 초점이 가면 화면을 확대하고, 입력을 마쳐도 되돌리지 않는다.
+   작전 화면은 touch-action:none이라 지도에서 오므려 줄일 수도 없다. */
+body.touch input { font-size:16px }
+body.touch .topbar { display:none }
+body.touch .operation { height:100dvh; min-height:0 }
+body.touch .battlefield { touch-action:none }
+body.touch .sidebar { display:none }
+/* 서랍은 위쪽 줄과 알림 아래에서 시작한다(--top-stack은 main.ts가 잰다). 세로 화면에서는 위쪽 줄이 두 줄이 되고 알림도 쌓이므로 px로 정하면 서랍 머리를 덮는다. */
+body.touch.menu-open .sidebar { display:flex; position:fixed; z-index:20; top:var(--top-stack,44px); bottom:0; left:0; width:min(300px,85vw); min-width:0; padding:22px 18px }
+/* 터치 화면에 쓸 값은 이 절에 직접 정한다. PC의 좁은 화면 규칙(max-width:760px·1100px)이 밑에서 작용하면 같은 터치 화면이 폭에 따라 달라진다.
+   지도 아래쪽 줄(조작 안내, ping·FPS·적 수)은 쓰지 않는다. 그대로 두면 폭이 760px를 넘는 휴대폰에서 조이스틱 자리 아래에 보인다. */
+body.touch .map-title, body.touch .map-bottom { display:none }
+/* 지도 위쪽: 메뉴 버튼, 체력과 마나, 경과 시간을 한 줄에 차례로 놓고, 알림은 그 줄 바로 아래 가운데에 둔다.
+   자리를 px로 박아 두면(예: 체력과 마나를 왼쪽에서 172px) 글꼴에 따라 넓어진 버튼 줄이 덮는다. 한글 글꼴로 그리면 버튼 줄이
+   약 188px이라 실제로 덮었다. 차례로 놓으면 버튼 폭과 관계없이 겹치지 않고, 자리가 모자라면(세로 화면) 다음 줄로 내려간다. */
+body.touch .top-stack { display:flex; flex-direction:column; align-items:center; gap:6px; position:absolute; top:8px; left:8px; right:8px; z-index:25; pointer-events:none }
+body.touch .top-row { display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; align-self:stretch }
+body.touch .touch-top { display:flex; gap:6px; pointer-events:auto }
+body.touch .map-top { position:static; margin-left:auto; justify-content:flex-end }
+body.touch .timers { gap:12px }
+.touch-button { padding:8px 11px; font-size:11px; background:#17221ee6; border:1px solid #4b5844; color:#d7e0d0 }
+body.touch .combat-hud { position:static; transform:none; width:auto; padding:6px 12px; gap:4px 12px; grid-template-columns:auto; justify-content:normal }
+body.touch .combat-hud .skill-bar { display:none }
+body.touch .combat-hud .vitals { display:flex; flex-direction:row; gap:16px }
+body.touch .combat-hud .vitals>div { flex:none }
+body.touch .combat-hud .vitals b { font-size:16px }
+body.touch #combat-status { font-size:9px; margin:0 }
+/* 투입 안내는 한 줄로 줄여 아래에 둔다. 좁은 화면 규칙(세로로 쌓기)을 따르면 작은 휴대폰에서 지도의 아래쪽 40%를 덮는다.
+   글과 버튼이 한 줄에 들어가지 않으면(세로 화면) 버튼이 다음 줄로 내려간다. 내려가지 않으면 투입 버튼이 화면 밖으로 밀려난다. */
+body.touch .deploy-panel { bottom:8px; width:min(720px,calc(100% - 16px)); padding:8px 12px; gap:8px 12px; flex-direction:row; flex-wrap:wrap; align-items:center }
+body.touch .deploy-panel > div:first-child { flex:1 1 260px; min-width:0 }
+body.touch #deploy-kicker { display:none }
+body.touch .deploy-panel h3 { font-size:13px; margin:0 0 3px }
+body.touch .deploy-panel p { font-size:9px; max-width:none }
+body.touch .deploy-actions { flex-direction:row; margin:0 0 0 auto; min-width:0 }
+body.touch .deploy-actions>* { flex:0 1 auto }
+body.touch .deploy-actions button { padding:10px 12px; white-space:nowrap }
+body.touch .toast { position:static; transform:none; max-width:min(420px,100%); padding:8px 14px }
+/* 작전 종료 카드는 여백과 글자를 줄여 위쪽 메뉴 버튼 줄 아래에 둔다. PC 크기 그대로는 높이가 390px이라, 높이 320px
+   휴대폰 가로 화면에서 다음 작전 버튼이 화면 밖으로 잘리고 메뉴 버튼이 카드 위를 덮었다.
+   가운데 맞춤은 margin:auto로 한다. 화면이 더 낮아 넘치더라도 카드 위쪽이 잘리지 않고 아래로 넘겨 볼 수 있다. */
+body.touch .result-overlay { display:flex; padding:calc(var(--top-stack,43px) + 3px) 8px 8px; overflow:auto }
+/* 작전이 끝날 때의 알림은 카드에 같은 말이 있으므로 보이지 않는다. 낮은 화면에서는 3.5초 동안 카드 머리를 가리거나 다음 작전 버튼을 화면 밖으로 밀어낸다. */
+body.touch:not(.menu-open):has(#result:not([hidden])) .toast { display:none }
+body.touch .result-card { margin:auto; padding:16px 24px }
+body.touch .result-card h2 { font-size:22px; margin:8px 0 4px }
+body.touch .result-card p { margin:0 }
+body.touch #result-stats { margin:12px 0; padding:10px 0 }
+body.touch #result-stats b { font-size:18px }
+body.touch #result-stats span { margin-top:3px }
+.touch-controls { position:absolute; inset:0; z-index:5; pointer-events:none }
+/* 조이스틱 자리는 화면의 45%까지이되, 좁은 세로 화면에서 오른쪽 기술 버튼 무리 밑으로 들어가지 않게 한다.
+   기술 버튼은 크기와 자리가 px로 정해져 있어 무리의 폭이 늘 188px이다. 버튼의 크기나 자리를 바꾸면 이 값도 고친다.
+   왼쪽 끝은 OS의 뒤로 가기 제스처 자리이고 touch-action으로 막을 수 없으므로 안쪽으로 들인다. */
+.touch-move { --edge:max(24px,env(safe-area-inset-left)); position:absolute; left:var(--edge); bottom:0; width:min(calc(45% - var(--edge)),calc(100% - 196px - var(--edge))); height:78%; pointer-events:auto; touch-action:none }
+.touch-base { position:absolute; width:112px; height:112px; margin:-56px 0 0 -56px; border-radius:50%; border:2px solid #cfe3b866; background:#0b121266 }
+.touch-knob { position:absolute; left:50%; top:50%; width:48px; height:48px; margin:-24px 0 0 -24px; border-radius:50%; background:#d8ef8acc }
+.touch-skill { position:absolute; width:74px; height:74px; border-radius:50%; pointer-events:auto; touch-action:none;
+  background:#17221e8c; border:2px solid currentColor; display:grid; place-content:center; gap:2px; text-align:center; padding:0 }
+.touch-skill b { font-size:11px; font-weight:600; line-height:1.2; word-break:keep-all }
+.touch-skill small { font-size:9px; color:#adbaa7 }
+.touch-skill[data-slot="1"] { right:16px; bottom:16px; width:88px; height:88px }
+.touch-skill[data-slot="2"] { right:114px; bottom:12px }
+.touch-skill[data-slot="3"] { right:24px; bottom:116px }
+.touch-skill[data-slot="4"] { right:112px; bottom:100px }
+.touch-skill.held { background:#2d3c2bcc; transform:scale(.94) }
+.touch-skill.active { box-shadow:0 0 0 3px currentColor }
+.touch-skill.empty { opacity:.45 }
+
+/* 터치 로비: 휴대폰 가로 화면 한 장에 들어오게 한다. 왼쪽은 참가, 오른쪽은 장비 칸이다. 세로 화면에서는 위아래로 쌓는다. */
+.touch-lobby { display:block; max-width:none; margin:0; padding:8px; height:100dvh; overflow:hidden }
+.touch-lobby .loadout-panel { height:100%; padding:10px 12px; display:grid; grid-template-columns:minmax(190px,30%) 1fr; gap:14px; overflow:auto }
+.touch-entry { display:flex; flex-direction:column; gap:7px; min-width:0 }
+.touch-entry .field-label { margin:4px 0 0 }
+.touch-entry input { padding:9px 10px }
+.touch-entry .primary { width:100%; padding:11px 14px; margin-top:4px }
+.touch-entry .join-row button { padding:9px 14px }
+.touch-entry .error { margin:0 }
+.touch-entry #lobby-full { align-self:flex-start; margin-top:auto }
+/* 장비 칸은 둘레 기술만 고른다. 종류 칸 셋은 기술이 하나씩이라 한 줄에 나란히 두고, 그 아래 자유 칸에 셋을 둔다.
+   기술 설명은 모두 "둘레 모두 · 조준 없음"이라 위의 한 줄로 대신하고 이름만 보인다. */
+.touch-gear { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px 10px; align-content:start; min-width:0 }
+.touch-gear-note, .touch-gear .primary-weapons, .touch-intro { grid-column:1 / -1 }
+.touch-gear .touch-intro { margin:2px 0 0; font-size:10px; line-height:1.8 }
+.touch-gear-note { margin:0; color:#a6b3aa; font-size:11px; line-height:1.6 }
+.touch-gear-note b { color:var(--lime); font-weight:500 }
+.touch-gear .equipment-options { margin:0; gap:5px }
+.touch-gear .kind-slot { margin-top:0; grid-template-columns:1fr }
+.touch-gear .field-label { font-size:10px }
+.touch-gear .equipment-options label>span { padding:8px }
+.touch-gear .equipment-options b { font-size:12px }
+.touch-gear .equipment-options small { display:none }
+@media (orientation: portrait) {
+  .touch-lobby { overflow:auto; height:auto }
+  .touch-lobby .loadout-panel { grid-template-columns:1fr; height:auto }
+}

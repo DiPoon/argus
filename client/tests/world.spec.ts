@@ -15,6 +15,7 @@ interface TestWorld {
   forecast?: { previous: Position; tip: Position };
   pending: unknown[];
   mePosition(): Position | undefined;
+  screenToWorld(clientX: number, clientY: number): Position;
   labelsById: Map<string, Text>;
   spareLabels: Text[];
   labels: Container;
@@ -156,6 +157,18 @@ test('enemy tells refresh color and disappear immediately with lost visibility',
   expect(result.removed).toBe(true); expect(result.hidden).toBe(true);
 });
 
+test('an elite body takes the color of the kind of its tier 2 action', async ({ page }) => {
+  const state = snapshot();
+  state.enemies = [elite(900), { ...elite(901), tiers: [1, 2, 1] }, { ...elite(902), tiers: [1, 1, 2] }];
+  const colorsOf = await page.evaluate(state => {
+    const world = window.testWorld;
+    world.update(state); world.draw(1 / 60);
+    return [900, 901, 902].map(id => world.labelsById.get(`enemy-type-${id}`)!.style.fill);
+  }, state);
+  // 예고 라벨이 쓰는 상성 색과 같아야 한다. 이 색을 바꾸면 몸 색도 함께 바뀐다.
+  expect(colorsOf).toEqual([0xf28068, 0x77cec2, 0xc0a1f5]);
+});
+
 test('gauges and guard arcs start their own path instead of a line from an earlier point', async ({ page }) => {
   const state = snapshot();
   // 적의 예고 게이지, 대원의 받아치기 방어 호, 탈출 진행도는 모두 원호로 그린다.
@@ -269,6 +282,21 @@ test('skills around the player draw a circle of their reach, and an all-directio
   // 둘레 방어는 반지름 28의 고리다. 앞만 막는 받아치기의 방어 호(같은 반지름의 원호)는 그리지 않는다.
   expect(at(shapes.ring.circles, 28)).toBeGreaterThan(0);
   expect(at(shapes.ring.arcs, 28)).toBe(0);
+});
+
+test('the camera keeps the player in the middle at the edge of the map', async ({ page }) => {
+  const state = snapshot();
+  // 맵(가로 1920, 세로 1440)의 오른쪽 아래 구석 가까이에 선 대원이다.
+  Object.assign(state.players[0], { x: 1890, y: 1410, rawX: 1890 * 4096, rawY: 1410 * 4096, landingX: 1890, landingY: 1410 });
+  const middle = await page.evaluate(state => {
+    const world = window.testWorld;
+    const host = document.getElementById('host')!.getBoundingClientRect();
+    world.update(state); world.draw(1 / 60);
+    return world.screenToWorld(host.left + host.width / 2, host.top + host.height / 2);
+  }, state);
+  // 지도 끝에 붙잡으면 대원이 화면 구석으로 밀려 PC의 전투 HUD나 터치 화면의 기술 버튼 밑에 그려진다.
+  expect(middle.x).toBeCloseTo(1890, 0);
+  expect(middle.y).toBeCloseTo(1410, 0);
 });
 
 test('prediction blocks enemy bodies while allowing teammate overlap', async ({ page }) => {

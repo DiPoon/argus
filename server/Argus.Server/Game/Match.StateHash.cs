@@ -101,6 +101,7 @@ public sealed partial class Match
         hasher.AddInt(player.MaxMana);
         hasher.AddLong(player.BusyUntilTick);
         hasher.AddInt(player.RequestedSlot);
+        hasher.AddInt(player.PressedSlot);
         hasher.AddInt(player.Actions.Count);
         for (int i = 0; i < player.Actions.Count; i++)
         {
