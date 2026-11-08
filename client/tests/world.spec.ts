@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
 import type { Container, Text } from 'pixi.js';
-import type { Control, Position, Snapshot } from '../src/types';
+import type { CombatAction, Control, Position, Snapshot } from '../src/types';
+
+// 그린 도형의 경로를 읽는 형식이다. Pixi 내부 구조라 검사에서만 쓴다.
+type Step = { action: string; data: number[] };
+type Drawing = { context: { instructions: { data: { path?: { instructions: Step[] } } }[] } };
+type DrawnWorld = { update(s: unknown): void; draw(dt: number): void; units: Drawing; props: Drawing };
 
 // 실제 World와 Pixi 객체를 검사한다. 테스트용 접근점은 아래 임시 페이지에만 있다.
 interface TestWorld {
@@ -169,6 +174,65 @@ test('an elite body takes the color of the kind of its tier 2 action', async ({ 
   expect(colorsOf).toEqual([0xf28068, 0x77cec2, 0xc0a1f5]);
 });
 
+test('enemy telegraphs turn smoothly, point at me when I am the target and stop turning once the attack window opens', async ({ page }) => {
+  // 적은 예고하는 동안 노린 대원 쪽으로 돌고 공격 창부터 방향을 고정한다. 적의 눈(반지름 3의 점)이 적 가운데에서 어느 쪽에
+  // 있는지로 그린 방향을 잰다. 화면 시계(performance.now)를 고정해, 브라우저가 잠깐 멈춰도 결과가 같게 한다.
+  const action = (id: number, aim: number, extra: Partial<CombatAction> = {}): CombatAction => ({ id, skill: 'strike', kind: 'strike',
+    slot: 0, tier: 1, phase: 'telegraph', aim, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, followupUntil: 11.25, endsAt: 12,
+    range: 82, halfWidth: 24, ...extra });
+  const scene = (now: number, telegraph: CombatAction): Snapshot => ({ ...snapshot(), now, enemies: [{ ...elite(920), action: telegraph }] });
+  // [먼저 받은 스냅샷, 나중에 받은 스냅샷, 두 스냅샷 사이(ms), 나중 것을 받고 그리기까지(ms)]
+  const cases: [Snapshot, Snapshot, number, number][] = [
+    // 같은 행동이면 위치처럼 이어 그린다. 받은 직후에는 이전 방향에 있고, 간격의 절반이 지나면 절반쯤 돈다.
+    [scene(10.1, action(921, 0)), scene(10.2, action(921, Math.PI / 2)), 100, 0],
+    [scene(10.1, action(921, 0)), scene(10.2, action(921, Math.PI / 2)), 100, 50],
+    // 새 행동이면 이어 그리지 않는다.
+    [scene(10.1, action(921, 0)), scene(10.2, action(922, Math.PI / 2)), 100, 0],
+    // 3에서 -3으로 돌면 0을 지나는 먼 쪽이 아니라 π를 지나는 짧은 쪽으로 돈다.
+    [scene(10.1, action(921, 3)), scene(10.2, action(921, -3)), 100, 50],
+    // 공격 창이 열린 뒤에는 서버가 고정한 방향을 그대로 그린다. 진하게 칠한 범위가 판정 범위와 같아야 한다.
+    [scene(10.9, action(921, 0)), scene(11.05, action(921, Math.PI / 2, { phase: 'active' })), 100, 50],
+    // 나를 노린 예고는 내 예측 위치(400, 730) 쪽으로 그린다. 서버가 보낸 방향(π/2)은 내 몸보다 뒤처져 있다.
+    [scene(10.1, action(921, Math.PI / 2, { target: 'pilot' })), scene(10.2, action(921, Math.PI / 2, { target: 'pilot' })), 100, 0],
+    // 스냅샷이 0.25초 간격으로 와도 보간이 끝까지 간다. 0.24초 뒤에는 거의 다 돌았다.
+    [scene(10.1, action(921, 0)), scene(10.35, action(921, 1)), 250, 240],
+    // 나를 노린 공격이다. 마지막 스냅샷은 공격 두 틱 전(10.9초, 327틱)이고, 서버가 마지막으로 도는 틱은 329틱(10.967초)이다.
+    // 화면 시계(10.98초)가 그 틱은 지났지만 공격 시각(11초) 전이다. 그 틱에 서버가 본 내 자리는 마지막 스냅샷의 내 자리(400, 730)에서
+    // 아래로 걷는 확인받지 않은 입력 넷 가운데 앞의 둘만 쓴 (400, 742)다. 화면은 그쪽으로 굳힌다.
+    // 내 몸(입력 넷을 다 쓴 754 쪽)이나 마지막 서버 방향(π), 한 틱 더(748)·덜(736) 걸은 자리 쪽이 아니다.
+    [scene(10.8, action(921, Math.PI, { target: 'pilot' })), scene(10.9, action(921, Math.PI, { target: 'pilot' })), 100, 80],
+  ];
+  // 마지막 장면만 스냅샷을 받은 뒤 확인받지 않은 내 입력(아래로 걷기) 넷을 보낸다.
+  const downInputs = cases.length - 1;
+  const drawn = await page.evaluate(([cases, downInputs]) => {
+    const world = window.testWorld as unknown as DrawnWorld & { recordInput(seq: number, x: number, y: number, at?: number): void };
+    let clock = 0;
+    performance.now = () => clock;
+    return cases.map(([first, second, gap, wait], index) => {
+      clock += 1000;
+      world.update(first);
+      clock += gap;
+      world.update(second);
+      if (index === downInputs) {
+        for (let seq = 1; seq <= 4; seq++) world.recordInput(seq, 0, 1, clock);
+      }
+      clock += wait;
+      world.draw(1 / 60);
+      const eye = world.units.context.instructions.flatMap(i => i.data.path?.instructions ?? [])
+        .find(step => step.action === 'circle' && step.data[2] === 3)!;
+      return Math.atan2(eye.data[1] - 730, eye.data[0] - 460);
+    });
+  }, [cases, downInputs] as const);
+  expect(drawn[0]).toBeCloseTo(0, 2);
+  expect(drawn[1]).toBeCloseTo(Math.PI / 4, 2);
+  expect(drawn[2]).toBeCloseTo(Math.PI / 2, 2);
+  expect(Math.abs(drawn[3])).toBeGreaterThan(3.1);
+  expect(drawn[4]).toBeCloseTo(Math.PI / 2, 2);
+  expect(Math.abs(drawn[5])).toBeCloseTo(Math.PI, 2);
+  expect(drawn[6]).toBeGreaterThan(0.95);
+  expect(drawn[7]).toBeCloseTo(Math.atan2(12, -60), 2);
+});
+
 test('gauges and guard arcs start their own path instead of a line from an earlier point', async ({ page }) => {
   const state = snapshot();
   // 적의 예고 게이지, 대원의 받아치기 방어 호, 탈출 진행도는 모두 원호로 그린다.
@@ -182,9 +246,7 @@ test('gauges and guard arcs start their own path instead of a line from an earli
     startedAt: 9.8, contactAt: 9.8, activeUntil: 10.35, followupUntil: 10.53, endsAt: 10.78, range: 54, halfWidth: 10 }];
   state.extraction = { ...state.extraction!, progress: 6, unlocked: true };
   const arcs = await page.evaluate(state => {
-    type Step = { action: string; data: number[] };
-    type Drawing = { context: { instructions: { data: { path?: { instructions: Step[] } } }[] } };
-    const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; units: Drawing; props: Drawing };
+    const world = window.testWorld as unknown as DrawnWorld;
     world.update(structuredClone(state)); world.draw(1 / 60);
     const found: { x: number; y: number; radius: number; stray: string | null }[] = [];
     for (const drawing of [world.units, world.props]) {
@@ -257,9 +319,7 @@ test('skills around the player draw a circle of their reach, and an all-directio
     { id: 'ring' as 'spin', kind: 'block', ...around, contactAfter: 0, range: 0, guardsFront: true, breaksStructures: false },
   ];
   const shapes = await page.evaluate(state => {
-    type Step = { action: string; data: number[] };
-    type Drawing = { context: { instructions: { data: { path?: { instructions: Step[] } } }[] } };
-    const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; units: Drawing; props: Drawing };
+    const world = window.testWorld as unknown as DrawnWorld;
     // 대원이 그 기술을 쓰는 중인 장면을 그리고, 그린 원과 원호를 [x, y, 반지름]으로 모은다.
     const drawn = (skill: string) => {
       const definition = state.rules.skills.find(d => d.id === skill)!;

@@ -523,6 +523,8 @@ internal static class LifecycleTests
             JsonElement root = json.RootElement;
             double now = root.GetProperty("now").GetDouble();
             JsonElement action = root.GetProperty("players")[0].GetProperty("actions")[0];
+            // 노린 대원(target)은 적의 행동에만 있다. 대원의 기술에는 빠진다.
+            Check(!action.TryGetProperty("target", out JsonElement _), "대원의 기술에 노린 대원이 담겼습니다");
             // 방금 시작한 기술의 startedAt은 같은 틱의 now와 정확히 같다.
             Equal(action.GetProperty("startedAt").GetDouble(), now);
             string[] times = new string[] { "contactAt", "activeUntil", "followupUntil", "endsAt" };
@@ -556,19 +558,13 @@ internal static class LifecycleTests
         Check(followupUntil > parry.ActiveUntilTick, "반격 구간이 비어 있습니다");
 
         // 유효 시간이 끝나기 직전까지는 방어이고, 끝나는 틱부터 반격이다.
-        while (match.Tick < parry.ActiveUntilTick - 1)
-        {
-            match.Step();
-        }
+        StepUntil(match, parry.ActiveUntilTick - 1);
         Equal(SnapshotPhase(match, player), "active");
         match.Step();
         Equal(SnapshotPhase(match, player), "followup");
 
         // 반격의 마지막 틱까지 반격이고, 보낸 followupUntil의 틱에서 회복으로 바뀐다.
-        while (match.Tick < followupUntil - 1)
-        {
-            match.Step();
-        }
+        StepUntil(match, followupUntil - 1);
         using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(match, player, RoomHost.Json)))
         {
             JsonElement action = json.RootElement.GetProperty("players")[0].GetProperty("actions")[0];

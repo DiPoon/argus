@@ -17,6 +17,8 @@ export interface CombatAction {
   phase: 'telegraph' | 'active' | 'followup' | 'recovery' | 'interrupted';
   aim: number; startedAt: number; contactAt: number; activeUntil: number; followupUntil: number; endsAt: number;
   range: number; halfWidth: number;
+  // 적의 행동이 노린 대원의 id다. 대원의 행동과 노린 대원이 없는 행동에는 없다(protocol v5, 2026-11-08).
+  target?: string;
 }
 // x·y는 그리기용(소수 둘째 자리로 반올림)이고, rawX·rawY는 예측용 고정소수점 Raw(4096분의 1 단위 정수)다.
 export interface Player extends Position {

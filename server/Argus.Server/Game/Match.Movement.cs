@@ -278,6 +278,26 @@ public sealed partial class Match
         return push;
     }
 
+    // 예고하는 적이 행동을 시작할 때 노린 대원 쪽으로 돈다. 도는 빠르기에 한도는 없다(docs/combat.md 시험 설정).
+    // 노린 대원이 쓰러졌거나 나갔으면 다른 대원으로 바꾸지 않고 마지막 방향을 유지한다.
+    // 처음 노린 대원만 보므로, 다른 대원을 노리는 적은 동료가 옆에서 칠 수 있다.
+    private void TurnToTarget(Enemy enemy, EnemyAction action)
+    {
+        // 검사가 직접 만든 행동처럼 노린 대원이 없으면 null이라 돌지 않는다.
+        Player? target = FindPlayer(action.TargetId);
+        if (target == null || target.State != "alive")
+        {
+            return;
+        }
+        FixedVector offset = target.Position - enemy.Position;
+        // 몸이 겹칠 만큼 가까우면 방향을 정할 수 없으므로 그대로 둔다. 몸 충돌 때문에 정상 진행에서는 일어나지 않는다.
+        if (offset.LengthSquared() < TinyLengthSquared)
+        {
+            return;
+        }
+        action.Turn(Angle.Of(offset));
+    }
+
     private void UpdateEnemies()
     {
         for (int i = 0; i < Enemies.Count; i++)
@@ -291,6 +311,13 @@ public sealed partial class Match
             {
                 if (enemy.Action.EndsTick > Tick)
                 {
+                    // 예고하는 동안에는 노린 대원 쪽으로 돈다. 공격 창이 열리면 직전 틱의 방향을 유지한다.
+                    // 공격은 창이 열리는 첫 틱에 판정되므로 노린 대원은 걸어서 피할 수 없다(한 틱에 6을 걷고, 공격의 가운데 줄에서
+                    // 26~37 안이면 맞는다). 의도한 것이다. 피하기는 앞으로 추가될 대시 같은 기술이 맡는다(2026-11-08 사용자 결정).
+                    if (Tick < enemy.Action.ContactTick)
+                    {
+                        TurnToTarget(enemy, enemy.Action);
+                    }
                     continue;
                 }
                 enemy.Action = null;
@@ -323,7 +350,7 @@ public sealed partial class Match
                 int index = _random.NextInt(0, enemy.Definition.Skills.Length);
                 EnemySkill skill = enemy.Definition.Skills[index];
                 _nextId++;
-                enemy.Action = new EnemyAction(_nextId, skill, Angle.Of(direct), Tick, Rules.EnemyWindupMultiplier);
+                enemy.Action = new EnemyAction(_nextId, skill, Angle.Of(direct), Tick, Rules.EnemyWindupMultiplier, target.Id);
                 // 회복이 끝난 틱에서 0.25초(8틱) 쉰 뒤 다음 행동을 고른다.
                 enemy.NextActionTick = enemy.Action.EndsTick + Rules.ToTicks(0.25);
                 continue;

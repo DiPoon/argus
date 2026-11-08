@@ -94,6 +94,7 @@ public static class Snapshot
                 ActionSnapshot display = CreateAction(action, action.Skill.Kind, action.Skill.Kind, action.Aim,
                     action.Skill.Range, action.Skill.HalfWidth);
                 display.Tier = action.Skill.Tier;
+                display.Target = action.TargetId;
                 display.Phase = "recovery";
                 if (match.Tick < action.ContactTick)
                 {

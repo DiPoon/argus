@@ -157,6 +157,7 @@ public sealed partial class Match
             hasher.AddBytes(StateHasher.ToJson(action.Skill));
         }
         hasher.AddInt(action.Aim.Units);
+        hasher.AddOptionalText(action.TargetId);
         hasher.AddLong(action.StartedTick);
         hasher.AddLong(action.ContactTick);
         hasher.AddLong(action.ActiveUntilTick);

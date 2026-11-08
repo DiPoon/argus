@@ -92,6 +92,10 @@ public sealed class ActionSnapshot
     public double EndsAt { get; set; }
     public double Range { get; set; }
     public double HalfWidth { get; set; }
+    // 적의 행동이 노린 대원의 id다. 화면이 나를 노린 예고를 내 예측 위치 쪽으로 그리는 데 쓴다.
+    // 대원의 행동과 노린 대원이 없는 행동에는 빠진다. 보이는 적의 행동이 이미 그 대원을 향하므로 숨은 정보가 아니다.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Target { get; set; }
 }
 
 public sealed class EnemySnapshot

@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import { fromDouble, toDouble, type FixedVector } from './fixed';
-import { deployable, inputHoldTicks, stepPlayer, tickMilliseconds, unknownTile, type Body, type Terrain } from './movement';
+import { deployable, inputHoldTicks, stepPlayer, tickMilliseconds, ticksPerSecond, unknownTile, type Body, type Terrain } from './movement';
 import { affinityNames, type Affinity, type CombatAction, type Control, type Position, type Snapshot } from './types';
 
 const colors = { floor: 0x141e20, lit: 0x253335, grid: 0x304044, wall: 0x657372, edge: 0x94a29a, unknown: 0x0b1315, lime: 0xdfff80, teal: 0x77cec2, red: 0xf28068, gold: 0xeabd73 };
@@ -182,6 +182,29 @@ export class World {
     if (!this.snapshot || !this.base || !this.terrain || this.droppedSeq > this.ack) { this.forecast = undefined; return; }
     this.forecast = { previous: this.base, tip: this.base };
     for (const input of this.pending) this.advance(input, input.ticks);
+  }
+
+  // 서버가 마지막 스냅샷 뒤로 ticks틱 동안 내 입력을 쓴 뒤의 내 자리(Raw)다. resimulate와 같은 계산을 앞부분만 한다.
+  // 보낸 입력보다 더 걸어야 하면 서버처럼 마지막 입력을 inputHoldTicks틱이 될 때까지만 이어 쓴다.
+  // 예측을 끈 동안(forecast가 없음)에는 없다. 서버가 입력을 한 틱에 하나씩 받으면 서버와 같은 자리다.
+  private serverSpotAfter(ticks: number): FixedVector | undefined {
+    const s = this.snapshot;
+    if (!s || !this.base || !this.terrain || !this.forecast) return undefined;
+    const radius = fromDouble(s.rules.playerRadius);
+    let spot = this.base;
+    let left = ticks;
+    for (const input of this.pending) {
+      if (left <= 0) return spot;
+      const use = Math.min(left, input.ticks);
+      for (let i = 0; i < use; i++) spot = stepPlayer(this.terrain, this.bodies, spot, input.x, input.y, s.rules.speed, radius);
+      left -= use;
+    }
+    const last = this.pending[this.pending.length - 1];
+    if (last && left > 0) {
+      const extra = Math.min(left, inputHoldTicks - last.ticks);
+      for (let i = 0; i < extra; i++) spot = stepPlayer(this.terrain, this.bodies, spot, last.x, last.y, s.rules.speed, radius);
+    }
+    return spot;
   }
 
   // 마지막 예측 위치(tip)에서 input을 ticks틱 더 쓴다. previous는 마지막 한 틱 전의 위치로, 그리기 보간에 쓴다.
@@ -374,7 +397,10 @@ export class World {
     if (focused && this.fps > 52) this.renderBudget = Math.min(10000, this.renderBudget + 1);
     const me = s.players.find(p => p.id === s.you);
     const overview = this.overview || me?.state !== 'alive' || s.phase === 'ended';
-    const elapsed = Math.min(.2, (performance.now() - this.received) / 1000);
+    // 마지막 스냅샷을 받은 뒤 지난 시간(ms)이다. 그리는 시각(elapsed)은 0.2초에서 자르지만, 보간 정도는 자르지 않은 값으로 구한다.
+    // 함께 자르면 스냅샷 간격이 0.2초를 넘을 때 보간이 끝까지 가지 못하고 멈췄다가 다음 스냅샷에서 튄다.
+    const since = performance.now() - this.received;
+    const elapsed = Math.min(.2, since / 1000);
     if (me) {
       // 서버 위치는 왕복 지연만큼 과거 입력의 결과다. 그대로 따라가면 화면의 내 캐릭터가 입력보다 늦으므로
       // 확인받지 않은 입력을 다시 적용한 곳을 목표로 삼는다.
@@ -442,7 +468,7 @@ export class World {
       this.label('landing', me?.state === 'deploying' ? `${me.deploy.toFixed(1)}s` : '선택한 투입 위치', landing.x, landing.y - 55, colors.lime, 16);
     }
     const u = this.units.clear();
-    const alpha = Math.min(1, elapsed * 1000 / this.interval);
+    const alpha = Math.min(1, since / this.interval);
     const interpolate = (p: Position, old?: Position) => old ? { x: old.x + (p.x - old.x) * alpha, y: old.y + (p.y - old.y) * alpha } : p;
     const oldEnemies = new Map(this.previous?.enemies.map(e => [e.id, e]));
     let enemies = s.enemies;
@@ -453,10 +479,33 @@ export class World {
     this.shownEnemies = enemies.length;
     // 현재 공개된 적만 그린다. 시야에서 빠진 적과 기술 예고는 즉시 제거한다.
     const now = s.now + elapsed;
+    // 적의 행동 방향이다. 서버는 예고하는 동안 노린 대원 쪽으로 돌고, 공격 창부터 방향을 고정한다.
+    // - 나를 노린 예고는 내 예측 위치 쪽으로 그린다. 서버는 내가 보낸 입력을 받으면 그 자리 쪽으로 돈다. 보간한 방향은 내 몸보다
+    //   뒤처져서, 걸어서 비켜 선 것처럼 보이지만 서버에서는 맞는다.
+    //   서버가 마지막으로 도는 틱(공격 창이 열리기 한 틱 전)이 화면 시계로 지나면 더 따라 돌지 않는다. 서버는 그 틱에 본 내 자리 쪽으로
+    //   방향을 굳혔으므로, 그 자리를 서버와 같은 계산(serverSpotAfter)으로 구해 그쪽으로 그린다. 진하게 칠한 범위가 서버가 친 자리와
+    //   같아야 하기 때문이다. 그 자리는 화면 속 내 몸보다 왕복 지연만큼 뒤에 있다. 서버가 공격 창을 연 스냅샷이 오면 그 방향을 그린다.
+    // - 공격 창이 열린 뒤에는 서버가 보낸 방향을 그대로 그린다. 진하게 칠한 범위가 판정 범위와 같아야 한다.
+    // - 그 밖의 예고는 위치처럼 이전 스냅샷과 이어 그린다. 그러지 않으면 0.1초마다 뚝뚝 돈다. 차이는 -π~π로 맞춰 짧은 쪽으로 돈다.
+    const facing = (action: CombatAction | null, old: CombatAction | null | undefined, at: Position) => {
+      if (!action) return action;
+      if (action.target === s.you && me?.state === 'alive' && s.now < action.contactAt) {
+        const lastTurn = Math.round(action.contactAt * ticksPerSecond) - 1;
+        if (now >= lastTurn / ticksPerSecond) {
+          const spot = this.serverSpotAfter(lastTurn - Math.round(s.now * ticksPerSecond));
+          return spot ? { ...action, aim: Math.atan2(toDouble(spot.y) - at.y, toDouble(spot.x) - at.x) } : action;
+        }
+        if (this.predicted) return { ...action, aim: Math.atan2(this.predicted.y - at.y, this.predicted.x - at.x) };
+      }
+      if (now >= action.contactAt || !old || old.id !== action.id) return action;
+      const turn = Math.atan2(Math.sin(action.aim - old.aim), Math.cos(action.aim - old.aim));
+      return { ...action, aim: old.aim + turn * alpha };
+    };
     for (const enemy of enemies) {
-      const p = interpolate(enemy, oldEnemies.get(enemy.id));
+      const old = oldEnemies.get(enemy.id);
+      const p = interpolate(enemy, old);
       const r = enemy.radius;
-      const action = enemy.action;
+      const action = facing(enemy.action, old?.action, p);
       if (action) this.drawAction(u, p, action, now, false);
       const color = bodyColor(enemy.tiers);
       if (enemy.kind === 'warden') {

@@ -156,7 +156,7 @@ public static class MatchReplay
         }
 
         // 나머지는 이미 참가한 대원에 대한 요청이다. 방에서 빠진 대원에 대한 요청은 서버에서도 방 상태를 바꾸지 않았으므로 건너뛴다.
-        Player? player = FindPlayer(match, record.Player);
+        Player? player = match.FindPlayer(record.Player);
         if (player == null)
         {
             return;
@@ -221,19 +221,4 @@ public static class MatchReplay
         return double.NaN;
     }
 
-    private static Player? FindPlayer(Match match, string? id)
-    {
-        if (id == null)
-        {
-            return null;
-        }
-        for (int i = 0; i < match.Players.Count; i++)
-        {
-            if (match.Players[i].Id == id)
-            {
-                return match.Players[i];
-            }
-        }
-        return null;
-    }
 }

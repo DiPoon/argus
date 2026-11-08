@@ -136,9 +136,12 @@ public sealed class EnemyAction : ITimedAction
 {
     public int Id { get; }
     public EnemySkill Skill { get; }
-    public Angle Aim { get; }
-    // 행동하는 동안 방향은 바뀌지 않으므로 방향 벡터를 만들 때 한 번만 구해 둔다.
-    public FixedVector Direction { get; }
+    // 행동의 방향이다. 예고하는 동안 목표 대원 쪽으로 돌 수 있고(Match.TurnToTarget), 공격 창부터는 바뀌지 않는다.
+    public Angle Aim { get; private set; }
+    // 판정마다 쓰므로 방향이 바뀔 때만 방향 벡터를 구해 둔다.
+    public FixedVector Direction { get; private set; }
+    // 행동을 시작할 때 노린 대원의 id다. 예고하는 동안 이 대원 쪽으로 돈다. 없으면(검사가 직접 만든 행동) 돌지 않는다.
+    public string? TargetId { get; }
     public long StartedTick { get; }
     public long ContactTick { get; }
     public long ActiveUntilTick { get; }
@@ -149,12 +152,13 @@ public sealed class EnemyAction : ITimedAction
     public const double ActiveSeconds = 0.25;
     public const double RecoverySeconds = 0.65;
 
-    public EnemyAction(int id, EnemySkill skill, Angle aim, long startTick, double windupMultiplier = 1)
+    public EnemyAction(int id, EnemySkill skill, Angle aim, long startTick, double windupMultiplier = 1, string? targetId = null)
     {
         Id = id;
         Skill = skill;
-        Aim = aim;
-        Direction = aim.Direction();
+        // 방향과 방향 벡터는 Turn 한 곳에서 함께 정한다.
+        Turn(aim);
+        TargetId = targetId;
         // 판정과 클라이언트의 예고가 같은 시간을 사용하도록 실제 접촉 시각에 배율을 적용한다.
         double windup = skill.Windup * windupMultiplier;
         // 단계마다 올림하면 끝이 한 틱씩 밀릴 수 있으므로, 각 단계의 끝을 시작부터 잰 초로 한 번에 올림한다.
@@ -162,6 +166,13 @@ public sealed class EnemyAction : ITimedAction
         ContactTick = startTick + Rules.ToTicks(windup);
         ActiveUntilTick = startTick + Rules.ToTicks(windup + ActiveSeconds);
         EndsTick = startTick + Rules.ToTicks(windup + ActiveSeconds + RecoverySeconds);
+    }
+
+    // 방향을 바꾼다. 방향 벡터도 함께 바꾼다.
+    public void Turn(Angle aim)
+    {
+        Aim = aim;
+        Direction = aim.Direction();
     }
 
     public bool IsActive(long tick)

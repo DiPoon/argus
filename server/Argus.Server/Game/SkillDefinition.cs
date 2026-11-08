@@ -148,12 +148,14 @@ public sealed class EnemyDefinition
         throw new ArgumentException($"적 종류 {id}를 모릅니다", nameof(id));
     }
 
+    // 기술의 사거리에 대원 반지름(13)을 더하면 적이 행동을 고르는 거리(Match.EngageDistance, 75) 이상이어야 한다.
+    // 잡기는 60이라 73까지만 닿아, 74에서 고른 잡기가 가만히 선 대원에게도 빗나갔다(2026-11-08 PR #22 리뷰).
     public static readonly EnemyDefinition Grunt = new EnemyDefinition("grunt", "병사", Fixed.FromInt(13), 1, 100,
         new EnemySkill[]
         {
             new EnemySkill("strike", 1, 0, 0.85, 65, 15),
             new EnemySkill("block", 1, 0, 0.95, 62, 15),
-            new EnemySkill("channel", 1, 0, 0.95, 60, 13)
+            new EnemySkill("channel", 1, 0, 0.95, 62, 13)
         });
 
     // 분쇄자는 타격만 강화한다. 혼자 받아치기로 막으면(부분 대응) 피해 1을 받는다.
