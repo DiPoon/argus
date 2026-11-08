@@ -673,30 +673,79 @@ test('the mission progress shows on the map while the side panel is hidden, and 
   const page = await context.newPage();
   const wire = await relay(page);
   // 터치 화면은 시설·보급품을 메뉴 버튼 아래에, 탈출을 경과 시간 아래에 나눠 둔다.
-  const items = page.locator('#touch-mission .mission-item, #touch-extract .mission-item');
+  const objectives = page.locator('#touch-mission .mission-item');
+  const extraction = page.locator('#touch-extract .mission-item');
   const found = { x: 900, y: 900, progress: 0, duration: 20, unlocked: false };
   try {
     await page.goto('/');
     await page.getByRole('button', { name: '새 작전 시작' }).tap();
     await expect(page.locator('#deploy-panel')).toBeVisible();
+    await leaveFullscreen(page);
     // 휴대폰은 옆 패널이 서랍에 숨어 있으므로 위쪽 줄에 임무 진행을 보인다. 처음에는 시설과 보급품뿐이다.
-    await expect(items).toHaveText(['시설 0/3', '보급품 0/2']);
+    // 숨은 요소도 글자는 그대로이므로 보이는지 함께 본다.
+    await expect(objectives).toHaveText(['시설 0/3', '보급품 0/2']);
+    await expect(page.locator('#touch-mission')).toBeVisible();
+    await expect(page.locator('#touch-extract')).toBeHidden();
     // 시설을 다 부수기 전에는 탈출 지점을 찾았어도 보이지 않는다. 주목표를 이루기 전에는 찾았는지가 쓸모없다(2026-11-08 사용자).
     wire.change = data => mission(data, 2, 1, found);
-    await expect(items).toHaveText(['시설 2/3', '보급품 1/2']);
+    await expect(objectives).toHaveText(['시설 2/3', '보급품 1/2']);
+    await expect(page.locator('#touch-extract')).toBeHidden();
     // 시설을 다 부쉈는데 아직 탈출 지점을 찾지 못했으면 찾으라고 알린다.
     wire.change = data => mission(data, 3, 1, null);
-    await expect(items).toHaveText(['시설 3/3', '보급품 1/2', '탈출 지점 찾기']);
+    await expect(objectives).toHaveText(['시설 3/3', '보급품 1/2']);
+    await expect(extraction).toHaveText(['탈출 지점 찾기']);
+    await expect(page.locator('#touch-extract')).toBeVisible();
     // 찾은 뒤에는 확보한 시간을 보인다. 이룬 항목은 표시가 바뀐다.
-    wire.change = data => mission(data, 3, 2, { ...found, progress: 7.4, unlocked: true });
-    await expect(items).toHaveText(['시설 3/3', '보급품 2/2', '탈출 7/20초']);
-    await expect(items.nth(0)).toHaveClass(/\bdone\b/);
-    await expect(items.nth(1)).toHaveClass(/\bdone\b/);
-    await expect(items.nth(2)).not.toHaveClass(/\bdone\b/);
+    wire.change = data => mission(data, 3, 2, { ...found, progress: 17.4, unlocked: true });
+    await expect(objectives).toHaveText(['시설 3/3', '보급품 2/2']);
+    await expect(extraction).toHaveText(['탈출 17/20초']);
+    await expect(objectives.nth(0)).toHaveClass(/\bdone\b/);
+    await expect(objectives.nth(1)).toHaveClass(/\bdone\b/);
+    await expect(extraction).not.toHaveClass(/\bdone\b/);
   } finally { await context.close(); }
 });
 
+test('the mission progress does not make the top row taller while fighting on a landscape phone, with or without the fullscreen button', async ({ browser }) => {
+  // 아이폰 Safari는 전체 화면이 없어 메뉴 버튼 줄이 짧다. 메뉴 아래 칸을 버튼 줄 폭에 맞춰 꺾었을 때 두 줄이 되어 위쪽 줄이 높아졌다.
+  for (const fullscreen of [true, false]) {
+    const name = fullscreen ? '전체 화면 버튼 있음' : '전체 화면 버튼 없음';
+    const context = await browser.newContext(phone);
+    const page = await context.newPage();
+    if (!fullscreen) await page.addInitScript(() => Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => false }));
+    const wire = await relay(page);
+    // 시설을 다 부수고 보급품을 다 모아 두 칸이 가장 넓은 상태다.
+    wire.change = data => mission(data, 3, 2, { x: 900, y: 900, progress: 17.4, duration: 20, unlocked: true });
+    try {
+      await page.goto('/');
+      await page.getByRole('button', { name: '새 작전 시작' }).tap();
+      await expect(page.locator('#deploy-panel')).toBeVisible();
+      if (fullscreen) await leaveFullscreen(page);
+      await expect(page.locator('#touch-full'), name).toBeVisible({ visible: fullscreen });
+      await deployAtCamp(page);
+      // 메뉴 버튼과 그 아래 칸, 경과 시간과 그 아래 탈출 칸이 모두 체력·마나 칸보다 짧다. 숨겼을 때와 같은 순간에 비교한다.
+      const growth = () => page.evaluate(() => {
+        const bottom = () => document.querySelector('.top-row')!.getBoundingClientRect().bottom;
+        const boxes = ['touch-mission', 'touch-extract'].map(id => document.getElementById(id)!);
+        const shown = bottom();
+        for (const box of boxes) box.style.display = 'none';
+        const hidden = bottom();
+        for (const box of boxes) box.style.display = '';
+        return shown - hidden;
+      });
+      for (const size of [{ width: 844, height: 390 }, { width: 802, height: 293 }, { width: 568, height: 320 }]) {
+        await page.setViewportSize(size);
+        await expect(page.locator('#touch-mission .mission-item'), name).toHaveText(['시설 3/3', '보급품 2/2']);
+        await expect(page.locator('#touch-extract .mission-item'), name).toHaveText(['탈출 17/20초']);
+        // 숨어 있으면 늘어난 높이가 0이라 통과하므로 보이는지 먼저 본다.
+        for (const id of ['#touch-mission', '#touch-extract']) await expect(page.locator(id), name).toBeVisible();
+        expect(await growth(), `${name} ${size.width}x${size.height}`).toBeLessThan(0.5);
+      }
+    } finally { await context.close(); }
+  }
+});
+
 test('a PC screen shows the mission progress on the map only when its window is too narrow for the side panel', async ({ page }) => {
+  const wire = await relay(page);
   await page.goto('/');
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect(page.locator('#room-code')).not.toHaveText('------');
@@ -705,7 +754,13 @@ test('a PC screen shows the mission progress on the map only when its window is 
   await expect(page.locator('#mission-mini')).toBeHidden();
   await page.setViewportSize({ width: 700, height: 900 });
   await expect(page.locator('.sidebar')).toBeHidden();
-  await expect(page.locator('#mission-mini .mission-item')).toHaveText(['시설 0/3', '보급품 0/2']);
+  // 좁은 창은 경과 시간 옆에 한 줄로 둔다. 탈출은 터치 화면처럼 시설을 다 부순 뒤에만 그 끝에 붙는다.
+  const items = page.locator('#mission-mini .mission-item');
+  await expect(page.locator('#mission-mini')).toBeVisible();
+  await expect(items).toHaveText(['시설 0/3', '보급품 0/2']);
+  wire.change = data => mission(data, 3, 0, null);
+  await expect(items).toHaveText(['시설 3/3', '보급품 0/2', '탈출 지점 찾기']);
+  await expect(page.locator('#touch-extract')).toBeHidden();
 });
 
 test('?touch shows the touch screen on a PC and the PC lobby keeps aimed skills', async ({ page }) => {
