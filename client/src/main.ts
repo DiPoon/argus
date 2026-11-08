@@ -460,10 +460,12 @@ function updateUi() {
   // 부순 시설 수로 정한다. 시설은 사선이 열린 대원만 부술 수 있어, 부순 시설은 분대가 본 시설로 스냅샷에 온다.
   // 주목표를 이뤘는데 아직 못 찾았으면 찾으라고 알리고, 찾은 뒤에는 확보한 시간을 옆 패널과 같은 값으로 보인다.
   const primaryDone = ext ? ext.unlocked : destroyed >= facilityGoal;
-  const item = (text: string, count: string, done: boolean) => `<span class="mission-item${done ? ' done' : ''}">${text}${count ? ` <b>${count}</b>` : ''}</span>`;
+  // 단위(초)는 숫자 밖에 이름과 같은 작은 글자로 붙인다. 그러면 탈출 상자가 같은 글꼴의 "경과 00:00" 상자보다 늘 좁아, 경과 시간
+  // 아래에 두어도 오른쪽 묶음이 넓어지지 않는다. 숫자 안에 넣었을 때는 한글 글꼴에서 1px, CI 실행기의 글꼴에서 2px 넓었다.
+  const item = (text: string, count: string, done: boolean, unit = '') => `<span class="mission-item${done ? ' done' : ''}">${text}${count ? ` <b>${count}</b>${unit}` : ''}</span>`;
   const objectives = item('시설', `${destroyed}/${facilityGoal}`, destroyed >= facilityGoal) + item('보급품', `${collected}/${supplyGoal}`, collected >= supplyGoal);
   const extraction = !primaryDone ? ''
-    : ext ? item('탈출', `${extractSeconds(ext.progress)}/${ext.duration}초`, false) : item('탈출 지점 찾기', '', false);
+    : ext ? item('탈출', `${extractSeconds(ext.progress)}/${ext.duration}`, false, '초') : item('탈출 지점 찾기', '', false);
   setMarkup('mission-mini', objectives + extraction);
   setMarkup('touch-mission', objectives);
   setMarkup('touch-extract', extraction);

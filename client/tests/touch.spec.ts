@@ -804,15 +804,20 @@ test('the mission progress does not make the top row taller while fighting on a 
         for (const box of boxes) box.style.display = '';
         return shown - hidden;
       });
-      // 533x320은 등록된 휴대폰 가로 화면 가운데 가장 좁다. 한글 글꼴로는 탈출 상자가 소수 한 자리만 넓어져도 위쪽 줄이 두 줄로 꺾였다.
-      // 이 검사 브라우저는 한글을 좁게 그려 그 꺾임은 드러나지 않으므로, 한글 글꼴로 재는 크기 점검이 따로 본다(검증 기록).
-      for (const size of [{ width: 844, height: 390 }, { width: 802, height: 293 }, { width: 568, height: 320 }, { width: 533, height: 320 }]) {
+      // 등록된 휴대폰 가운데 가장 좁은 가로 화면(533x320, 2013년 Nokia Lumia 520)은 보지 않는다. CI 실행기의 글꼴(WenQuanYi Zen Hei)에서는
+      // 이 PR 전부터 위쪽 줄이 한 줄에 들어가지 않아(버튼 줄 189 + 체력·마나 224 + 경과 시간 100px > 517px), 꺾인 둘째 줄에 탈출 상자만큼
+      // 높이가 더해진다. 한글 글꼴로 재는 크기 점검은 그 크기에서도 한 줄이다(검증 기록).
+      for (const size of [{ width: 844, height: 390 }, { width: 802, height: 293 }, { width: 568, height: 320 }]) {
         await page.setViewportSize(size);
         await expect(page.locator('#touch-mission .mission-item'), name).toHaveText(['시설 3/3', '보급품 2/2']);
         await expect(page.locator('#touch-extract .mission-item'), name).toHaveText(['탈출 17/20초']);
         // 숨어 있으면 늘어난 높이가 0이라 통과하므로 보이는지 먼저 본다.
         for (const id of ['#touch-mission', '#touch-extract']) await expect(page.locator(id), name).toBeVisible();
         expect(await growth(), `${name} ${size.width}x${size.height}`).toBeLessThan(0.5);
+        // 탈출 상자는 경과 시간 상자보다 넓지 않다. 넓으면 오른쪽 묶음이 넓어져 여유가 적은 화면에서 위쪽 줄이 꺾일 수 있다.
+        // 단위 "초"를 숫자 안에 넣었을 때는 한글 글꼴에서 1px, CI 실행기의 글꼴에서 2px 넓었다.
+        const widths = await page.evaluate(() => ({ timers: document.querySelector('.timers')!.getBoundingClientRect().width, extract: document.getElementById('touch-extract')!.getBoundingClientRect().width }));
+        expect(widths.extract, `${name} ${size.width}x${size.height} 탈출 상자 폭`).toBeLessThanOrEqual(widths.timers);
       }
     } finally { await context.close(); }
   }
