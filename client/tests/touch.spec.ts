@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect, type CDPSession, type Page } from '@playwright/test';
 import type { Player, Snapshot } from '../src/types';
 
@@ -705,15 +706,86 @@ test('the mission progress shows on the map while the side panel is hidden, and 
   } finally { await context.close(); }
 });
 
+test('once the extraction is seen the small progress follows what the server says about it, with the same seconds as the side panel', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const wire = await relay(page);
+  const extraction = page.locator('#touch-extract .mission-item');
+  const found = { x: 900, y: 900, progress: 0, duration: 20, unlocked: false };
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#deploy-panel')).toBeVisible();
+    // 탈출 지점이 보이면 서버가 보낸 unlocked(주목표 완료)를 따른다. 옆 패널도 이 값을 쓴다.
+    // 화면이 센 부순 시설 수가 서버와 다르면 서버가 맞다.
+    wire.change = data => mission(data, 3, 1, found);
+    await expect(page.locator('#touch-mission .mission-item')).toHaveText(['시설 3/3', '보급품 1/2']);
+    await expect(page.locator('#extract-note')).toHaveText('주목표 완료 후 활성화');
+    await expect(page.locator('#touch-extract')).toBeHidden();
+    wire.change = data => mission(data, 2, 1, { ...found, progress: 3.2, unlocked: true });
+    await expect(page.locator('#touch-mission .mission-item')).toHaveText(['시설 2/3', '보급품 1/2']);
+    await expect(extraction).toHaveText(['탈출 3/20초']);
+    // 확보한 시간은 옆 패널과 같은 값이다. 둘 다 정수로 내린다. 예전에는 19.97초가 작은 표시에서 19초, 옆 패널에서 20.0초였다.
+    wire.change = data => mission(data, 3, 2, { ...found, progress: 19.97, unlocked: true });
+    await expect(extraction).toHaveText(['탈출 19/20초']);
+    await expect(page.locator('#extract-note')).toHaveText('구역 안에서 20초 확보 · 19초');
+  } finally { await context.close(); }
+});
+
+test('the small progress keeps its elements while the snapshots bring the same progress', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const wire = await relay(page);
+  let snapshots = 0;
+  wire.change = data => { snapshots++; return mission(data, 3, 1, { x: 900, y: 900, progress: 17.4, duration: 20, unlocked: true }); };
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#touch-extract .mission-item')).toHaveText(['탈출 17/20초']);
+    // 내용이 같으면 다시 쓰지 않는다. 스냅샷은 0.1초마다 오고, 다시 쓰면 요소를 지우고 새로 만들어 레이아웃을 다시 계산한다.
+    // 지금 요소에 표시를 붙여 두고, 스냅샷이 몇 번 더 지난 뒤에도 같은 요소인지 본다. PC 좁은 창의 상자(#mission-mini)도 함께 본다.
+    const items = '#mission-mini .mission-item, #touch-mission .mission-item, #touch-extract .mission-item';
+    await page.evaluate(selector => { for (const node of document.querySelectorAll(selector)) Object.assign(node, { kept: true }); }, items);
+    const before = snapshots;
+    await expect.poll(() => snapshots).toBeGreaterThan(before + 3);
+    const kept = await page.evaluate(selector => [...document.querySelectorAll(selector)].map(node => 'kept' in node), items);
+    expect(kept).toEqual([true, true, true, true, true, true]);
+  } finally { await context.close(); }
+});
+
+test('leaving an operation clears the small progress before the next operation sends its first snapshot', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const wire = await relay(page);
+  wire.change = data => mission(data, 3, 2, { x: 900, y: 900, progress: 17.4, duration: 20, unlocked: true });
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#touch-extract .mission-item')).toHaveText(['탈출 17/20초']);
+    await page.getByRole('button', { name: '☰ 메뉴' }).tap();
+    await page.getByRole('button', { name: /작전에서 나가기/ }).tap();
+    await expect(page.locator('#lobby')).toBeVisible();
+    // 다음 방의 스냅샷을 붙잡아 둔다. 첫 스냅샷이 오기 전에는 updateUi가 돌지 않으므로, 나갈 때 비우지 않으면 지난 작전의 진행이 남는다.
+    wire.change = data => data;
+    wire.holding = true;
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#operation')).toBeVisible();
+    await expect.poll(() => wire.held.length).toBeGreaterThan(0);
+    for (const id of ['#mission-mini', '#touch-mission', '#touch-extract']) await expect(page.locator(id)).toBeEmpty();
+    wire.release();
+    await expect(page.locator('#touch-mission .mission-item')).toHaveText(['시설 0/3', '보급품 0/2']);
+  } finally { await context.close(); }
+});
+
 test('the mission progress does not make the top row taller while fighting on a landscape phone, with or without the fullscreen button', async ({ browser }) => {
-  // 아이폰 Safari는 전체 화면이 없어 메뉴 버튼 줄이 짧다. 메뉴 아래 칸을 버튼 줄 폭에 맞춰 꺾었을 때 두 줄이 되어 위쪽 줄이 높아졌다.
+  // 아이폰 Safari는 전체 화면이 없어 메뉴 버튼 줄이 짧다. 메뉴 아래 상자를 버튼 줄 폭에 맞춰 꺾었을 때 두 줄이 되어 위쪽 줄이 높아졌다.
   for (const fullscreen of [true, false]) {
     const name = fullscreen ? '전체 화면 버튼 있음' : '전체 화면 버튼 없음';
     const context = await browser.newContext(phone);
     const page = await context.newPage();
     if (!fullscreen) await page.addInitScript(() => Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => false }));
     const wire = await relay(page);
-    // 시설을 다 부수고 보급품을 다 모아 두 칸이 가장 넓은 상태다.
+    // 시설을 다 부수고 보급품을 다 모아 두 상자가 가장 넓은 상태다.
     wire.change = data => mission(data, 3, 2, { x: 900, y: 900, progress: 17.4, duration: 20, unlocked: true });
     try {
       await page.goto('/');
@@ -722,7 +794,7 @@ test('the mission progress does not make the top row taller while fighting on a 
       if (fullscreen) await leaveFullscreen(page);
       await expect(page.locator('#touch-full'), name).toBeVisible({ visible: fullscreen });
       await deployAtCamp(page);
-      // 메뉴 버튼과 그 아래 칸, 경과 시간과 그 아래 탈출 칸이 모두 체력·마나 칸보다 짧다. 숨겼을 때와 같은 순간에 비교한다.
+      // 메뉴 버튼과 그 아래 상자, 경과 시간과 그 아래 탈출 상자가 모두 체력·마나 상자보다 짧다. 숨겼을 때와 같은 순간에 비교한다.
       const growth = () => page.evaluate(() => {
         const bottom = () => document.querySelector('.top-row')!.getBoundingClientRect().bottom;
         const boxes = ['touch-mission', 'touch-extract'].map(id => document.getElementById(id)!);
@@ -732,7 +804,9 @@ test('the mission progress does not make the top row taller while fighting on a 
         for (const box of boxes) box.style.display = '';
         return shown - hidden;
       });
-      for (const size of [{ width: 844, height: 390 }, { width: 802, height: 293 }, { width: 568, height: 320 }]) {
+      // 533x320은 등록된 휴대폰 가로 화면 가운데 가장 좁다. 한글 글꼴로는 탈출 상자가 소수 한 자리만 넓어져도 위쪽 줄이 두 줄로 꺾였다.
+      // 이 검사 브라우저는 한글을 좁게 그려 그 꺾임은 드러나지 않으므로, 한글 글꼴로 재는 크기 점검이 따로 본다(검증 기록).
+      for (const size of [{ width: 844, height: 390 }, { width: 802, height: 293 }, { width: 568, height: 320 }, { width: 533, height: 320 }]) {
         await page.setViewportSize(size);
         await expect(page.locator('#touch-mission .mission-item'), name).toHaveText(['시설 3/3', '보급품 2/2']);
         await expect(page.locator('#touch-extract .mission-item'), name).toHaveText(['탈출 17/20초']);
@@ -761,6 +835,40 @@ test('a PC screen shows the mission progress on the map only when its window is 
   wire.change = data => mission(data, 3, 0, null);
   await expect(items).toHaveText(['시설 3/3', '보급품 0/2', '탈출 지점 찾기']);
   await expect(page.locator('#touch-extract')).toBeHidden();
+  // 화면을 크게 확대한 창은 CSS 폭이 아주 좁다(760px 창을 200%로 보면 380px). 그래도 항목이 화면 밖으로 나가지 않는다.
+  // 자리가 모자라면 상자 안에서 줄을 바꾸고, 알림은 상자 아래로 내려간다. 알림은 스냅샷마다 새 안내를 보내 띄워 둔다.
+  // 이 검사 브라우저는 한글을 좁게 그려, 한글 글꼴로는 넘치는 320px에서도 상자가 들어가고 두 줄이면 알림과 겹치지 않는다.
+  // 그래서 세 줄로 접히는 260px(창을 300%로 확대한 정도)도 본다.
+  let notice = 1_000_000;
+  wire.change = data => ({ ...mission(data, 3, 2, { x: 900, y: 900, progress: 17.4, duration: 20, unlocked: true }), notices: [...data.notices, { id: notice++, at: data.now, text: '보급 상자를 열었습니다 · 마나 +8' }] });
+  for (const width of [260, 320, 360, 420, 760]) {
+    await page.setViewportSize({ width, height: 700 });
+    await expect(items).toHaveText(['시설 3/3', '보급품 2/2', '탈출 17/20초']);
+    await expect(page.locator('#toast')).toBeVisible();
+    const layout = await page.evaluate(() => {
+      const timers = document.querySelector('.timers')!.getBoundingClientRect();
+      const toast = document.getElementById('toast')!.getBoundingClientRect();
+      const parts = [...document.querySelectorAll('.timers .mission-item, #elapsed')].map(part => part.getBoundingClientRect());
+      return { inside: parts.every(r => r.left >= 0 && r.right <= innerWidth), toastBelow: toast.top >= timers.bottom };
+    });
+    expect(layout, `${width}px`).toEqual({ inside: true, toastBelow: true });
+  }
+  // 작전이 끝나면 숨긴다. 종료 카드에 작전 시간과 보급품 회수가 있다. 터치 화면과 같다.
+  wire.change = data => ({ ...mission(data, 3, 0, null), phase: 'ended', result: 'failure' });
+  await expect(page.locator('#result')).toBeVisible();
+  await expect(page.locator('#mission-mini')).toBeHidden();
+  // 종료 카드를 숨기며 나가면 그 상태 클래스도 뗀다. 클래스는 카드가 보이는 동안과 늘 같아야 한다.
+  await expect(page.locator('body')).toHaveClass(/\bended\b/);
+  await page.locator('#again').click();
+  await expect(page.locator('#lobby')).toBeVisible();
+  await expect(page.locator('body')).not.toHaveClass(/\bended\b/);
+});
+
+test('the style sheet does not use :has(), so older browsers keep every rule', () => {
+  // :has()를 모르는 브라우저(iOS Safari 15.4 전, 오래된 안드로이드 WebView)는 그 선택자가 든 규칙 줄을 통째로 버린다.
+  // 화면 상태는 main.ts가 붙이는 클래스(body의 ended, html의 touch-operating)로 고른다. 주석 속 글은 보지 않는다.
+  const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  expect(css).not.toContain(':has(');
 });
 
 test('?touch shows the touch screen on a PC and the PC lobby keeps aimed skills', async ({ page }) => {
