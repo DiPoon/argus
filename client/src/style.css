@@ -8,7 +8,11 @@
   --muted:#8d9c95;
   --line:#303c37;
   --teal:#77cec2;
-  --red:#f28068
+  --red:#f28068;
+  /* 상성 색은 빛의 3원색이다(타격 빨강, 방어 파랑, 잡기 초록). world.ts의 affinityColors와 같은 값이어야 한다(world.spec.ts가 본다). */
+  --strike:#ff6b61;
+  --block:#4785ff;
+  --channel:#a6f9ba
 }
 
 * {
@@ -1225,17 +1229,17 @@ kbd {
 }
 
 /* 근접 전투: 상성 색과 이름을 함께 표시한다. */
-.skill-strike { color:#f28068 }
-.skill-block { color:#77cec2 }
-.skill-channel { color:#c0a1f5 }
+.skill-strike { color:var(--strike) }
+.skill-block { color:var(--block) }
+.skill-channel { color:var(--channel) }
 /* 종류 칸: 그 종류의 기술 가운데 하나를 고른다. 칸의 상성 색을 왼쪽 줄과 이름에 쓴다. */
 .kind-slot { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:14px; border-left:2px solid currentColor; padding-left:8px }
 .kind-slot legend strong { font-weight:600 }
 .kind-slot legend kbd { margin:0 7px 0 0 }
 .kind-slot label>span { padding:9px }
-.kind-slot.skill-strike legend strong { color:#f28068 }
-.kind-slot.skill-block legend strong { color:#77cec2 }
-.kind-slot.skill-channel legend strong { color:#c0a1f5 }
+.kind-slot.skill-strike legend strong { color:var(--strike) }
+.kind-slot.skill-block legend strong { color:var(--block) }
+.kind-slot.skill-channel legend strong { color:var(--channel) }
 .combat-intro { color:#a6b3aa; font-size:11px; line-height:1.9; margin:22px 0 }
 .combat-intro b { color:var(--lime) }
 .combat-legend span { font-weight:600 }
