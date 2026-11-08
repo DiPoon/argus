@@ -834,6 +834,23 @@ input::placeholder {
   color:#dce5ce
 }
 
+/* 작은 임무 진행이다. 옆 패널이 보이지 않을 때만 보인다. 폭 760px 이하의 PC 창은 경과 시간 옆에 두고, 터치 화면은 메뉴 버튼
+   아래에 둔다(터치 조작 절). 넓은 PC 화면은 옆 패널의 MISSION에 같은 정보가 있다. 이룬 항목은 숫자를 밝은 초록으로 칠한다. */
+.mission-mini { display:none; gap:20px }
+.mission-item { white-space:nowrap }
+.mission-mini b { margin-left:7px; font-family:monospace; font-size:14px; font-weight:400; color:#dce5ce }
+.mission-mini .done b { color:var(--lime) }
+@media(max-width:760px) {
+  .timers .mission-mini { display:flex }
+  /* 좁은 창(화면을 크게 확대한 창 포함)에서는 경과 시간 상자 안에서 줄을 바꾼다. 항목 하나는 꺾지 않는다. 줄을 바꾸지 않으면
+     상자가 왼쪽 화면 밖으로 나가 시설 수가 잘렸다(폭 320px). 알림은 main.ts가 잰 상자 아래 끝(--map-top) 밑에 둔다(.toast). */
+  body:not(.touch) .timers { flex-wrap:wrap; justify-content:flex-end; row-gap:4px }
+  body:not(.touch) .timers .mission-mini { flex-wrap:wrap; justify-content:flex-end; row-gap:4px }
+}
+/* 작전 종료 카드에 작전 시간과 보급품 회수가 있으므로, 카드가 보이는 동안(main.ts가 붙이는 body.ended)에는 임무 진행을 숨긴다.
+   터치 화면의 두 상자는 터치 조작 절에서 숨긴다. */
+body.ended .timers .mission-mini { display:none }
+
 .map-bottom {
   position:absolute;
   bottom:15px;
@@ -896,9 +913,11 @@ input::placeholder {
   font-size:11px
 }
 
+/* PC 화면의 알림은 경과 시간 상자 아래 끝에서 23px 밑에 둔다(보통 83px). 좁은 창에서는 상자 안에서 줄이 바뀌어 키가 달라지므로
+   main.ts가 아래 끝을 재서 넘긴다(--map-top). 터치 화면은 위쪽 줄 밑에 차례로 놓는다(터치 조작 절). */
 .toast {
   position:absolute;
-  top:83px;
+  top:calc(var(--map-top,60px) + 23px);
   left:50%;
   transform:translateX(-50%);
   padding:11px 20px;
@@ -1257,8 +1276,10 @@ kbd {
 /* 지도 위쪽 줄의 묶음(.top-stack, .top-row)은 PC에서 상자를 만들지 않는다. 안의 경과 시간·체력과 마나·알림은 지금처럼 지도 기준 제자리에 그린다. */
 .top-stack, .top-row { display:contents }
 /* 당겨서 새로고침은 뷰포트의 overscroll-behavior를 따르고, Chromium은 이 값을 html에서만 읽는다. 서랍과 결과 화면은 전장의
-   touch-action:none 밖이라 맨 위에서 아래로 끌면 스크롤이 페이지로 이어져 작전 중에 페이지가 다시 불릴 수 있다. */
-html:has(body.touch.operating) { overscroll-behavior:none }
+   touch-action:none 밖이라 맨 위에서 아래로 끌면 스크롤이 페이지로 이어져 작전 중에 페이지가 다시 불릴 수 있다.
+   터치 화면의 작전 중에는 main.ts가 html에 touch-operating을 붙인다. :has()는 쓰지 않는다. 모르는 브라우저(iOS Safari 15.4 전,
+   오래된 안드로이드 WebView)는 그 선택자가 든 규칙 줄을 통째로 버린다. */
+html.touch-operating { overscroll-behavior:none }
 body.touch .sidebar, body.touch .result-overlay { overscroll-behavior:contain }
 body.touch.operating { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none }
 /* 아이폰 Safari는 글자 크기가 16px보다 작은 입력란에 초점이 가면 화면을 확대하고, 입력을 마쳐도 되돌리지 않는다.
@@ -1278,8 +1299,21 @@ body.touch .map-title, body.touch .map-bottom { display:none }
    약 188px이라 실제로 덮었다. 차례로 놓으면 버튼 폭과 관계없이 겹치지 않고, 자리가 모자라면(세로 화면) 다음 줄로 내려간다. */
 body.touch .top-stack { display:flex; flex-direction:column; align-items:center; gap:6px; position:absolute; top:8px; left:8px; right:8px; z-index:25; pointer-events:none }
 body.touch .top-row { display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; align-self:stretch }
-body.touch .touch-top { display:flex; gap:6px; pointer-events:auto }
-body.touch .map-top { position:static; margin-left:auto; justify-content:flex-end }
+/* 작은 임무 진행을 두 상자로 나눠 둔다. 시설·보급품은 메뉴 버튼 아래, 탈출(주목표를 이룬 뒤)은 경과 시간 아래다. 가로 화면에서는
+   체력·마나 상자가 두 묶음보다 키가 커서 그 아래가 비어 있으므로 위쪽 줄이 높아지지 않는다. 경과 시간 옆에 한 줄로 두면 폭 568px
+   이하에서 경과 시간 상자가 다음 줄로 밀려, 그 아래의 알림이 기술 버튼을 덮었다. 셋을 메뉴 버튼 아래에 두면 두 줄이 되어 위쪽 줄이
+   높아졌다. 메뉴 아래 상자는 한 줄로 두고, 버튼 줄보다 넓으면 메뉴 묶음이 그만큼 넓어진다. 아이폰은 전체 화면 버튼이 없어 버튼 줄이
+   107px인데, 상자를 버튼 줄 폭에 맞춰 꺾었을 때 두 줄이 되어 위쪽 줄이 7px 높아졌다. 넓어져도 전체 화면 버튼이 있는 버튼 줄(181px)보다
+   좁다. 경과 시간 상자(38px)와 그 아래 탈출 상자를 합한 높이는 체력·마나 상자(한글 글꼴 69px, 검사 브라우저 67px)보다 짧아야 한다.
+   상자의 위아래 여백과 상자 사이 간격을 6px로 두었을 때는 68px이 되어 검사 브라우저에서 위쪽 줄을 높였다. */
+body.touch .touch-top { display:flex; flex-direction:column; gap:4px; pointer-events:auto }
+body.touch .touch-buttons { display:flex; gap:6px; white-space:nowrap }
+body.touch .touch-top .mission-mini, body.touch .touch-extract { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; padding:2px 8px;
+  background:#111a1ae8; border:1px solid #334139; font-size:9px; color:#93a088 }
+body.touch .timers .mission-mini, body.touch .touch-top .mission-mini:empty, body.touch .touch-extract:empty { display:none }
+/* 작전 종료 카드에 작전 시간과 보급품 회수가 있으므로, 카드가 보이는 동안(body.ended)에는 임무 진행을 숨긴다. */
+body.touch.ended .touch-top .mission-mini, body.touch.ended .touch-extract { display:none }
+body.touch .map-top { position:static; margin-left:auto; justify-content:flex-start; flex-direction:column; align-items:flex-end; gap:4px }
 body.touch .timers { gap:12px }
 .touch-button { padding:8px 11px; font-size:11px; background:#17221ee6; border:1px solid #4b5844; color:#d7e0d0 }
 body.touch .combat-hud { position:static; transform:none; width:auto; padding:6px 12px; gap:4px 12px; grid-template-columns:auto; justify-content:normal }
@@ -1304,7 +1338,7 @@ body.touch .toast { position:static; transform:none; max-width:min(420px,100%); 
    가운데 맞춤은 margin:auto로 한다. 화면이 더 낮아 넘치더라도 카드 위쪽이 잘리지 않고 아래로 넘겨 볼 수 있다. */
 body.touch .result-overlay { display:flex; padding:calc(var(--top-stack,43px) + 3px) 8px 8px; overflow:auto }
 /* 작전이 끝날 때의 알림은 카드에 같은 말이 있으므로 보이지 않는다. 낮은 화면에서는 3.5초 동안 카드 머리를 가리거나 다음 작전 버튼을 화면 밖으로 밀어낸다. */
-body.touch:not(.menu-open):has(#result:not([hidden])) .toast { display:none }
+body.touch.ended:not(.menu-open) .toast { display:none }
 body.touch .result-card { margin:auto; padding:16px 24px }
 body.touch .result-card h2 { font-size:22px; margin:8px 0 4px }
 body.touch .result-card p { margin:0 }

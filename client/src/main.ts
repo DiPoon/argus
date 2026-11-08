@@ -124,13 +124,13 @@ ${touchMode ? touchLobby : desktopLobby}
     <section id="battlefield" class="battlefield" aria-label="작전 지도">
       <div id="canvas-host" class="canvas-host"></div>
       <div class="top-stack"><div class="top-row">
-        <div class="touch-top"><button id="touch-menu" type="button" class="touch-button">☰ 메뉴</button><button id="touch-map" type="button" class="touch-button">지도</button><button id="touch-full" type="button" class="touch-button">전체 화면</button></div>
+        <div class="touch-top"><div class="touch-buttons"><button id="touch-menu" type="button" class="touch-button">☰ 메뉴</button><button id="touch-map" type="button" class="touch-button">지도</button><button id="touch-full" type="button" class="touch-button">전체 화면</button></div><span id="touch-mission" class="mission-mini"></span></div>
         <div id="combat-hud" class="combat-hud" hidden>
           <div class="vitals"><div><span id="my-name">대원</span><b id="hp">6</b><small id="max-hp">/ 6 HP</small><div class="health-bar"><i id="health-fill"></i></div></div>
           <div><span>마나</span><b id="mana">0</b><small id="max-mana">/ 24</small><div class="mana-bar"><i id="mana-fill"></i></div></div></div>
           <div class="skill-bar" id="skill-bar"></div><p id="combat-status" aria-live="polite"></p>
         </div>
-        <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span>경과 <b id="elapsed">00:00</b></span></div></div>
+        <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span id="mission-mini" class="mission-mini"></span><span>경과 <b id="elapsed">00:00</b></span></div><span id="touch-extract" class="mission-mini touch-extract"></span></div>
       </div><div id="toast" class="toast" role="status" hidden></div></div>
       <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 ${pick}. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
       <div id="touch-controls" class="touch-controls" hidden>
@@ -146,6 +146,10 @@ ${touchMode ? touchLobby : desktopLobby}
 if (touchMode) {
   const topStack = document.querySelector('.top-stack')!;
   new ResizeObserver(() => document.body.style.setProperty('--top-stack', `${topStack.getBoundingClientRect().bottom}px`)).observe(topStack);
+} else {
+  // PC 화면의 알림은 경과 시간 상자 아래에 둔다. 좁은 창에서는 상자 안에서 줄이 바뀌어 키가 달라지므로 아래 끝을 재서 쓴다(style.css의 .toast).
+  const mapTop = document.querySelector<HTMLElement>('.map-top')!;
+  new ResizeObserver(() => document.body.style.setProperty('--map-top', `${mapTop.offsetTop + mapTop.offsetHeight}px`)).observe(mapTop);
 }
 
 let guest: Guest | undefined;
@@ -300,6 +304,8 @@ async function enter(code?: string) {
 
 async function openOperation() {
   $('lobby').hidden = true; $('operation').hidden = false; document.body.classList.add('operating');
+  // 당겨서 새로고침을 막는 규칙은 html에 있어야 한다(style.css). :has()를 쓰지 않으려고 html에도 붙인다.
+  document.documentElement.classList.toggle('touch-operating', touchMode);
   if (!world) {
     try { world = new World(); await world.init($('canvas-host')); }
     catch { world = undefined; leave(); $('lobby-error').textContent = '그래픽 초기화에 실패했습니다. 브라우저의 하드웨어 가속을 확인해 주세요.'; return; }
@@ -401,6 +407,23 @@ function connect() {
 
 function closeMenu() { document.body.classList.remove('menu-open'); }
 
+// 임무 목표 수다. 합의한 임무 규칙(docs/requirements.md)이 시설 3곳 파괴, 선택 보급품 2개 회수이고, 생성기(MissionGenerator.FacilityCount)와
+// 서버의 시작 안내도 같은 수를 쓴다. 스냅샷에는 분대가 본 시설과 보급만 오므로 s.facilities.length로는 전체 수를 알 수 없다.
+const facilityGoal = 3, supplyGoal = 2;
+
+// 탈출 확보 시간(초)이다. 옆 패널과 작은 임무 진행이 같은 값을 보인다. 정수로 내리므로 20초를 채우기 전에 20이 보이지 않는다.
+// 소수 한 자리를 보이면 작은 탈출 상자가 넓어져, 폭 533px 휴대폰 가로 화면에서 위쪽 줄이 두 줄로 꺾이고 오른쪽 위 기술 버튼을 덮었다.
+const extractSeconds = (progress: number) => Math.floor(progress);
+
+// 내용이 같으면 다시 쓰지 않는다. updateUi는 스냅샷마다(초당 10번) 불리는데, innerHTML을 다시 쓰면 요소를 지우고 새로 만들어
+// 레이아웃과 스타일을 다시 계산한다.
+const markup = new Map<string, string>();
+function setMarkup(id: string, html: string) {
+  if (markup.get(id) === html) return;
+  markup.set(id, html);
+  $(id).innerHTML = html;
+}
+
 function leave() {
   guest = undefined; snapshot = undefined; lastNotice = 0; sequence = 0;
   closeReportNote();
@@ -412,7 +435,10 @@ function leave() {
   clearInput();
   if (world) { world.landing = undefined; world.overview = false; world.app.ticker.stop(); }
   $('operation').hidden = true; $('lobby').hidden = false; $('result').hidden = true; $('touch-controls').hidden = true;
-  document.body.classList.remove('operating', 'menu-open');
+  // 작은 임무 진행도 비운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아, 비우지 않으면 지난 작전의 진행이 보인다.
+  for (const id of ['mission-mini', 'touch-mission', 'touch-extract']) setMarkup(id, '');
+  document.body.classList.remove('operating', 'menu-open', 'ended');
+  document.documentElement.classList.remove('touch-operating');
   status('투입 대기');
 }
 
@@ -423,14 +449,33 @@ function updateUi() {
   $('room-code').textContent = s.room;
   $('mission-state').textContent = ended ? '작전 종료' : s.phase === 'active' ? '진행 중' : '투입 대기';
   $('elapsed').textContent = time(s.elapsed);
-  $('primary-count').textContent = `${s.facilities.filter(f => f.hp <= 0).length}/3`;
-  $('secondary-count').textContent = `${s.supplies.filter(f => f.objective && f.collected).length}/2`;
+  // 작은 임무 진행이다. 옆 패널이 보이지 않을 때만 보인다(style.css). 폭 760px 이하의 PC 창은 경과 시간 옆(#mission-mini)에 둔다.
+  // 터치 화면은 시설·보급품을 메뉴 버튼 아래(#touch-mission)에, 탈출을 경과 시간 아래(#touch-extract)에 나눠 둔다.
+  // 가로 화면에서는 체력·마나 상자가 두 상자보다 키가 커서 그 아래가 비어 있으므로, 나눠 두면 위쪽 줄이 높아지지 않는다.
+  const destroyed = s.facilities.filter(f => f.hp <= 0).length;
+  const collected = s.supplies.filter(f => f.objective && f.collected).length;
+  const ext = s.extraction;
+  // 탈출은 주목표(시설 파괴)를 이룬 뒤에만 보인다. 그 전에는 탈출 지점을 찾았는지가 쓸모없는 정보다(2026-11-08 사용자).
+  // 탈출 지점이 보이면 서버가 보낸 unlocked(주목표 완료)로 정한다. 옆 패널도 이 값을 쓴다. 보이지 않으면 그 값이 오지 않으므로
+  // 부순 시설 수로 정한다. 시설은 사선이 열린 대원만 부술 수 있어, 부순 시설은 분대가 본 시설로 스냅샷에 온다.
+  // 주목표를 이뤘는데 아직 못 찾았으면 찾으라고 알리고, 찾은 뒤에는 확보한 시간을 옆 패널과 같은 값으로 보인다.
+  const primaryDone = ext ? ext.unlocked : destroyed >= facilityGoal;
+  // 단위(초)는 숫자 밖에 이름과 같은 작은 글자로 붙인다. 그러면 탈출 상자가 같은 글꼴의 "경과 00:00" 상자보다 늘 좁아, 경과 시간
+  // 아래에 두어도 오른쪽 묶음이 넓어지지 않는다. 숫자 안에 넣었을 때는 한글 글꼴에서 1px, CI 실행기의 글꼴에서 2px 넓었다.
+  const item = (text: string, count: string, done: boolean, unit = '') => `<span class="mission-item${done ? ' done' : ''}">${text}${count ? ` <b>${count}</b>${unit}` : ''}</span>`;
+  const objectives = item('시설', `${destroyed}/${facilityGoal}`, destroyed >= facilityGoal) + item('보급품', `${collected}/${supplyGoal}`, collected >= supplyGoal);
+  const extraction = !primaryDone ? ''
+    : ext ? item('탈출', `${extractSeconds(ext.progress)}/${ext.duration}`, false, '초') : item('탈출 지점 찾기', '', false);
+  setMarkup('mission-mini', objectives + extraction);
+  setMarkup('touch-mission', objectives);
+  setMarkup('touch-extract', extraction);
+  $('primary-count').textContent = `${destroyed}/${facilityGoal}`;
+  $('secondary-count').textContent = `${collected}/${supplyGoal}`;
   // 시설과 탈출 지점은 분대가 본 것만 온다. 아직 찾지 못한 시설은 자리만 표시한다.
   $('facility-list').innerHTML = s.facilities.map(f => `<span class="${f.hp <= 0 ? 'done' : ''}">${f.hp <= 0 ? '✓' : '◇'} 0${f.id}</span>`).join('')
-    + '<span class="unknown">? 미발견</span>'.repeat(Math.max(0, 3 - s.facilities.length));
-  const ext = s.extraction;
+    + '<span class="unknown">? 미발견</span>'.repeat(Math.max(0, facilityGoal - s.facilities.length));
   $('extract-note').textContent = !ext ? '탈출 지점 미발견 · 지도를 탐색하세요'
-    : ext.unlocked ? `구역 안에서 ${ext.duration}초 확보 · ${ext.progress.toFixed(1)}초` : '주목표 완료 후 활성화';
+    : ext.unlocked ? `구역 안에서 ${ext.duration}초 확보 · ${extractSeconds(ext.progress)}초` : '주목표 완료 후 활성화';
   $('extract-progress').style.width = ext ? `${Math.min(100, 100 * ext.progress / ext.duration)}%` : '0%';
   $('team-count').textContent = `${s.players.length} / 4`;
   $('roster').innerHTML = s.players.map((member, index) => `<div class="member ${member.id === s.you ? 'self' : ''}"><span class="member-number color-${index}">0${index + 1}</span><div><b>${escape(member.name)}${member.id === s.you ? ' <small>나</small>' : ''}</b><span>${!member.connected ? '연결 끊김' : member.state === 'alive' ? `${Math.ceil(member.hp)} HP` : member.state === 'deploying' ? `투입까지 ${member.deploy.toFixed(1)}초` : member.hasDeployed ? '증원 대기' : '투입 대기'}</span><span class="roster-loadout">마나 ${member.mana}/${member.maxMana} · ${loadoutText(member.slots)}</span></div><i class="${member.state === 'alive' ? 'alive-dot' : ''}"></i></div>`).join('');
@@ -486,10 +531,12 @@ function updateUi() {
   $('touch-controls').hidden = !touchMode || !alive || ended;
   $('performance').textContent = `${ping} ms · ${world?.fps ?? 60} FPS · 적 ${world?.shownEnemies ?? 0}/${s.enemies.length}`;
   $('result').hidden = !ended;
+  // 종료 카드가 보이는 동안이다. CSS가 :has() 없이 이 상태를 고른다(임무 진행과 알림 숨김).
+  document.body.classList.toggle('ended', ended);
   if (ended) {
     $('result-title').textContent = s.result === 'success' ? '분대, 복귀 완료.' : '분대 신호 소실.';
     $('result-description').textContent = s.result === 'success' ? '적 시설을 무력화하고 탈출 지점을 확보했습니다.' : '전원이 사망하여 작전이 종료되었습니다.';
-    $('result-stats').innerHTML = `<div><b>${time(s.elapsed)}</b><span>작전 시간</span></div><div><b>${s.players.reduce((sum, member) => sum + member.kills, 0)}</b><span>분대 처치</span></div><div><b>${s.supplies.filter(f => f.objective && f.collected).length}/2</b><span>보급품 회수</span></div>`;
+    $('result-stats').innerHTML = `<div><b>${time(s.elapsed)}</b><span>작전 시간</span></div><div><b>${s.players.reduce((sum, member) => sum + member.kills, 0)}</b><span>분대 처치</span></div><div><b>${collected}/${supplyGoal}</b><span>보급품 회수</span></div>`;
   }
 }
 
