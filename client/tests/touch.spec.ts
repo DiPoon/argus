@@ -869,6 +869,17 @@ test('a PC screen shows the mission progress on the map only when its window is 
   await expect(page.locator('body')).not.toHaveClass(/\bended\b/);
 });
 
+test('the lobby slots and the legend wear the color of their own affinity', async ({ page }) => {
+  await page.goto('/');
+  // 상성 색은 CSS 변수(--strike·--block·--channel)에서 온다. 클래스가 다른 종류의 변수를 쓰거나 변수가 없어지면 기술 버튼과 장비 칸이
+  // 엉뚱한 색이 된다. 변수가 없으면 글자가 body 색을 물려받으므로, 기대값은 CSS에서 읽지 않고 고른 색 그대로 둔다(2026-11-08 사용자 결정).
+  // 기술 버튼과 기술 막대도 같은 .skill-* 규칙을 쓴다. 장비 칸 이름과 옆 패널의 상성 설명(작전 화면에 있어 숨어 있음)을 본다.
+  const expected: Record<string, string> = { strike: 'rgb(255, 107, 97)', block: 'rgb(71, 133, 255)', channel: 'rgb(166, 249, 186)' };
+  const actual = await page.evaluate(kinds => Object.fromEntries(kinds.map(kind =>
+    [kind, [...document.querySelectorAll(`.kind-slot.skill-${kind} legend strong, .combat-legend .skill-${kind}`)].map(element => getComputedStyle(element).color)])), Object.keys(expected));
+  for (const kind of Object.keys(expected)) expect(actual[kind], kind).toEqual([expected[kind], expected[kind]]);
+});
+
 test('the style sheet does not use :has(), so older browsers keep every rule', () => {
   // :has()를 모르는 브라우저(iOS Safari 15.4 전, 오래된 안드로이드 WebView)는 그 선택자가 든 규칙 줄을 통째로 버린다.
   // 화면 상태는 main.ts가 붙이는 클래스(body의 ended, html의 touch-operating)로 고른다. 주석 속 글은 보지 않는다.

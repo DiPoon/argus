@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
 import type { Container, Text } from 'pixi.js';
@@ -157,8 +158,8 @@ test('enemy tells refresh color and disappear immediately with lost visibility',
     // 라벨은 재사용을 위해 파괴하지 않고 숨겨 둔다. 사라진 적의 예고가 화면에 남지 않으면 된다.
     return { first, changed, removed: !world.labelsById.has('enemy-action-900'), hidden: !label.visible };
   }, state);
-  expect(result.first).toEqual({ text: '타격 Ⅱ · 대응 2', color: 0xf28068 });
-  expect(result.changed).toEqual({ text: '잡기 Ⅰ', color: 0xc0a1f5 });
+  expect(result.first).toEqual({ text: '타격 Ⅱ · 대응 2', color: 0xff6b61 });
+  expect(result.changed).toEqual({ text: '잡기 Ⅰ', color: 0xa6f9ba });
   expect(result.removed).toBe(true); expect(result.hidden).toBe(true);
 });
 
@@ -170,8 +171,41 @@ test('an elite body takes the color of the kind of its tier 2 action', async ({ 
     world.update(state); world.draw(1 / 60);
     return [900, 901, 902].map(id => world.labelsById.get(`enemy-type-${id}`)!.style.fill);
   }, state);
-  // 예고 라벨이 쓰는 상성 색과 같아야 한다. 이 색을 바꾸면 몸 색도 함께 바뀐다.
-  expect(colorsOf).toEqual([0xf28068, 0x77cec2, 0xc0a1f5]);
+  // 예고 라벨이 쓰는 상성 색과 같아야 한다. 이 색을 바꾸면 몸 색도 함께 바뀐다. 분쇄자 빨강, 철위병 파랑이다.
+  expect(colorsOf).toEqual([0xff6b61, 0x4785ff, 0xa6f9ba]);
+});
+
+test('a guard effect wears the block color and the effects without an affinity keep away from the affinity colors', async ({ page }) => {
+  const state = snapshot();
+  const kinds = ['guard', 'hurt', 'draw', 'break', 'partial', 'hit', 'heal', 'deploy'];
+  state.effects = kinds.map((kind, index) => ({ id: 7000 + index, x: 400 + index * 10, y: 700, kind, until: state.now + .5 }));
+  const colors = await page.evaluate(({ state, kinds }) => {
+    const world = window.testWorld;
+    world.update(state); world.draw(1 / 60);
+    return Object.fromEntries(kinds.map((kind, index) => [kind, world.labelsById.get(`effect-${7000 + index}`)!.style.fill]));
+  }, { state, kinds });
+  // 방어 성공은 방어 상성 색이다. 피격·비김은 상성 색과 겹치지 않는 분홍이다(2026-11-08 사용자 결정).
+  // 예전 피격·비김 색(연어 빨강)은 새 타격 빨강과 거의 같아, 적 옆에 뜬 피격이 타격 예고로 읽혔다.
+  expect(colors.guard).toBe(0x4785ff);
+  expect(colors.hurt).toBe(0xff8fd6);
+  expect(colors.draw).toBe(0xff8fd6);
+  const affinity = [0xff6b61, 0x4785ff, 0xa6f9ba];
+  for (const kind of kinds.filter(kind => kind !== 'guard')) expect(affinity, kind).not.toContain(colors[kind]);
+});
+
+test('the canvas and the page draw each affinity in the same color', () => {
+  // 캔버스(world.ts의 affinityColors)는 CSS 변수를 읽지 못해 같은 값을 따로 둔다. 한쪽만 바꾸면 기술 버튼과 예고 범위의 색이 달라진다.
+  // 공백과 대소문자는 표기가 달라도 같은 색으로 읽는다. 찾지 못하면 무엇을 못 찾았는지 알린다.
+  const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8');
+  const canvas = readFileSync(new URL('../src/world.ts', import.meta.url), 'utf8').match(/const affinityColors[^=]*=\s*\{([^}]*)\}/);
+  expect(canvas, 'world.ts의 affinityColors').not.toBeNull();
+  for (const kind of ['strike', 'block', 'channel']) {
+    const page = css.match(new RegExp(`--${kind}\\s*:\\s*#([0-9a-f]{6})`, 'i'));
+    const drawn = canvas![1].match(new RegExp(`\\b${kind}\\s*:\\s*0x([0-9a-f]{6})`, 'i'));
+    expect(page, `style.css의 --${kind}`).not.toBeNull();
+    expect(drawn, `world.ts의 affinityColors.${kind}`).not.toBeNull();
+    expect(drawn![1].toLowerCase(), kind).toBe(page![1].toLowerCase());
+  }
 });
 
 test('enemy telegraphs turn smoothly, point at me when I am the target and stop turning once the attack window opens', async ({ page }) => {

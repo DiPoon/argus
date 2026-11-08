@@ -491,7 +491,7 @@ internal static class CombatTests
     private static void WardenStrike()
     {
         // 엘리트가 어떤 2티어 행동을 쓰는지 몸 색으로 알아보게 한다(합의 규칙: 크기와 특징으로 알아보게 한다).
-        // 분쇄자는 몸이 타격 색(빨강)이고 타격만 2티어다. 철위병은 몸이 방어 색(청록)이고 방어만 2티어다.
+        // 분쇄자는 몸이 타격 색(빨강)이고 타격만 2티어다. 철위병은 몸이 방어 색(파랑)이고 방어만 2티어다.
         // 색은 클라이언트(world.ts)가 적 종류로 고른다. 철위병의 타격이 2티어였을 때 휴대폰 시험에서 헷갈렸다(2026-11-05).
         Equal(EnemyDefinition.Breaker.Skills[0].Tier, 2);
         Equal(EnemyDefinition.Breaker.Skills[1].Tier, 1);
