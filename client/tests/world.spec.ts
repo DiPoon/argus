@@ -196,23 +196,33 @@ test('enemy telegraphs turn smoothly, point at me when I am the target and stop 
     [scene(10.1, action(921, Math.PI / 2, { target: 'pilot' })), scene(10.2, action(921, Math.PI / 2, { target: 'pilot' })), 100, 0],
     // 스냅샷이 0.25초 간격으로 와도 보간이 끝까지 간다. 0.24초 뒤에는 거의 다 돌았다.
     [scene(10.1, action(921, 0)), scene(10.35, action(921, 1)), 250, 240],
+    // 나를 노린 공격이다. 마지막 스냅샷은 공격 두 틱 전(10.9초, 327틱)이고, 서버가 마지막으로 도는 틱은 329틱(10.967초)이다.
+    // 화면 시계(10.98초)가 그 틱은 지났지만 공격 시각(11초) 전이다. 그 틱에 서버가 본 내 자리는 마지막 스냅샷의 내 자리(400, 730)에서
+    // 아래로 걷는 확인받지 않은 입력 넷 가운데 앞의 둘만 쓴 (400, 742)다. 화면은 그쪽으로 굳힌다.
+    // 내 몸(입력 넷을 다 쓴 754 쪽)이나 마지막 서버 방향(π), 한 틱 더(748)·덜(736) 걸은 자리 쪽이 아니다.
+    [scene(10.8, action(921, Math.PI, { target: 'pilot' })), scene(10.9, action(921, Math.PI, { target: 'pilot' })), 100, 80],
   ];
-  const drawn = await page.evaluate(cases => {
-    const world = window.testWorld as unknown as DrawnWorld;
+  // 마지막 장면만 스냅샷을 받은 뒤 확인받지 않은 내 입력(아래로 걷기) 넷을 보낸다.
+  const downInputs = cases.length - 1;
+  const drawn = await page.evaluate(([cases, downInputs]) => {
+    const world = window.testWorld as unknown as DrawnWorld & { recordInput(seq: number, x: number, y: number, at?: number): void };
     let clock = 0;
     performance.now = () => clock;
-    return cases.map(([first, second, gap, wait]) => {
+    return cases.map(([first, second, gap, wait], index) => {
       clock += 1000;
       world.update(first);
       clock += gap;
       world.update(second);
+      if (index === downInputs) {
+        for (let seq = 1; seq <= 4; seq++) world.recordInput(seq, 0, 1, clock);
+      }
       clock += wait;
       world.draw(1 / 60);
       const eye = world.units.context.instructions.flatMap(i => i.data.path?.instructions ?? [])
         .find(step => step.action === 'circle' && step.data[2] === 3)!;
       return Math.atan2(eye.data[1] - 730, eye.data[0] - 460);
     });
-  }, cases);
+  }, [cases, downInputs] as const);
   expect(drawn[0]).toBeCloseTo(0, 2);
   expect(drawn[1]).toBeCloseTo(Math.PI / 4, 2);
   expect(drawn[2]).toBeCloseTo(Math.PI / 2, 2);
@@ -220,6 +230,7 @@ test('enemy telegraphs turn smoothly, point at me when I am the target and stop 
   expect(drawn[4]).toBeCloseTo(Math.PI / 2, 2);
   expect(Math.abs(drawn[5])).toBeCloseTo(Math.PI, 2);
   expect(drawn[6]).toBeGreaterThan(0.95);
+  expect(drawn[7]).toBeCloseTo(Math.atan2(12, -60), 2);
 });
 
 test('gauges and guard arcs start their own path instead of a line from an earlier point', async ({ page }) => {
