@@ -124,13 +124,13 @@ ${touchMode ? touchLobby : desktopLobby}
     <section id="battlefield" class="battlefield" aria-label="작전 지도">
       <div id="canvas-host" class="canvas-host"></div>
       <div class="top-stack"><div class="top-row">
-        <div class="touch-top"><button id="touch-menu" type="button" class="touch-button">☰ 메뉴</button><button id="touch-map" type="button" class="touch-button">지도</button><button id="touch-full" type="button" class="touch-button">전체 화면</button></div>
+        <div class="touch-top"><div class="touch-buttons"><button id="touch-menu" type="button" class="touch-button">☰ 메뉴</button><button id="touch-map" type="button" class="touch-button">지도</button><button id="touch-full" type="button" class="touch-button">전체 화면</button></div><span id="touch-mission" class="mission-mini" aria-label="임무 진행"></span></div>
         <div id="combat-hud" class="combat-hud" hidden>
           <div class="vitals"><div><span id="my-name">대원</span><b id="hp">6</b><small id="max-hp">/ 6 HP</small><div class="health-bar"><i id="health-fill"></i></div></div>
           <div><span>마나</span><b id="mana">0</b><small id="max-mana">/ 24</small><div class="mana-bar"><i id="mana-fill"></i></div></div></div>
           <div class="skill-bar" id="skill-bar"></div><p id="combat-status" aria-live="polite"></p>
         </div>
-        <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span>경과 <b id="elapsed">00:00</b></span></div></div>
+        <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span id="mission-mini" class="mission-mini" aria-label="임무 진행"></span><span>경과 <b id="elapsed">00:00</b></span></div><span id="touch-extract" class="mission-mini touch-extract" aria-label="탈출"></span></div>
       </div><div id="toast" class="toast" role="status" hidden></div></div>
       <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 ${pick}. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
       <div id="touch-controls" class="touch-controls" hidden>
@@ -423,8 +423,22 @@ function updateUi() {
   $('room-code').textContent = s.room;
   $('mission-state').textContent = ended ? '작전 종료' : s.phase === 'active' ? '진행 중' : '투입 대기';
   $('elapsed').textContent = time(s.elapsed);
-  $('primary-count').textContent = `${s.facilities.filter(f => f.hp <= 0).length}/3`;
-  $('secondary-count').textContent = `${s.supplies.filter(f => f.objective && f.collected).length}/2`;
+  // 작은 임무 진행이다. 옆 패널이 보이지 않을 때만 보인다(style.css). 폭 760px 이하의 PC 창은 경과 시간 옆(#mission-mini)에 한 줄로 둔다.
+  // 터치 화면은 시설·보급품을 메뉴 버튼 아래(#touch-mission)에, 탈출을 경과 시간 아래(#touch-extract)에 나눠 둔다.
+  // 가로 화면에서는 체력·마나 칸이 두 칸보다 키가 커서 그 아래가 비어 있으므로, 나눠 두면 위쪽 줄이 넓어지지도 높아지지도 않는다.
+  // 탈출은 주목표(시설 셋 파괴)를 이룬 뒤에만 보인다. 그 전에는 탈출 지점을 찾았는지가 쓸모없는 정보다(2026-11-08 사용자).
+  // 그 뒤에 아직 찾지 못했으면 찾으라고 알리고, 찾은 뒤에는 확보한 시간을 보인다.
+  const destroyed = s.facilities.filter(f => f.hp <= 0).length;
+  const collected = s.supplies.filter(f => f.objective && f.collected).length;
+  const item = (text: string, count: string, done: boolean) => `<span class="mission-item${done ? ' done' : ''}">${text}${count ? ` <b>${count}</b>` : ''}</span>`;
+  const objectives = item('시설', `${destroyed}/3`, destroyed >= 3) + item('보급품', `${collected}/2`, collected >= 2);
+  const extraction = destroyed < 3 ? ''
+    : s.extraction ? item('탈출', `${Math.floor(s.extraction.progress)}/${s.extraction.duration}초`, false) : item('탈출 지점 찾기', '', false);
+  $('mission-mini').innerHTML = objectives + extraction;
+  $('touch-mission').innerHTML = objectives;
+  $('touch-extract').innerHTML = extraction;
+  $('primary-count').textContent = `${destroyed}/3`;
+  $('secondary-count').textContent = `${collected}/2`;
   // 시설과 탈출 지점은 분대가 본 것만 온다. 아직 찾지 못한 시설은 자리만 표시한다.
   $('facility-list').innerHTML = s.facilities.map(f => `<span class="${f.hp <= 0 ? 'done' : ''}">${f.hp <= 0 ? '✓' : '◇'} 0${f.id}</span>`).join('')
     + '<span class="unknown">? 미발견</span>'.repeat(Math.max(0, 3 - s.facilities.length));

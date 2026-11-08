@@ -368,6 +368,9 @@ test('the end-of-mission card fits a short phone screen below the menu buttons',
         return { menuOverCard, buttonOnTop: hit !== null && button.contains(hit) };
       });
       expect(layout, name).toEqual({ menuOverCard: false, buttonOnTop: true });
+      // 작전 종료 카드에 작전 시간과 보급품 회수가 있으므로 임무 진행은 숨긴다.
+      await expect(page.locator('#touch-mission'), name).toBeHidden();
+      await expect(page.locator('#touch-extract'), name).toBeHidden();
       // 작전이 끝날 때의 알림은 카드를 가리지 않는다. 같은 말이 카드에 적혀 있다. 알림은 살아 있는데 보이지만 않는다.
       await expect(page.locator('#toast div').first(), name).toBeAttached();
       await expect(page.locator('#toast'), name).toBeHidden();
@@ -655,6 +658,54 @@ test('the drawer closes when the player falls, so it does not cover the deploy b
     await expect(page.locator('body')).not.toHaveClass(/\bmenu-open\b/);
     expect(await onTop(page, '#camp')).toBe(true);
   } finally { await context.close(); }
+});
+
+// 임무 진행을 바꾼 스냅샷을 만든다. 시설은 부순 수만큼 체력 0, 부목표 보급품은 모은 수만큼 회수한 것으로 둔다.
+// 탈출 지점은 extraction이 있으면 분대가 본 것이다.
+function mission(data: Snapshot, destroyed: number, collected: number, extraction: Snapshot['extraction']): Snapshot {
+  const facilities = [1, 2, 3].map(id => ({ id, x: 100 * id, y: 100, hp: id <= destroyed ? 0 : 5, maxHp: 5 }));
+  const objectives = [1, 2].map(id => ({ id: 900 + id, x: 200, y: 100 * id, kind: 'objective' as const, objective: true, collected: id <= collected, uses: id <= collected ? 0 : 1, cooldown: 0 }));
+  return { ...data, facilities, supplies: [...data.supplies.filter(supply => !supply.objective), ...objectives], extraction };
+}
+
+test('the mission progress shows on the map while the side panel is hidden, and the extraction only after the facilities fall', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const wire = await relay(page);
+  // 터치 화면은 시설·보급품을 메뉴 버튼 아래에, 탈출을 경과 시간 아래에 나눠 둔다.
+  const items = page.locator('#touch-mission .mission-item, #touch-extract .mission-item');
+  const found = { x: 900, y: 900, progress: 0, duration: 20, unlocked: false };
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#deploy-panel')).toBeVisible();
+    // 휴대폰은 옆 패널이 서랍에 숨어 있으므로 위쪽 줄에 임무 진행을 보인다. 처음에는 시설과 보급품뿐이다.
+    await expect(items).toHaveText(['시설 0/3', '보급품 0/2']);
+    // 시설을 다 부수기 전에는 탈출 지점을 찾았어도 보이지 않는다. 주목표를 이루기 전에는 찾았는지가 쓸모없다(2026-11-08 사용자).
+    wire.change = data => mission(data, 2, 1, found);
+    await expect(items).toHaveText(['시설 2/3', '보급품 1/2']);
+    // 시설을 다 부쉈는데 아직 탈출 지점을 찾지 못했으면 찾으라고 알린다.
+    wire.change = data => mission(data, 3, 1, null);
+    await expect(items).toHaveText(['시설 3/3', '보급품 1/2', '탈출 지점 찾기']);
+    // 찾은 뒤에는 확보한 시간을 보인다. 이룬 항목은 표시가 바뀐다.
+    wire.change = data => mission(data, 3, 2, { ...found, progress: 7.4, unlocked: true });
+    await expect(items).toHaveText(['시설 3/3', '보급품 2/2', '탈출 7/20초']);
+    await expect(items.nth(0)).toHaveClass(/\bdone\b/);
+    await expect(items.nth(1)).toHaveClass(/\bdone\b/);
+    await expect(items.nth(2)).not.toHaveClass(/\bdone\b/);
+  } finally { await context.close(); }
+});
+
+test('a PC screen shows the mission progress on the map only when its window is too narrow for the side panel', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect(page.locator('#room-code')).not.toHaveText('------');
+  // 넓은 화면은 옆 패널의 MISSION에 같은 정보가 있어 지도 위에 되풀이하지 않는다.
+  await expect(page.locator('.sidebar')).toBeVisible();
+  await expect(page.locator('#mission-mini')).toBeHidden();
+  await page.setViewportSize({ width: 700, height: 900 });
+  await expect(page.locator('.sidebar')).toBeHidden();
+  await expect(page.locator('#mission-mini .mission-item')).toHaveText(['시설 0/3', '보급품 0/2']);
 });
 
 test('?touch shows the touch screen on a PC and the PC lobby keeps aimed skills', async ({ page }) => {

@@ -834,6 +834,16 @@ input::placeholder {
   color:#dce5ce
 }
 
+/* 작은 임무 진행이다. 옆 패널이 보이지 않을 때만 보인다. 폭 760px 이하의 PC 창은 경과 시간 옆에 두고, 터치 화면은 메뉴 버튼
+   아래에 둔다(터치 조작 절). 넓은 PC 화면은 옆 패널의 MISSION에 같은 정보가 있다. 이룬 항목은 숫자를 밝은 초록으로 칠한다. */
+.mission-mini { display:none; gap:20px }
+.mission-item { white-space:nowrap }
+.mission-mini b { margin-left:7px; font-family:monospace; font-size:14px; font-weight:400; color:#dce5ce }
+.mission-mini .done b { color:var(--lime) }
+@media(max-width:760px) {
+  .timers .mission-mini { display:flex }
+}
+
 .map-bottom {
   position:absolute;
   bottom:15px;
@@ -1278,8 +1288,19 @@ body.touch .map-title, body.touch .map-bottom { display:none }
    약 188px이라 실제로 덮었다. 차례로 놓으면 버튼 폭과 관계없이 겹치지 않고, 자리가 모자라면(세로 화면) 다음 줄로 내려간다. */
 body.touch .top-stack { display:flex; flex-direction:column; align-items:center; gap:6px; position:absolute; top:8px; left:8px; right:8px; z-index:25; pointer-events:none }
 body.touch .top-row { display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; align-self:stretch }
-body.touch .touch-top { display:flex; gap:6px; pointer-events:auto }
-body.touch .map-top { position:static; margin-left:auto; justify-content:flex-end }
+/* 작은 임무 진행을 나눠 둔다. 시설·보급품은 메뉴 버튼 아래, 탈출(시설을 다 부순 뒤)은 경과 시간 아래다. 가로 화면에서는
+   체력·마나 칸이 두 칸보다 키가 커서 그 아래가 비어 있으므로 위쪽 줄이 넓어지지도 높아지지도 않는다. 경과 시간 옆에 한 줄로 두면
+   폭 568px 이하에서 경과 시간 칸이 다음 줄로 밀려, 그 아래의 알림이 기술 버튼을 덮었다. 셋을 메뉴 버튼 아래에 두면 두 줄이 되어
+   위쪽 줄이 높아졌다. 메뉴 아래 칸의 폭은 메뉴 버튼 줄에 맞추고(min-content) 넘치면 항목 단위로 다음 줄로 내린다. 버튼 줄의 폭은
+   글꼴에 달려 있으므로 px로 정하지 않는다. */
+body.touch .touch-top { display:flex; flex-direction:column; gap:6px; width:min-content; pointer-events:auto }
+body.touch .touch-buttons { display:flex; gap:6px; white-space:nowrap }
+body.touch .touch-top .mission-mini, body.touch .touch-extract { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; padding:3px 8px;
+  background:#111a1ae8; border:1px solid #334139; font-size:9px; color:#93a088 }
+body.touch .timers .mission-mini, body.touch .touch-top .mission-mini:empty, body.touch .touch-extract:empty { display:none }
+/* 작전 종료 카드에 작전 시간과 보급품 회수가 있으므로, 카드가 보이는 동안에는 임무 진행을 숨긴다. */
+body.touch:has(#result:not([hidden])) .touch-top .mission-mini, body.touch:has(#result:not([hidden])) .touch-extract { display:none }
+body.touch .map-top { position:static; margin-left:auto; justify-content:flex-start; flex-direction:column; align-items:flex-end; gap:6px }
 body.touch .timers { gap:12px }
 .touch-button { padding:8px 11px; font-size:11px; background:#17221ee6; border:1px solid #4b5844; color:#d7e0d0 }
 body.touch .combat-hud { position:static; transform:none; width:auto; padding:6px 12px; gap:4px 12px; grid-template-columns:auto; justify-content:normal }
