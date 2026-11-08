@@ -1229,6 +1229,14 @@ kbd {
 }
 
 /* 근접 전투: 상성 색과 이름을 함께 표시한다. */
+/* 가위바위보 손 그림이다(rps.ts). 그림이 currentColor라 놓인 자리의 상성 색을 쓴다. 손가락 사이와 엄지의 틈은 바탕색 선이다.
+   글자 곁에 놓일 때는 글자 크기를 따른다. 터치 기술 버튼은 이름 위에 따로 크게 둔다. */
+.rps { display:inline-block; width:1.15em; height:1.15em; vertical-align:-.2em; margin-right:.35em; flex:none }
+.rps .cut { stroke:#0e1516 }
+.touch-skill .hand { display:block; height:22px }
+.touch-skill .hand .rps { display:block; width:22px; height:22px; margin:0 auto }
+.touch-skill[data-slot="1"] .hand, .touch-skill[data-slot="1"] .hand .rps { height:26px; width:26px }
+.touch-skill[data-slot="1"] .hand { margin:0 auto }
 .skill-strike { color:var(--strike) }
 .skill-block { color:var(--block) }
 .skill-channel { color:var(--channel) }
