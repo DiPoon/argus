@@ -3,12 +3,16 @@ import { fromDouble, toDouble, type FixedVector } from './fixed';
 import { deployable, inputHoldTicks, stepPlayer, tickMilliseconds, ticksPerSecond, unknownTile, type Body, type Terrain } from './movement';
 import { affinityNames, type Affinity, type CombatAction, type Control, type Position, type Snapshot } from './types';
 
-const colors = { floor: 0x141e20, lit: 0x253335, grid: 0x304044, wall: 0x657372, edge: 0x94a29a, unknown: 0x0b1315, lime: 0xdfff80, teal: 0x77cec2, red: 0xf28068, gold: 0xeabd73 };
+const colors = { floor: 0x141e20, lit: 0x253335, grid: 0x304044, wall: 0x657372, edge: 0x94a29a, unknown: 0x0b1315, lime: 0xdfff80, teal: 0x77cec2, red: 0xf28068, gold: 0xeabd73, pink: 0xff8fd6 };
 // 상성 색은 빛의 3원색이다. 타격 빨강, 방어 파랑, 잡기 초록이다(2026-11-05 사용자 요청, 11-08 사용자가 후보 중 골랐다).
 // CSS의 --strike·--block·--channel과 같은 값이어야 한다(world.spec.ts가 본다). 어두운 지도 바닥에 대한 대비가 정상 시각과 적색약·녹색약
 // 흉내 모두에서 4.5 이상이다. 순수한 빨강(#ff3b30)은 적색약에게 어두운 올리브색으로 보여 타격 범위가 흐렸다(대비 3.1).
 // 초록은 빨강과 밝기가 크게 다르도록 연하게 골라, 녹색약에게도 둘이 밝기로 갈린다.
 const affinityColors: Record<Affinity, number> = { strike: 0xff6b61, block: 0x4785ff, channel: 0xa6f9ba, none: 0xeabd73 };
+// 효과 색이다. 방어 성공은 방어 상성 색이다. 피격·비김은 상성 색과 겹치지 않는 분홍이다(2026-11-08 사용자 결정). 예전 연어 빨강은
+// 새 타격 빨강과 거의 같아(적색약에게는 같은 색) 적 옆에 뜬 피격이 타격 예고로 읽혔다. 분홍은 빨강과 파랑을 섞은 색이라 3원색과
+// 겹치지 않는다. 완전 파훼는 라임, 부분 대응은 금색이고, 나머지(−1, 보급 완료, 투입)는 청록이다.
+const effectColors: Record<string, number> = { guard: affinityColors.block, hurt: colors.pink, draw: colors.pink, break: colors.lime, partial: colors.gold };
 // 적의 tiers는 타격·방어·잡기 순서다. 엘리트의 몸 색은 그 엘리트가 쓰는 2티어 행동의 종류이고, 2티어 행동이 없으면 병사의 색이다.
 const tierKinds: Affinity[] = ['strike', 'block', 'channel'];
 const bodyColor = (tiers: number[]) => {
@@ -556,7 +560,7 @@ export class World {
       const remain = Math.max(0, effect.until - (s.now + elapsed));
       if (!remain) continue;
       const text: Record<string, string> = { break: '완전 파훼', partial: '부분 대응', draw: '비김', guard: '방어', hit: '−1', hurt: '피격', heal: '보급 완료', deploy: '투입' };
-      const color = effect.kind === 'break' ? colors.lime : effect.kind === 'hurt' || effect.kind === 'draw' ? colors.red : effect.kind === 'partial' ? colors.gold : colors.teal;
+      const color = effectColors[effect.kind] ?? colors.teal;
       u.circle(effect.x, effect.y, Math.max(3, 30 * (1 - remain / .65))).stroke({ color, alpha: Math.min(1, remain * 2), width: 2 });
       this.label(`effect-${effect.id}`, text[effect.kind] ?? '', effect.x, effect.y - 48 - (1 - remain / .65) * 15, color, 13);
 

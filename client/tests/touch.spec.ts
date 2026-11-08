@@ -871,25 +871,13 @@ test('a PC screen shows the mission progress on the map only when its window is 
 
 test('the lobby slots and the legend wear the color of their own affinity', async ({ page }) => {
   await page.goto('/');
-  // 상성 색은 CSS 변수(--strike·--block·--channel)에서 온다. 클래스가 다른 종류의 변수를 쓰면 기술 버튼과 장비 칸이 엉뚱한 색이 된다.
+  // 상성 색은 CSS 변수(--strike·--block·--channel)에서 온다. 클래스가 다른 종류의 변수를 쓰거나 변수가 없어지면 기술 버튼과 장비 칸이
+  // 엉뚱한 색이 된다. 변수가 없으면 글자가 body 색을 물려받으므로, 기대값은 CSS에서 읽지 않고 고른 색 그대로 둔다(2026-11-08 사용자 결정).
   // 기술 버튼과 기술 막대도 같은 .skill-* 규칙을 쓴다. 장비 칸 이름과 옆 패널의 상성 설명(작전 화면에 있어 숨어 있음)을 본다.
-  const colors = await page.evaluate(() => {
-    const probe = document.createElement('span');
-    document.body.append(probe);
-    const resolve = (value: string) => { probe.style.color = value; return getComputedStyle(probe).color; };
-    const result: Record<string, { expected: string; actual: string[] }> = {};
-    for (const kind of ['strike', 'block', 'channel']) {
-      const expected = resolve(getComputedStyle(document.documentElement).getPropertyValue(`--${kind}`).trim());
-      const actual = [...document.querySelectorAll(`.kind-slot.skill-${kind} legend strong, .combat-legend .skill-${kind}`)].map(element => getComputedStyle(element).color);
-      result[kind] = { expected, actual };
-    }
-    probe.remove();
-    return result;
-  });
-  for (const [kind, { expected, actual }] of Object.entries(colors)) {
-    expect(actual, kind).toHaveLength(2);
-    for (const color of actual) expect(color, kind).toBe(expected);
-  }
+  const expected: Record<string, string> = { strike: 'rgb(255, 107, 97)', block: 'rgb(71, 133, 255)', channel: 'rgb(166, 249, 186)' };
+  const actual = await page.evaluate(kinds => Object.fromEntries(kinds.map(kind =>
+    [kind, [...document.querySelectorAll(`.kind-slot.skill-${kind} legend strong, .combat-legend .skill-${kind}`)].map(element => getComputedStyle(element).color)])), Object.keys(expected));
+  for (const kind of Object.keys(expected)) expect(actual[kind], kind).toEqual([expected[kind], expected[kind]]);
 });
 
 test('the style sheet does not use :has(), so older browsers keep every rule', () => {
