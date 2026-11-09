@@ -1229,6 +1229,12 @@ kbd {
 }
 
 /* 근접 전투: 상성 색과 이름을 함께 표시한다. */
+/* 가위바위보 손 그림이다(rps.ts). 그림이 currentColor라 놓인 자리의 상성 색을 쓴다. 손가락 사이와 엄지의 틈은 마스크로 뚫려 바탕이 비친다.
+   글자 곁에 놓일 때는 글자 크기를 따른다. 터치 기술 버튼은 이름 위에 따로 크게 두고, 크기는 .hand 한 곳에서 정한다(1번 버튼은 더 크다). */
+.rps { display:inline-block; width:1.15em; height:1.15em; vertical-align:-.2em; margin-right:.35em; flex:none }
+.touch-skill .hand { display:block; width:22px; height:22px; margin:0 auto }
+.touch-skill .hand .rps { display:block; width:100%; height:100%; margin:0 }
+.touch-skill[data-slot="1"] .hand { width:26px; height:26px }
 .skill-strike { color:var(--strike) }
 .skill-block { color:var(--block) }
 .skill-channel { color:var(--channel) }
@@ -1257,6 +1263,8 @@ kbd {
 .skill-slot.empty { opacity:.55 }
 .combat-hud .skill-slot kbd { margin:0; border:none; padding:0; color:#afbaae; font-size:9px }
 .combat-hud .skill-slot b { font-family:inherit; font-size:12px; font-weight:600; line-height:1.3; white-space:nowrap }
+/* 이름 줄의 손 그림 자리와 이름(span)은 전투 HUD의 설명 글 규칙(.combat-hud span: 블록, 10px, 회색)을 받지 않고 이름의 글자를 따른다. */
+.combat-hud .skill-slot b>span { display:inline; font-size:inherit; color:inherit }
 .combat-hud .skill-slot small { margin:0; color:#adbaa7; font-family:inherit; font-size:9px }
 .skill-slot i { position:absolute; bottom:0; left:0; height:3px; background:currentColor; opacity:.7 }
 #combat-status { grid-column:1/-1; margin:3px 0 0; color:#aeb9a7; font-size:10px; min-height:14px }
@@ -1271,6 +1279,22 @@ kbd {
   .vitals { flex-direction:row }
   .vitals>div { flex:1 }
   .skill-slot { min-height:70px }
+}
+/* 좁은 PC 창(폭 440px 이하, 크게 확대한 창)에서는 칸 안쪽이 54~69px이라, 손 그림(약 18px)을 이름 앞에 두면 이름(약 51px)이 잘린다.
+   키 이름 줄("Space / 3"이 약 49px)과 마나 줄(쓰는 중의 "근접 타격"이 약 40px)에도 손 그림이 들어갈 자리가 없다.
+   손 그림을 이름 바로 위 줄로 올려 이름이 칸 폭을 다 쓰게 하고, 늘어난 높이는 줄 사이를 좁혀 줄인다. */
+@media(max-width:440px) {
+  .skill-slot { gap:7px }
+  .combat-hud .skill-slot .hand { display:block }
+  .skill-slot .hand .rps { display:block; margin:0 0 3px }
+}
+/* 폭 360px 이하에서는 손 그림이 없어도 칸 안쪽(320px에서 44px)이 이름(약 51px)과 키 이름(약 49px)보다 좁아 이름이 잘리고
+   키 이름이 두 줄로 꺾였다. 전투 HUD와 칸의 옆 여백, 칸 사이를 줄여 320px에서도 칸 안쪽을 약 56px로 넓힌다.
+   CI 실행기의 한글 글꼴(WenQuanYi Zen Hei)로 이름이 가장 긴 칸에 5px쯤 남는다. */
+@media(max-width:360px) {
+  .combat-hud { padding-left:8px; padding-right:8px }
+  .skill-bar { gap:4px }
+  .skill-slot { padding-left:3px; padding-right:3px }
 }
 
 /* 터치 조작: 손가락으로 조작하는 기기(body.touch)에서만 보인다.
