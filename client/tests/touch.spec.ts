@@ -164,8 +164,9 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     await expect(page.locator('#touch-controls')).toBeVisible();
     await expect(page.locator('.touch-skill b')).toHaveText(['회전 베기', '회전 방어', '회전 잡기', '회전 잡기']);
     await expect(page.locator('.touch-skill small')).toHaveText(['마나 1', '마나 1', '마나 1', '마나 1']);
-    // 터치 화면에서는 숨은 기술 막대를 만들지 않는다. 보이는 기술 버튼만 갱신한다.
-    await expect(page.locator('#skill-bar .skill-slot')).toHaveCount(0);
+    // 터치 화면에서는 숨은 기술 막대를 채우지 않는다. 보이는 기술 버튼만 갱신한다. 막대의 칸은 터치 버튼처럼 처음부터 있다.
+    await expect(page.locator('#skill-bar .skill-slot .name')).toHaveText(['', '', '', '']);
+    await expect(page.locator('#skill-bar svg.rps')).toHaveCount(0);
 
     const fingers = new Fingers(await context.newCDPSession(page));
     const stick = (await page.locator('#touch-move').boundingBox())!;
@@ -573,8 +574,9 @@ test('the touch operation screen stays the same across the widths of the PC rule
     await expect(page.locator('#deploy-panel')).toBeVisible();
     await leaveFullscreen(page);
     await expect(page.locator('#deploy')).toBeVisible();
+    // PC의 좁은 화면 규칙이 바뀌는 폭이다(style.css의 max-width 1100·760·440·360px). 기술 막대의 규칙(440·360)도 터치 화면에 새지 않는다.
     const compare = async (name: string) => {
-      for (const [wide, narrow] of [[1101, 1100], [761, 760]]) {
+      for (const [wide, narrow] of [[1101, 1100], [761, 760], [441, 440], [361, 360]]) {
         await page.setViewportSize({ width: wide, height: 360 });
         const before = await styles();
         await page.setViewportSize({ width: narrow, height: 360 });
@@ -622,8 +624,8 @@ test('on a PC screen a finger still aims and casts like the mouse', async ({ pag
   await page.locator('#deploy').click();
   await expect(page.locator('#combat-hud')).toBeVisible({ timeout: 8000 });
   await expect.poll(() => wire.inputs.length).toBeGreaterThan(0);
-  // PC 화면에서는 숨은 터치 기술 버튼을 채우지 않는다. 보이는 기술 막대만 갱신한다.
-  await expect(page.locator('#skill-bar .skill-slot')).toHaveCount(4);
+  // PC 화면에서는 숨은 터치 기술 버튼을 채우지 않는다. 보이는 기술 막대만 갱신한다. 기본 장비는 타격·받아치기·잡기·자유(타격)다.
+  await expect(page.locator('#skill-bar .skill-slot .name')).toHaveText(['근접 타격', '받아치기', '잡기', '근접 타격']);
   await expect(page.locator('.touch-skill b').first()).toHaveText('');
   const before = wire.inputs.at(-1)!.aim;
   const finger = (type: string, button: number, buttons: number) => page.evaluate(([type, button, buttons]) => {

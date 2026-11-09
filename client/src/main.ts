@@ -2,31 +2,30 @@ import './style.css';
 import { tickMilliseconds } from './movement';
 import { World } from './world';
 import { handIcon } from './rps';
-import { applyWallChanges, skillNames, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
+import { aroundSkills, freeSkills, kindOfSkill, kindSlots } from './loadout';
+import { applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const time = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60).toString().padStart(2, '0')}:${Math.floor(Math.max(0, seconds) % 60).toString().padStart(2, '0')}`;
 const slotKeys = ['좌클릭 / 1', '우클릭 / 2', 'Space / 3', 'Q / 4'];
-// 장비 칸마다 고를 수 있는 기술이다. 앞의 세 칸은 그 종류의 기술 가운데 하나, 자유 칸은 아무 기술이나 고른다(서버의 Rules.ValidSlots).
-// 방에 들어가기 전이라 서버의 기술 정의(rules.skills)가 아직 없으므로 여기에 적어 둔다.
-const kindSlots: { kind: 'strike' | 'block' | 'channel'; title: string; beats: string; skills: Skill[] }[] = [
-  { kind: 'strike', title: '타격 칸', beats: '잡기를 파훼', skills: ['strike', 'spin'] },
-  { kind: 'block', title: '방어 칸', beats: '타격을 파훼', skills: ['parry', 'spinblock'] },
-  { kind: 'channel', title: '잡기 칸', beats: '방어를 파훼', skills: ['grab', 'spingrab'] },
-];
-const freeSkills: Skill[] = ['strike', 'parry', 'grab', 'spin', 'spinblock', 'spingrab'];
-// 기술의 종류다. 로비에서는 아직 서버의 기술 정의가 없으므로 종류 칸의 목록에서 찾는다.
-const kindOfSkill = (skill: Skill) => kindSlots.find(slot => slot.skills.includes(skill))!.kind;
-// 조준하지 않는 둘레 기술이다(서버 기술 정의의 around).
-const aroundSkills: Skill[] = ['spin', 'spinblock', 'spingrab'];
 const skillNotes: Record<Skill, string> = {
   strike: '앞쪽 좁은 범위', parry: '앞쪽 방어 후 반격', grab: '앞쪽 한 명',
   spin: '둘레 모두 · 조준 없음', spinblock: '둘레 모두 · 조준 없음', spingrab: '둘레 모두 · 조준 없음',
 };
 // 자유 칸은 아무 종류의 기술이나 고르므로 기술마다 그 종류의 손 그림을 상성 색으로 붙인다(hand). 종류 칸은 이름표에 붙인다.
-const skillChoice = (name: string, skill: Skill, checked: boolean, hand = false) =>
-  `<label><input type="radio" name="${name}" value="${skill}" ${checked ? 'checked' : ''}/><span><b>${hand ? `<span class="skill-${kindOfSkill(skill)}">${handIcon(kindOfSkill(skill))}</span>` : ''}${skillNames[skill]}</b><small>${skillNotes[skill]}</small></span></label>`;
+const skillChoice = (name: string, skill: Skill, checked: boolean, hand = false) => {
+  const kind = kindOfSkill(skill);
+  const mark = hand ? `<span class="skill-${kind}">${handIcon(kind)}</span>` : '';
+  return `<label><input type="radio" name="${name}" value="${skill}" ${checked ? 'checked' : ''}/><span><b>${mark}${skillNames[skill]}</b><small>${skillNotes[skill]}</small></span></label>`;
+};
+// 기술 칸(터치 기술 버튼, PC 기술 막대)의 손 그림이다. 칸은 처음에 한 번 만들고, 손 그림은 종류가 바뀔 때만 다시 그린다.
+// 작전 중에는 장비가 바뀌지 않는데 updateUi는 스냅샷마다 불린다.
+const showHand = (holder: HTMLElement, kind: Affinity) => {
+  if (holder.dataset.kind === kind) return;
+  holder.dataset.kind = kind;
+  holder.innerHTML = handIcon(kind);
+};
 const chosenSkill = (name: string) => document.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)!.value;
 // 손가락으로 조작하는 기기다. 작전 화면에 이동 조이스틱과 기술 버튼을 띄운다. 주소에 ?touch를 붙이면 PC에서도 띄운다.
 const touchMode = matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).has('touch');
@@ -132,7 +131,7 @@ ${touchMode ? touchLobby : desktopLobby}
         <div id="combat-hud" class="combat-hud" hidden>
           <div class="vitals"><div><span id="my-name">대원</span><b id="hp">6</b><small id="max-hp">/ 6 HP</small><div class="health-bar"><i id="health-fill"></i></div></div>
           <div><span>마나</span><b id="mana">0</b><small id="max-mana">/ 24</small><div class="mana-bar"><i id="mana-fill"></i></div></div></div>
-          <div class="skill-bar" id="skill-bar"></div><p id="combat-status" aria-live="polite"></p>
+          <div class="skill-bar" id="skill-bar">${slotKeys.map((key, index) => `<div class="skill-slot" data-slot="${index + 1}"><kbd>${key}</kbd><b><span class="hand"></span><span class="name"></span></b><small></small><i></i></div>`).join('')}</div><p id="combat-status" aria-live="polite"></p>
         </div>
         <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span id="mission-mini" class="mission-mini"></span><span>경과 <b id="elapsed">00:00</b></span></div><span id="touch-extract" class="mission-mini touch-extract"></span></div>
       </div><div id="toast" class="toast" role="status" hidden></div></div>
@@ -521,16 +520,19 @@ function updateUi() {
         button.className = `touch-skill skill-${view.kind}${touchedSlots().has(slot) ? ' held' : ''}${view.empty ? ' empty' : ''}${view.active ? ' active' : ''}`;
         button.querySelector('b')!.textContent = view.name;
         button.querySelector('small')!.textContent = view.note;
-        // 손 그림은 종류가 바뀔 때만 다시 그린다. 작전 중에는 장비가 바뀌지 않고, updateUi는 스냅샷마다 불린다.
-        const hand = button.querySelector<HTMLElement>('.hand')!;
-        if (hand.dataset.kind !== view.kind) { hand.dataset.kind = view.kind; hand.innerHTML = handIcon(view.kind); }
+        showHand(button.querySelector<HTMLElement>('.hand')!, view.kind);
       }
     } else {
       const busy = Math.max(0, Math.min(1, p.busy / (current ? s.rules.skills.find(d => d.id === current.skill)!.duration : 1)));
-      $('skill-bar').innerHTML = p.slots.map((_, index) => {
-        const view = slotView(index + 1);
-        return `<div class="skill-slot skill-${view.kind} ${view.active ? 'active' : ''} ${view.empty ? 'empty' : ''}" data-slot="${index + 1}"><kbd>${slotKeys[index]}</kbd><b>${handIcon(view.kind)}${view.name}</b><small>${view.note}</small><i style="width:${100 * busy}%"></i></div>`;
-      }).join('');
+      // 터치 버튼처럼 칸은 한 번만 만들어 두고, 클래스와 글자, 진행 막대 폭만 고친다.
+      for (const element of document.querySelectorAll<HTMLElement>('.skill-slot')) {
+        const view = slotView(Number(element.dataset.slot));
+        element.className = `skill-slot skill-${view.kind}${view.active ? ' active' : ''}${view.empty ? ' empty' : ''}`;
+        element.querySelector('.name')!.textContent = view.name;
+        element.querySelector('small')!.textContent = view.note;
+        element.querySelector('i')!.style.width = `${100 * busy}%`;
+        showHand(element.querySelector<HTMLElement>('.hand')!, view.kind);
+      }
     }
     $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고를 읽고 대응하세요 · 기술 사용 중에도 이동 가능';
     $('combat-status').classList.toggle('empty', p.mana === 0);

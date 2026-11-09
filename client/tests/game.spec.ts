@@ -63,7 +63,8 @@ test('four guests deploy, collect mana, cast while moving and reconnect with the
     await expect(page.locator('#room-code')).toHaveText(code);
     await expect.poll(() => me.player?.id).toBe(before.id);
     expect(me.player!.mana).toBe(before.mana);
-    await expect(page.locator('#skill-bar .skill-slot')).toHaveCount(4);
+    // 새로고침한 화면도 작전으로 돌아와 기술 막대를 채운다. 막대의 칸은 처음부터 있으므로 칸 수가 아니라 기술 이름을 본다.
+    await expect(page.locator('#skill-bar .skill-slot .name')).toHaveText(['근접 타격', '받아치기', '잡기', '근접 타격']);
     await page.screenshot({ path: 'test-results/argus-rps-operation.png' });
     for (const result of observed) expect(result.errors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
