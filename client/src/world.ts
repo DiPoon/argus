@@ -1,22 +1,15 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import { fromDouble, toDouble, type FixedVector } from './fixed';
 import { deployable, inputHoldTicks, stepPlayer, tickMilliseconds, ticksPerSecond, unknownTile, type Body, type Terrain } from './movement';
-import { affinityNames, type Affinity, type CombatAction, type Control, type Position, type Snapshot } from './types';
-// 상성 색(빛의 3원색)은 CSS와 검사가 함께 맞춰 보도록 pixi 없는 palette.ts에 둔다.
-import { affinityColors } from './palette';
+import { affinityNames, type CombatAction, type Control, type Position, type Snapshot } from './types';
+// 색(상성 색, 지도 색, 대원 색, 적 몸 색)은 미니맵·CSS·검사가 함께 쓰도록 pixi 없는 palette.ts에 둔다.
+import { affinityColors, bodyColor, colors, team } from './palette';
+import type { Minimap, MinimapScene } from './minimap';
 
-const colors = { floor: 0x141e20, lit: 0x253335, grid: 0x304044, wall: 0x657372, edge: 0x94a29a, unknown: 0x0b1315, lime: 0xdfff80, teal: 0x77cec2, red: 0xf28068, gold: 0xeabd73, pink: 0xff8fd6 };
 // 효과 색이다. 방어 성공은 방어 상성 색이다. 피격·비김은 상성 색과 겹치지 않는 분홍이다(2026-11-08 사용자 결정). 예전 연어 빨강은
 // 새 타격 빨강과 거의 같아(적색약에게는 같은 색) 적 옆에 뜬 피격이 타격 예고로 읽혔다. 분홍은 빨강과 파랑을 섞은 색이라 3원색과
 // 겹치지 않는다. 완전 파훼는 라임, 부분 대응은 금색이고, 나머지(−1, 보급 완료, 투입)는 청록이다.
 const effectColors: Record<string, number> = { guard: affinityColors.block, hurt: colors.pink, draw: colors.pink, break: colors.lime, partial: colors.gold };
-// 적의 tiers는 타격·방어·잡기 순서다. 엘리트의 몸 색은 그 엘리트가 쓰는 2티어 행동의 종류이고, 2티어 행동이 없으면 병사의 색이다.
-const tierKinds: Affinity[] = ['strike', 'block', 'channel'];
-const bodyColor = (tiers: number[]) => {
-  const index = tiers.indexOf(2);
-  return index >= 0 ? affinityColors[tierKinds[index]] : 0xd2b49b;
-};
-const team = [colors.lime, colors.teal, 0xaeb5fa, 0xf2c981];
 const unitOutline = { color: 0x111a1a, width: 2.5 };
 
 // 원호는 이 함수로만 그린다. Pixi는 fill·stroke 뒤의 다음 경로를 직전 경로의 마지막 점에서 시작한다.
@@ -82,6 +75,8 @@ export class World {
   private averageFrame = 16.7;
   private renderBudget = 10000;
   overview = false;
+  // 미니맵이다(minimap.ts). main.ts가 작전 화면의 캔버스로 만들어 붙인다. 메인 화면이 맵 전체를 보이는 동안에는 숨긴다.
+  minimap?: Minimap;
   landing?: Position;
   fps = 60;
   shownEnemies = 0;
@@ -536,11 +531,13 @@ export class World {
         this.label(`enemy-action-${enemy.id}`, `${affinityNames[action.kind]} ${suffix}`, p.x, p.y - r - 26, affinityColors[action.kind], 13);
       }
     }
+    const minimapPlayers: MinimapScene['players'] = [];
     s.players.forEach((player, index) => {
       if (player.state !== 'alive') return;
       const isMe = player.id === s.you;
       const p = isMe ? this.predicted! : interpolate(player, this.previous?.players.find(old => old.id === player.id));
       const color = team[index % team.length];
+      minimapPlayers.push({ x: p.x, y: p.y, color, me: isMe });
       const aim = isMe ? this.control.aim : player.aim;
       for (const action of player.actions) this.drawAction(u, p, { ...action, aim }, now, true);
       // 면과 테두리, 두 손만으로 몸체와 방향을 표시한다.
@@ -563,5 +560,17 @@ export class World {
 
     }
     this.removeUnusedLabels();
+    if (this.minimap) {
+      this.minimap.show(!overview);
+      if (!overview) {
+        // 미니맵에도 메인 화면이 그리는 위치를 넘긴다. 적은 그리기 상한(renderBudget)과 관계없이 보이는 적을 모두 넘긴다. 점 하나라 가볍다.
+        const minimapEnemies = s.enemies.map(enemy => {
+          const p = interpolate(enemy, oldEnemies.get(enemy.id));
+          return { x: p.x, y: p.y, color: bodyColor(enemy.tiers) };
+        });
+        const view = { left: this.camera.x - width / 2 / zoom, top: this.camera.y - height / 2 / zoom, right: this.camera.x + width / 2 / zoom, bottom: this.camera.y + height / 2 / zoom };
+        this.minimap.draw(s, this.tiles, { players: minimapPlayers, enemies: minimapEnemies, view });
+      }
+    }
   }
 }

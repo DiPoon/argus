@@ -918,12 +918,15 @@ body.ended .timers .mission-mini { display:none }
 }
 
 /* PC 화면의 알림은 경과 시간 상자 아래 끝에서 23px 밑에 둔다(보통 83px). 좁은 창에서는 상자 안에서 줄이 바뀌어 키가 달라지므로
-   main.ts가 아래 끝을 재서 넘긴다(--map-top). 터치 화면은 위쪽 줄 밑에 차례로 놓는다(터치 조작 절). */
+   main.ts가 아래 끝을 재서 넘긴다(--map-top). 터치 화면은 위쪽 줄 밑에 차례로 놓는다(터치 조작 절).
+   폭은 글자만큼(max-content)이고 max-width까지다. 폭을 정하지 않으면 left:50%로 놓인 상자는 지도 폭의 절반까지만 넓어져,
+   화면을 크게 확대한 좁은 창(360px)에서 알림이 180px로 좁아졌다. */
 .toast {
   position:absolute;
   top:calc(var(--map-top,60px) + 23px);
   left:50%;
   transform:translateX(-50%);
+  width:max-content;
   padding:11px 20px;
   font-size:12px;
   color:#dbe3cb;
@@ -937,6 +940,31 @@ body.ended .timers .mission-mini { display:none }
 
 .toast div + div {
   margin-top:4px
+}
+
+/* 미니맵(minimap.ts)이다. 맵 전체를 북쪽이 위인 채로 줄여 그린다(2026-11-09 사용자 결정). 상자는 최대 폭과 최대 높이 안에서 맵의
+   가로세로 비율(--minimap-ratio, minimap.ts가 방마다 알린다)대로 CSS가 정한다. --minimap-w가 그 폭(테두리 빼고)이다. 크기와 자리를 모두
+   CSS로 정해 화면 크기가 바뀌면 그 자리에서 맞는다. PC는 지도 오른쪽 위, 경과 시간 상자 아래에 오른쪽 끝을 맞춰 둔다(터치 화면은
+   터치 조작 절). 누름을 받지 않아 그 자리에서도 조준과 클릭이 된다. */
+body { --minimap-w:min(200px, calc(160px * var(--minimap-ratio,1.33))) }
+/* 상자 폭은 테두리를 포함한다(border-box). 높이는 테두리를 뺀 그림 칸이 맵과 같은 비율이 되게 구한다. */
+.minimap { position:absolute; z-index:4; top:calc(var(--map-top,57px) + 10px); right:24px; width:var(--minimap-w); height:calc((var(--minimap-w) - 2px) / var(--minimap-ratio,1.33) + 2px);
+  background:#0b1315e6; border:1px solid #334139; pointer-events:none }
+/* 미니맵이 보이는 동안 PC 알림은 미니맵 왼쪽 빈 자리의 가운데에 둔다. 비우는 폭은 미니맵 상자, 지도 오른쪽 끝까지의 여백(24px,
+   1100px 이하는 16px), 사이 12px다. 알림과 미니맵은 같은 높이에 있어 비우지 않으면 좁은 창에서 겹친다. */
+body.minimap-on:not(.touch) .toast { left:calc((100% - var(--minimap-w) - 36px) / 2); max-width:calc(90% - var(--minimap-w) - 36px) }
+@media(max-width:1100px) {
+  .minimap { right:16px }
+  body.minimap-on:not(.touch) .toast { left:calc((100% - var(--minimap-w) - 28px) / 2); max-width:calc(90% - var(--minimap-w) - 28px) }
+}
+/* 옆 패널이 숨는 좁은 창과 화면을 크게 확대한 창에서는 지도가 좁아 미니맵도 줄인다. */
+@media(max-width:760px) {
+  body { --minimap-w:min(160px, calc(128px * var(--minimap-ratio,1.33))) }
+}
+/* 아주 좁은 창(440px 이하)에서는 미니맵 옆에 알림을 둘 자리가 100~200px뿐이라 알림을 미니맵 아래에 둔다. */
+@media(max-width:440px) {
+  body { --minimap-w:min(120px, calc(96px * var(--minimap-ratio,1.33))) }
+  body.minimap-on:not(.touch) .toast { left:50%; max-width:90%; top:calc(var(--map-top,60px) + 22px + (var(--minimap-w) - 2px) / var(--minimap-ratio,1.33)) }
 }
 
 .combat-hud {
@@ -1301,7 +1329,7 @@ kbd {
    왼쪽 아래를 누르면 그 자리에 이동 조이스틱이 생기고, 오른쪽 아래에 기술 버튼 넷이 있다.
    작전 화면에서는 화면을 문질러도 페이지가 스크롤되거나 확대되지 않게 한다. */
 .touch-top { display:none }
-/* 지도 위쪽 줄의 묶음(.top-stack, .top-row)은 PC에서 상자를 만들지 않는다. 안의 경과 시간·체력과 마나·알림은 지금처럼 지도 기준 제자리에 그린다. */
+/* 지도 위쪽 줄의 묶음(.top-stack, .top-row)은 PC에서 상자를 만들지 않는다. 안의 경과 시간·체력과 마나·알림·미니맵은 지금처럼 지도 기준 제자리에 그린다. */
 .top-stack, .top-row { display:contents }
 /* 당겨서 새로고침은 뷰포트의 overscroll-behavior를 따르고, Chromium은 이 값을 html에서만 읽는다. 서랍과 결과 화면은 전장의
    touch-action:none 밖이라 맨 위에서 아래로 끌면 스크롤이 페이지로 이어져 작전 중에 페이지가 다시 불릴 수 있다.
@@ -1360,7 +1388,29 @@ body.touch .deploy-panel p { font-size:9px; max-width:none }
 body.touch .deploy-actions { flex-direction:row; margin:0 0 0 auto; min-width:0 }
 body.touch .deploy-actions>* { flex:0 1 auto }
 body.touch .deploy-actions button { padding:10px 12px; white-space:nowrap }
-body.touch .toast { position:static; transform:none; max-width:min(420px,100%); padding:8px 14px }
+/* 알림이 미니맵을 덮을 때(아래의 폭 600px 이하 가로 화면)는 알림이 위다. 미니맵은 자리를 정한 요소라 그냥 두면 알림보다 위에 그려진다.
+   알림은 위쪽 줄 묶음(flex)의 항목이라 position:static 그대로도 z-index가 듣는다. relative로 바꾸면 PC용 top·left가 살아나 알림이 밀린다. */
+body.touch .toast { position:static; z-index:1; transform:none; max-width:min(420px,100%); padding:8px 14px }
+/* 터치 화면의 미니맵은 메뉴 버튼 줄 아래 왼쪽에 둔다. 위쪽 줄(.top-row) 안에 있어 줄이 꺾여 높아져도 그 아래 끝에 바로 붙는다.
+   크기는 화면 높이의 30%·폭의 42% 안이다. 조이스틱 자리의 윗부분에 걸치지만 누름을 받지 않아 그 자리를 눌러도 조이스틱이 생긴다.
+   위쪽 줄 묶음(z-index 25) 안이라 서랍보다 위에 그려지므로, 서랍을 연 동안에는 숨긴다. */
+body.touch { --minimap-w:min(42vw, 180px, calc(30dvh * var(--minimap-ratio,1.33)), calc(140px * var(--minimap-ratio,1.33))) }
+body.touch .top-row { position:relative }
+body.touch .minimap { top:calc(100% + 6px); left:0; right:auto; z-index:0 }
+body.touch.menu-open .minimap { display:none }
+/* 미니맵이 보이는 동안(작전 중) 가로 화면의 알림은 미니맵과 오른쪽 아래 기술 버튼 무리(폭 188px) 사이 빈 자리의 가운데에 둔다.
+   알림이 쌓이거나 문장이 꺾여 길어져도 기술 버튼을 덮지 않는다. 미니맵 옆으로만 비키면 알림이 오른쪽으로 밀려, 높이 320px 안팎의
+   화면(533·568·658×320, 802×293)에서 기술 버튼의 위쪽을 덮었다. 알림 묶음과 미니맵은 왼쪽 끝이 같으므로 상자 폭과 사이 8px만큼 비운다.
+   서랍을 연 동안에는 미니맵이 숨으므로 비키지 않는다. 서랍은 위쪽 줄과 알림 아래에서 시작해, 알림 자리가 바뀌면 서랍 높이도 바뀐다. */
+@media(min-width:521px) {
+  body.touch.minimap-on:not(.menu-open) .toast { margin-left:calc(var(--minimap-w) + 8px); margin-right:188px; max-width:min(420px, calc(100% - var(--minimap-w) - 196px)) }
+}
+/* 폭 600px 이하의 가로 화면은 그 사이가 260px에 못 미쳐 문장이 꺾인다. 알림이 미니맵을 잠시(3.5초) 덮고, 기술 버튼 쪽은 그대로 비운다.
+   기술 버튼은 싸우는 동안 늘 눌러야 하지만 미니맵은 잠깐 가려도 된다. 세로 화면(520px 이하)도 알림을 예전 자리(위쪽 줄 아래 가운데)에
+   두고 미니맵을 잠시 덮는다. 미니맵 아래로 내리면 작은 세로 화면(320×533·568)에서 알림이 화면 아래의 기술 버튼에 닿았다. */
+@media(min-width:521px) and (max-width:600px) {
+  body.touch.minimap-on:not(.menu-open) .toast { margin-left:0; max-width:min(420px, calc(100% - 188px)) }
+}
 /* 작전 종료 카드는 여백과 글자를 줄여 위쪽 메뉴 버튼 줄 아래에 둔다. PC 크기 그대로는 높이가 390px이라, 높이 320px
    휴대폰 가로 화면에서 다음 작전 버튼이 화면 밖으로 잘리고 메뉴 버튼이 카드 위를 덮었다.
    가운데 맞춤은 margin:auto로 한다. 화면이 더 낮아 넘치더라도 카드 위쪽이 잘리지 않고 아래로 넘겨 볼 수 있다. */

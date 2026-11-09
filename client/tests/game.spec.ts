@@ -48,7 +48,7 @@ test('four guests deploy, collect mana, cast while moving and reconnect with the
     await page.waitForTimeout(470);
     await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
     await expect.poll(() => me.player?.mana).toBe(24);
-    const canvas = (await page.locator('canvas').boundingBox())!;
+    const canvas = (await page.locator('#canvas-host canvas').boundingBox())!;
     await page.mouse.move(canvas.x + canvas.width * .15, canvas.y + canvas.height / 2);
     const x = me.player!.x;
     await page.keyboard.down('KeyA');
@@ -127,7 +127,7 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
   await page.waitForTimeout(470);
   await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
   await expect.poll(() => me.player?.mana).toBe(24);
-  const canvas = (await page.locator('canvas').boundingBox())!;
+  const canvas = (await page.locator('#canvas-host canvas').boundingBox())!;
   await page.mouse.move(canvas.x + canvas.width * .05, canvas.y + canvas.height / 2);
   for (const [key, slot, skill] of [['Digit1', 1, 'strike'], ['Digit2', 2, 'parry'], ['Space', 3, 'grab'], ['KeyQ', 4, 'grab']] as const) {
     await expect.poll(() => me.player?.busy).toBe(0);
@@ -280,7 +280,7 @@ test('a mouse button held while the window loses focus is not a new press when i
   await page.waitForTimeout(470);
   await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
   await expect.poll(() => me.player?.mana).toBe(24);
-  const canvas = (await page.locator('canvas').boundingBox())!;
+  const canvas = (await page.locator('#canvas-host canvas').boundingBox())!;
   await page.mouse.move(canvas.x + canvas.width * .05, canvas.y + canvas.height / 2);
   // 좌클릭을 쥔 채 창이 포커스를 잃었다가 돌아온다. 돌아와서 마우스를 움직여도 새로 누른 것이 아니므로 타격이 나가면 안 된다.
   await page.mouse.down({ button: 'left' });

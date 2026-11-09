@@ -1,6 +1,7 @@
 import './style.css';
 import { tickMilliseconds } from './movement';
 import { World } from './world';
+import { Minimap } from './minimap';
 import { handIcon } from './rps';
 import { aroundSkills, freeSkills, kindOfSkill, kindSlots } from './loadout';
 import { applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
@@ -134,6 +135,7 @@ ${touchMode ? touchLobby : desktopLobby}
           <div class="skill-bar" id="skill-bar">${slotKeys.map((key, index) => `<div class="skill-slot" data-slot="${index + 1}"><kbd>${key}</kbd><b><span class="hand"></span><span class="name"></span></b><small></small><i></i></div>`).join('')}</div><p id="combat-status" aria-live="polite"></p>
         </div>
         <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span id="mission-mini" class="mission-mini"></span><span>경과 <b id="elapsed">00:00</b></span></div><span id="touch-extract" class="mission-mini touch-extract"></span></div>
+        <canvas id="minimap" class="minimap" hidden aria-hidden="true"></canvas>
       </div><div id="toast" class="toast" role="status" hidden></div></div>
       <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 ${pick}. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
       <div id="touch-controls" class="touch-controls" hidden>
@@ -312,6 +314,7 @@ async function openOperation() {
   if (!world) {
     try { world = new World(); await world.init($('canvas-host')); }
     catch { world = undefined; leave(); $('lobby-error').textContent = '그래픽 초기화에 실패했습니다. 브라우저의 하드웨어 가속을 확인해 주세요.'; return; }
+    world.minimap = new Minimap($<HTMLCanvasElement>('minimap'));
     const canvas = world.app.canvas;
     canvas.addEventListener('pointermove', event => {
       // 손가락은 조준에 쓰지 않는다. 손가락이 지나간 자리를 조준으로 치면 기술 버튼을 누를 때마다 방향이 튄다.
@@ -436,7 +439,8 @@ function leave() {
   // 손가락 상태를 다음 작전으로 넘기지 않는다. 터치 조작도 숨긴다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아 지난 작전의 버튼이 남는다.
   releaseStick(); releaseTouchSkills();
   clearInput();
-  if (world) { world.landing = undefined; world.overview = false; world.app.ticker.stop(); }
+  // 미니맵도 숨긴다. 그리기를 멈추므로 다음 방에서 첫 프레임이 다시 보이게 할 때까지 숨어 있고, 알림도 제자리로 돌아온다.
+  if (world) { world.landing = undefined; world.overview = false; world.app.ticker.stop(); world.minimap?.show(false); }
   $('operation').hidden = true; $('lobby').hidden = false; $('result').hidden = true; $('touch-controls').hidden = true;
   // 작은 임무 진행도 비운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아, 비우지 않으면 지난 작전의 진행이 보인다.
   for (const id of ['mission-mini', 'touch-mission', 'touch-extract']) setMarkup(id, '');

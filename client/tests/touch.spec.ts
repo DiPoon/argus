@@ -109,7 +109,8 @@ const onTop = (page: Page, selector: string) => page.evaluate(selector => {
 }, selector);
 
 // 그 자리를 누르면 지도(캔버스)가 받는지 본다. 알림이나 버튼이 덮고 있으면 누름이 지도에 닿지 않는다.
-const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([x, y]) => document.elementFromPoint(x, y) instanceof HTMLCanvasElement, [x, y]);
+// 그 자리를 누르면 지도 캔버스가 받는지다. 작전 화면에는 미니맵 캔버스도 있으므로 #canvas-host 안의 캔버스인지 본다.
+const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([x, y]) => document.elementFromPoint(x, y) === document.querySelector('#canvas-host canvas'), [x, y]);
 
 // 로비의 장비 칸 선택지다. 칸 이름마다 고를 수 있는 기술 id를 차례대로 모은다.
 const lobbyChoices = (page: Page) => page.evaluate(() => Object.fromEntries(['slot-1', 'slot-2', 'slot-3', 'free-slot'].map(name =>
@@ -390,7 +391,7 @@ test('a new operation fills the screen after the phone turned in the lobby', asy
   await page.addInitScript(() => Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => false }));
   const canvasSize = () => page.evaluate(() => {
     // 캔버스는 작전 화면이 보인 뒤에 만들어진다.
-    const area = document.querySelector('canvas')?.getBoundingClientRect();
+    const area = document.querySelector('#canvas-host canvas')?.getBoundingClientRect();
     return { width: area?.width, height: area?.height };
   });
   try {
@@ -543,7 +544,7 @@ test('on a touch screen a pen is like a finger: the map casts nothing and the ai
     await expect.poll(() => wire.inputs.length).toBeGreaterThan(0);
     const aim = wire.inputs.at(-1)!.aim;
     await page.evaluate(() => {
-      const canvas = document.querySelector('canvas')!;
+      const canvas = document.querySelector('#canvas-host canvas')!;
       const pen = (type: string, button: number, buttons: number) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'pen', pointerId: 5, button, buttons, clientX: 600, clientY: 120 }));
       pen('pointerdown', 0, 1);
       pen('pointermove', -1, 1);
@@ -629,7 +630,7 @@ test('on a PC screen a finger still aims and casts like the mouse', async ({ pag
   await expect(page.locator('.touch-skill b').first()).toHaveText('');
   const before = wire.inputs.at(-1)!.aim;
   const finger = (type: string, button: number, buttons: number) => page.evaluate(([type, button, buttons]) => {
-    document.querySelector('canvas')!.dispatchEvent(new PointerEvent(type as string, { bubbles: true, pointerType: 'touch', pointerId: 5, button: button as number, buttons: buttons as number, clientX: 300, clientY: 150 }));
+    document.querySelector('#canvas-host canvas')!.dispatchEvent(new PointerEvent(type as string, { bubbles: true, pointerType: 'touch', pointerId: 5, button: button as number, buttons: buttons as number, clientX: 300, clientY: 150 }));
   }, [type, button, buttons]);
   // 터치스크린 노트북의 PC 화면에는 터치 조작이 없다. 손가락이 마우스 구실을 하지 않으면 공격할 길이 없다.
   await finger('pointerdown', 0, 1);
