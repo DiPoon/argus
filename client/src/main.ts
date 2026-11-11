@@ -147,6 +147,11 @@ ${touchMode ? touchLobby : desktopLobby}
     </section>
   </main>`;
 
+// 방마다 바뀌는 HUD 글자의 처음 값이다. 방을 나갈 때 이 값으로 되돌린다(leave). 되돌리지 않으면 다음 방의 첫 스냅샷이 오기 전에
+// 옆 패널과 지도 위쪽 줄이 지난 방의 초대 코드·명단·임무 수를 보인다. 처음 값을 따로 적어 두지 않고 방금 만든 화면에서 읽는다.
+const firstTexts = new Map(['room-code', 'mission-state', 'primary-count', 'facility-list', 'secondary-count', 'extract-note', 'team-count', 'roster',
+  'elapsed', 'view-label', 'controls', 'performance'].map(id => [id, $(id).innerHTML]));
+
 // 터치 화면의 서랍과 작전 종료 카드는 지도 위쪽 줄과 알림 아래에서 시작한다. 그 높이는 화면 폭과 글자와 알림 수에 달려 있어 px로 정하지 않고 재서 쓴다.
 if (touchMode) {
   const topStack = document.querySelector('.top-stack')!;
@@ -411,7 +416,15 @@ function connect() {
   });
 }
 
-function closeMenu() { document.body.classList.remove('menu-open'); }
+// 터치 화면의 서랍을 열고 닫는다. 서랍 상태는 여기 한 곳에서 바꾼다. 미니맵은 서랍보다 위에 그려지므로 서랍이 열린 동안 숨는다.
+// 미니맵이 보이는지는 World가 정하므로 서랍 상태를 알린다. 열 때는 다음 프레임을 기다리지 않고 바로 숨겨, 서랍 위에 한 프레임 남지 않게 한다.
+function setMenu(open: boolean) {
+  document.body.classList.toggle('menu-open', open);
+  if (!world) return;
+  world.menuOpen = open;
+  if (open) world.minimap?.show(false);
+}
+function closeMenu() { setMenu(false); }
 
 // 임무 목표 수다. 합의한 임무 규칙(docs/requirements.md)이 시설 3곳 파괴, 선택 보급품 2개 회수이고, 생성기(MissionGenerator.FacilityCount)와
 // 서버의 시작 안내도 같은 수를 쓴다. 스냅샷에는 분대가 본 시설과 보급만 오므로 s.facilities.length로는 전체 수를 알 수 없다.
@@ -432,6 +445,8 @@ function setMarkup(id: string, html: string) {
 
 function leave() {
   guest = undefined; snapshot = undefined; lastNotice = 0; sequence = 0;
+  // 투입 답을 기다리던 표시도 되돌린다. 옛 연결의 처리기는 나간 뒤에는 돌지 않으므로, 여기서 되돌리지 않으면 다음 작전의 투입 버튼이 잠긴다.
+  deployRequested = false;
   closeReportNote();
   sessionStorage.removeItem('argus-guest');
   window.clearTimeout(reconnectTimer);
@@ -439,12 +454,19 @@ function leave() {
   // 손가락 상태를 다음 작전으로 넘기지 않는다. 터치 조작도 숨긴다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아 지난 작전의 버튼이 남는다.
   releaseStick(); releaseTouchSkills();
   clearInput();
-  // 미니맵도 숨긴다. 그리기를 멈추므로 다음 방에서 첫 프레임이 다시 보이게 할 때까지 숨어 있고, 알림도 제자리로 돌아온다.
-  if (world) { world.landing = undefined; world.overview = false; world.app.ticker.stop(); world.minimap?.show(false); }
+  // 지난 방의 지도와 미니맵을 비운다(World.reset). 비우지 않으면 다음 방의 첫 스냅샷이 오기 전에 지난 방이 그려진다.
+  // 미니맵이 숨으므로 알림도 제자리로 돌아온다.
+  if (world) { world.app.ticker.stop(); world.reset(); }
   $('operation').hidden = true; $('lobby').hidden = false; $('result').hidden = true; $('touch-controls').hidden = true;
+  // 지난 방의 HUD도 치운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않는다. 지도 위에 뜨는 체력·마나 상자와 투입 안내는
+  // 숨겨 두고(첫 스냅샷이 올 때 updateUi가 다시 보인다), 초대 코드·명단·임무 수 같은 글자는 처음 값으로 되돌린다.
+  $('combat-hud').hidden = true; $('deploy-panel').hidden = true;
+  for (const [id, html] of firstTexts) $(id).innerHTML = html;
+  $('extract-progress').style.width = '0%';
   // 작은 임무 진행도 비운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아, 비우지 않으면 지난 작전의 진행이 보인다.
   for (const id of ['mission-mini', 'touch-mission', 'touch-extract']) setMarkup(id, '');
-  document.body.classList.remove('operating', 'menu-open', 'ended');
+  document.body.classList.remove('operating', 'ended');
+  setMenu(false);
   document.documentElement.classList.remove('touch-operating');
   status('투입 대기');
 }
@@ -623,7 +645,18 @@ window.addEventListener('keyup', event => { keys.delete(event.code); staleKeys.d
 const stickRadius = 56, stickDeadZone = 10;
 let stickPointer: number | null = null;
 let stickOrigin = { x: 0, y: 0 };
+// 조이스틱이 미니맵과 겹치는지다. 미니맵은 누름을 받지 않아 그 자리에서도 조이스틱이 생기는데, 위쪽 줄 묶음 안이라 조이스틱보다
+// 위에 그려져 받침과 손잡이를 가린다. 겹치는 동안에는 미니맵을 옅게 해 조이스틱이 비쳐 보이게 한다(style.css, 2026-11-11 사용자 결정).
+// 손잡이(반지름 24, style.css의 .touch-knob)는 받침 끝까지 가므로, 누른 자리에서 그만큼 떨어진 곳까지 겹침으로 본다. 숨은 미니맵은 크기가 0이다.
+const stickReach = stickRadius + 24;
+function stickOverMinimap() {
+  const box = $('minimap').getBoundingClientRect();
+  return box.width > 0 && stickOrigin.x + stickReach > box.left && stickOrigin.x - stickReach < box.right
+    && stickOrigin.y + stickReach > box.top && stickOrigin.y - stickReach < box.bottom;
+}
 function moveStick(event: PointerEvent) {
+  // 쥐고 있는 동안 미니맵이 보이거나 숨을 수 있어(전체 지도 보기, 착지) 움직일 때마다 다시 본다.
+  document.body.classList.toggle('stick-on-minimap', stickOverMinimap());
   const dx = event.clientX - stickOrigin.x, dy = event.clientY - stickOrigin.y;
   const length = Math.hypot(dx, dy);
   // 손잡이는 받침 밖으로 나가지 않는다. 걷는 방향은 손가락이 받침 밖에 있어도 손가락 쪽이다.
@@ -636,6 +669,7 @@ function moveStick(event: PointerEvent) {
 function releaseStick() {
   stickPointer = null; touch.x = 0; touch.y = 0;
   $('touch-base').hidden = true;
+  document.body.classList.remove('stick-on-minimap');
 }
 function releaseTouchSkills() {
   touch.pointers.clear();
@@ -676,7 +710,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill'
   button.addEventListener('lostpointercapture', release);
 }
 $('touch-controls').addEventListener('contextmenu', event => event.preventDefault());
-$('touch-menu').addEventListener('click', () => document.body.classList.toggle('menu-open'));
+$('touch-menu').addEventListener('click', () => setMenu(!document.body.classList.contains('menu-open')));
 $('touch-map').addEventListener('click', () => { if (world) world.overview = !world.overview; });
 // 안드로이드 크롬은 전체 화면으로 주소창을 숨기고 가로로 고정할 수 있다. 아이폰 사파리는 페이지 전체 화면을 지원하지 않아 버튼을 숨긴다.
 // 전체 화면은 누름(사용자 동작) 안에서만 켤 수 있다. 터치 기기에서 작전을 시작하거나 참가하는 누름에서도 켠다.

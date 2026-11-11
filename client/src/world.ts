@@ -3,14 +3,14 @@ import { fromDouble, toDouble, type FixedVector } from './fixed';
 import { deployable, inputHoldTicks, stepPlayer, tickMilliseconds, ticksPerSecond, unknownTile, type Body, type Terrain } from './movement';
 import { affinityNames, type CombatAction, type Control, type Position, type Snapshot } from './types';
 // 색(상성 색, 지도 색, 대원 색, 적 몸 색)은 미니맵·CSS·검사가 함께 쓰도록 pixi 없는 palette.ts에 둔다.
-import { affinityColors, bodyColor, colors, team } from './palette';
+import { affinityColors, bodyColor, colors, extractionRadius, facilityColor, supplyColor, supplyShown, team } from './palette';
 import type { Minimap, MinimapScene } from './minimap';
 
 // 효과 색이다. 방어 성공은 방어 상성 색이다. 피격·비김은 상성 색과 겹치지 않는 분홍이다(2026-11-08 사용자 결정). 예전 연어 빨강은
 // 새 타격 빨강과 거의 같아(적색약에게는 같은 색) 적 옆에 뜬 피격이 타격 예고로 읽혔다. 분홍은 빨강과 파랑을 섞은 색이라 3원색과
 // 겹치지 않는다. 완전 파훼는 라임, 부분 대응은 금색이고, 나머지(−1, 보급 완료, 투입)는 청록이다.
 const effectColors: Record<string, number> = { guard: affinityColors.block, hurt: colors.pink, draw: colors.pink, break: colors.lime, partial: colors.gold };
-const unitOutline = { color: 0x111a1a, width: 2.5 };
+const unitOutline = { color: colors.outline, width: 2.5 };
 
 // 원호는 이 함수로만 그린다. Pixi는 fill·stroke 뒤의 다음 경로를 직전 경로의 마지막 점에서 시작한다.
 // 그런데 직전 경로가 원·사각형·다각형 같은 도형으로 끝나면 마지막 점을 계산하지 않고, 읽을 때마다 0으로 되돌리는
@@ -75,7 +75,10 @@ export class World {
   private averageFrame = 16.7;
   private renderBudget = 10000;
   overview = false;
-  // 미니맵이다(minimap.ts). main.ts가 작전 화면의 캔버스로 만들어 붙인다. 메인 화면이 맵 전체를 보이는 동안에는 숨긴다.
+  // 터치 화면의 서랍이 열려 있는지다(main.ts가 알린다). 미니맵은 서랍보다 위에 그려지므로 그동안 숨긴다.
+  menuOpen = false;
+  // 미니맵이다(minimap.ts). main.ts가 작전 화면의 캔버스로 만들어 붙인다. 보이는지는 draw 한 곳에서 정한다:
+  // 메인 화면이 맵 전체를 보이는 동안과 서랍이 열린 동안에는 숨긴다.
   minimap?: Minimap;
   landing?: Position;
   fps = 60;
@@ -93,6 +96,38 @@ export class World {
     this.app.stage.addChild(this.root);
     this.root.addChild(this.ground, this.fog, this.light, this.walls, this.props, this.units, this.labels);
     this.app.ticker.add(t => this.draw(Math.min(t.deltaMS / 1000, .05)));
+  }
+
+  // 방을 나갈 때 부른다. 지난 방의 스냅샷과 그림을 모두 비운다. 비우지 않으면 다음 방의 첫 스냅샷이 오기 전에(연결이 늦으면 그동안 내내)
+  // 메인 화면과 미니맵이 지난 방을 그린다. 다시 켠 ticker가 그리기 전에 지난 그림이 한 프레임 보이지 않도록 빈 화면도 바로 그린다.
+  reset() {
+    this.snapshot = undefined;
+    this.previous = undefined;
+    this.tiles = new Uint8Array();
+    this.revision = -1;
+    this.terrain = undefined;
+    this.bodies = [];
+    this.base = undefined;
+    this.forecast = undefined;
+    this.predicted = undefined;
+    this.pending = [];
+    this.ack = -1;
+    this.droppedSeq = -1;
+    this.correction = { x: 0, y: 0 };
+    this.predicting = false;
+    this.oldState = '';
+    this.landing = undefined;
+    this.overview = false;
+    this.menuOpen = false;
+    for (const layer of [this.ground, this.light, this.props, this.units]) layer.clear();
+    for (const chunk of [...this.fogChunks, ...this.wallChunks]) chunk.destroy();
+    this.fogChunks = [];
+    this.wallChunks = [];
+    this.labelsById.forEach(label => { label.visible = false; });
+    this.removeUnusedLabels();
+    this.minimap?.show(false);
+    // 그래픽 초기화(init)가 끝나기 전에는 그릴 것이 없다.
+    if (this.app.renderer) this.app.render();
   }
 
   update(snapshot: Snapshot) {
@@ -438,21 +473,21 @@ export class World {
     // 탈출 지점은 분대가 그 칸을 본 뒤에야 온다.
     const ext = s.extraction;
     if (ext) {
-      g.circle(ext.x, ext.y, 80).fill({ color: colors.teal, alpha: ext.unlocked ? .12 : .025 }).stroke({ color: colors.teal, alpha: ext.unlocked ? .9 : .25, width: 2 });
-      if (ext.progress > 0) arcOnNewPath(g, ext.x, ext.y, 80, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ext.progress / ext.duration).stroke({ color: colors.lime, width: 7 });
+      g.circle(ext.x, ext.y, extractionRadius).fill({ color: colors.teal, alpha: ext.unlocked ? .12 : .025 }).stroke({ color: colors.teal, alpha: ext.unlocked ? .9 : .25, width: 2 });
+      if (ext.progress > 0) arcOnNewPath(g, ext.x, ext.y, extractionRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ext.progress / ext.duration).stroke({ color: colors.lime, width: 7 });
       this.label('extract', ext.unlocked ? '↑ 탈출 · 구역 확보' : '↑ 탈출 지점', ext.x, ext.y + 102, colors.teal, 15);
     }
     for (const f of s.facilities) {
-      const color = f.hp > 0 ? colors.red : 0x64706a;
+      const color = facilityColor(f);
       g.rect(f.x - 27, f.y - 27, 54, 54).fill(0x1a2325).stroke({ color, width: 3 });
       g.moveTo(f.x - 18, f.y - 18).lineTo(f.x + 18, f.y + 18).moveTo(f.x + 18, f.y - 18).lineTo(f.x - 18, f.y + 18).stroke({ color, width: 3 });
       if (f.hp > 0) g.rect(f.x - 27, f.y - 39, 54 * f.hp / f.maxHp, 4).fill(color);
       this.label(`facility-${f.id}`, f.hp > 0 ? `0${f.id} · 적 시설` : `0${f.id} · 파괴 완료`, f.x, f.y + 47, color, 14);
     }
     for (const supply of s.supplies) {
-      // 회수한 부목표 상자와 다 쓴 상자(남은 횟수 0)는 그리지 않는다.
-      if (supply.collected || supply.uses === 0) continue;
-      const color = supply.cooldown > 0 ? 0x829388 : supply.objective ? colors.gold : colors.teal;
+      // 그리는 상자와 색은 미니맵과 같은 규칙이다(palette.ts). 회수한 부목표 상자와 다 쓴 상자는 그리지 않는다.
+      if (!supplyShown(supply)) continue;
+      const color = supplyColor(supply);
       g.roundRect(supply.x - 12, supply.y - 12, 24, 24, 3).fill(0x1a2325).stroke({ color, width: 2 });
       g.moveTo(supply.x - 6, supply.y).lineTo(supply.x + 6, supply.y).moveTo(supply.x, supply.y - 6).lineTo(supply.x, supply.y + 6).stroke({ color, width: 2 });
       // 남은 횟수는 늘 보인다. 내 대기 시간은 대원마다 따로 세므로, 대기 중에도 횟수를 가리지 않고 함께 보인다.
@@ -561,8 +596,9 @@ export class World {
     }
     this.removeUnusedLabels();
     if (this.minimap) {
-      this.minimap.show(!overview);
-      if (!overview) {
+      const shown = !overview && !this.menuOpen;
+      this.minimap.show(shown);
+      if (shown) {
         // 미니맵에도 메인 화면이 그리는 위치를 넘긴다. 적은 그리기 상한(renderBudget)과 관계없이 보이는 적을 모두 넘긴다. 점 하나라 가볍다.
         const minimapEnemies = s.enemies.map(enemy => {
           const p = interpolate(enemy, oldEnemies.get(enemy.id));
