@@ -71,11 +71,11 @@ function snapshot(): Snapshot {
     id, kind, name: kind, x, y, rawX: x * 4096, rawY: y * 4096, hp: 1, maxHp: 1, radius: 16, tiers, action: null,
   });
   return {
-    type: 'snapshot', version: 5, room: 'ROOM01', you: 'pilot', now: 10, elapsed: 5, phase: 'active', result: null,
+    type: 'snapshot', version: 6, room: 'ROOM01', you: 'pilot', now: 10, elapsed: 5, phase: 'active', result: null,
     walls: Buffer.from(walls).toString('base64'), mapRevision: 0,
     extraction: { x: 1080, y: 1130, progress: 0, duration: 20, unlocked: false },
     map: { width: 1920, height: 1440, cell: 48, columns: 40, rows: 30, campX: 300, campY: 730 },
-    rules: { deploy: 5, speed: 180, playerRadius: 13, guardHalfAngle: Math.PI / 3, parryFollowupSeconds: .18, skills: [] },
+    rules: { deploy: 5, speed: 180, playerRadius: 13, guardHalfAngle: Math.PI / 3, maxAuraSeconds: 1, skills: [] },
     players: [player('pilot', 400, 730, 'alive'), player('mate', 1500, 300, 'alive'), player('waiting', 700, 250, 'waiting')],
     enemies: [enemy(901, 'grunt', 1000, 1000, [1, 1, 1]), enemy(902, 'breaker', 600, 1200, [2, 1, 1])],
     facilities: [{ id: 1, x: 900, y: 400, hp: 3, maxHp: 3 }, { id: 2, x: 1200, y: 820, hp: 0, maxHp: 3 }],

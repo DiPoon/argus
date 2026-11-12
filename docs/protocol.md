@@ -1,12 +1,21 @@
-# Argus protocol v5
+# Argus protocol v6
 
 2026-10-09. JSON over HTTP + WebSocket, UTF-8. 좌표 단위는 월드 단위, 시간은 서버 초, 각도는 라디안이다. 서버는 좌표를 4096분의 1 단위 고정소수점 정수로 계산하고, 좌표와 몸 반지름은 소수 둘째 자리로 반올림해 보낸다. 딱 절반이면 0에서 먼 쪽으로 간다(0.125는 0.13). 4096분의 1 단위에는 0.125처럼 소수 셋째 자리가 딱 5인 값이 실제로 있다. 원점은 왼쪽 위다. X는 오른쪽, Y는 아래쪽이다. 서버는 1/30초 틱으로 진행하며, 시간 필드는 세 가지다.
 
-- **틱 시각과 틱 수**: `now`, `elapsed`, 기술의 `startedAt`·`contactAt`·`activeUntil`·`followupUntil`·`endsAt`, 효과의 `until`, 안내의 `at`, 대원의 `busy`·`deploy`, 보급의 `cooldown`. 틱을 초로 바꿔 소수 둘째 자리로 반올림해 보낸다. 한 틱은 약 0.033초라 반올림해도 틱끼리 구분된다. 같은 틱의 시각은 `now`와 정확히 같고, 값에 30을 곱해 반올림하면 틱 번호가 된다.
-- **규칙 값**: `rules.deploy`, `rules.parryFollowupSeconds`, `rules.skills`의 `contactAfter`·`activeSeconds`·`duration`, `extraction.duration`. 설정한 초를 그대로 보낸다. 서버는 이 기간을 틱으로 올려 세므로, 30을 곱해도 틱 수가 되지 않을 수 있다. 기술의 기간은 모두 `startedAt`부터 잰 초이고 각각 올린다. 예를 들어 `contactAfter` 0.18초는 6틱(0.2초)이다. `parryFollowupSeconds`만은 따로 올리지 않는다. `startedAt`부터 `activeSeconds + parryFollowupSeconds`를 합친 뒤 틱으로 올리고, 그 시각을 기술 객체의 `followupUntil`로 보낸다. `activeUntil`에 반격 시간을 따로 더하면 반격 끝이 한 틱까지 어긋나므로 `followupUntil`을 쓴다. 지금 수치로 센 예는 [전투 명세의 코드 읽기 절](combat.md#코드-읽기)에 있다.
+- **틱 시각과 틱 수**: `now`, `elapsed`, 기술의 `startedAt`·`contactAt`·`activeUntil`·`endsAt`, 효과의 `until`, 안내의 `at`, 대원의 `busy`·`deploy`, 보급의 `cooldown`. 틱을 초로 바꿔 소수 둘째 자리로 반올림해 보낸다. 한 틱은 약 0.033초라 반올림해도 틱끼리 구분된다. 같은 틱의 시각은 `now`와 정확히 같고, 값에 30을 곱해 반올림하면 틱 번호가 된다.
+- **규칙 값**: `rules.deploy`, `rules.maxAuraSeconds`, `rules.skills`의 `auraSeconds`·`zoneSeconds`·`duration`, `extraction.duration`. 설정한 초를 그대로 보낸다. 서버는 이 기간을 틱으로 올려 세므로, 30을 곱해도 틱 수가 되지 않을 수 있다. 기술의 단계는 `startedAt`부터 잰 초를 한 번에 올린 틱에 바뀐다. 장판이 나가는 틱은 `auraSeconds`를, 장판이 걷히는 틱은 `auraSeconds + zoneSeconds`를, 기술이 끝나는 틱은 `duration`을 올린 것이다. 예를 들어 `auraSeconds` 0.18초는 6틱(0.2초)이다. 단계마다 따로 올려 더하면 한 틱까지 어긋난다. 또 대원이 버튼을 누르고 있으면 기운이 이어져 뒤의 단계가 그 틱 수만큼 밀린다. 그래서 단계가 바뀌는 시각은 규칙 값으로 계산하지 말고 기술 객체의 `contactAt`·`activeUntil`·`endsAt`을 쓴다. 지금 수치로 센 예는 [전투 명세의 코드 읽기 절](combat.md#코드-읽기)에 있다.
 - **탈출 진행도**: `extraction.progress`. 반 틱 단위로 센 값을 초로 바꿔 소수 둘째 자리로 반올림한다. 반 틱 간격(1/60초 ≈ 0.017초)이 반올림 오차(최대 0.005초)의 두 배보다 크므로, 값에 60을 곱해 반올림하면 정확한 반 틱 수가 된다.
 
-`/health`의 `protocol`과 snapshot의 `version`은 5이다.
+`/health`의 `protocol`과 snapshot의 `version`은 6이다.
+
+v5 → v6(2026-11-12): 전투 판정을 기운·장판 모델로 바꿨다([전투 명세](combat.md)의 "기운과 장판"). 통신 형식에서는 다음이 바뀌었다.
+
+- 입력: 기술은 `press`로만 시작한다. `slot`은 누르고 있는 슬롯이고, 그 슬롯으로 쓴 기술의 기운을 잇는다. v5에서는 `slot`만으로도 기술이 나갔고, 누르고 있으면 기술이 끝날 때마다 다시 나갔다. 이제 `press`를 보내지 않는 클라이언트는 기술을 쓸 수 없다.
+- 대원 기술 객체의 `phase`는 `aura`(기운) → `zone`(장판) → `recovery`다. `active`·`followup`·`interrupted`는 없앴다. 완벽 대응을 냈거나 끊긴 기술은 그 틱에 `actions`에서 빠진다.
+- 기술 객체의 `followupUntil`을 없앴다. 받아치기의 반격은 그 기술의 `zone` 단계이고 그동안 `kind`가 `none`이다.
+- 대원이 버튼을 누르고 있어 기운이 이어지는 동안, `contactAt`·`activeUntil`·`endsAt`과 대원의 `busy`는 최대 기운 시간까지 누른다고 보고 센 값이다. 떼면 실제 값으로 당겨진다.
+- `rules.parryFollowupSeconds`를 없애고 `rules.maxAuraSeconds`를 더했다.
+- `rules.skills`에서 `contactAfter`·`activeSeconds`·`guardsFront`·`hasFollowup`·`followupBreaksStructures`를 없애고 `auraSeconds`·`zoneSeconds`·`plainZone`을 더했다.
 
 v5 안에서 바뀜(2026-11-08): 적의 기술 객체 `aim`이 예고 동안 노린 대원 쪽으로 바뀔 수 있다. 이전에는 기술 시작 시 고정했다. 적의 기술 객체에 노린 대원 `target`이 늘었다. 필드를 더하기만 해서 버전은 그대로 5다.
 
@@ -36,7 +45,7 @@ v3 안에서 추가(2026-10-21): 대원과 적에 예측용 좌표 `rawX`, `rawY
 
 v1 → v2: 총기·탄창·재장전·보조 장비·패시브 필드를 제거하고 네 슬롯의 근접 기술과 마나로 전환했다.
 
-버전 정책: 하위 버전 호환은 유지하지 않는다. 프로토콜 버전이 올라가면 공식 클라이언트를 함께 갱신해 배포한다. 서드파티 클라이언트는 `/health`의 `protocol`과 스냅샷의 `version`을 확인하고, 지원 버전과 다르면 접속을 멈추고 갱신해야 한다. 현재 공식 클라이언트는 `version`이 5가 아니면 접속을 끊고 새로고침을 안내한다.
+버전 정책: 하위 버전 호환은 유지하지 않는다. 프로토콜 버전이 올라가면 공식 클라이언트를 함께 갱신해 배포한다. 서드파티 클라이언트는 `/health`의 `protocol`과 스냅샷의 `version`을 확인하고, 지원 버전과 다르면 접속을 멈추고 갱신해야 한다. 현재 공식 클라이언트는 `version`이 6이 아니면 접속을 끊고 새로고침을 안내한다.
 
 ## 참가와 복구
 
@@ -74,14 +83,17 @@ slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 
 - 공식 클라이언트는 `ack`로 서버 재조정을 한다. 입력을 서버의 틱과 같은 빠르기(평균 초당 30번)로 보내고, 보낸 입력을 순번과 함께 보관한다. 스냅샷이 오면 `ack` 이하의 입력을 버린 뒤, 남은 입력을 내 대원의 `rawX`, `rawY` 위에 하나에 한 틱씩 서버와 같은 고정소수점 계산으로 다시 적용해 그린다. 서버는 틱마다 마지막으로 받은 입력을 쓰므로, 입력이 한 틱에 하나씩 들어가면 예측은 서버와 Raw까지 같다. 같은 틱에 둘이 들어가거나 한 틱 동안 들어가지 않으면 그만큼 어긋나고 다음 스냅샷에서 바로잡힌다. 클라이언트 시각은 서버로 보내지 않으며 서버는 판정에 클라이언트 시각을 쓰지 않는다.
 - `moveX`, `moveY`: 유한수, 각 절댓값 1.01 이하. 벡터 길이가 1을 넘으면 서버가 정규화한다. 실제 이동 거리는 서버 시간과 몸·벽 충돌로 결정한다.
 - `aim`: 유한 라디안. 현재 방향이며 동작 중에도 변경 가능하다. 서버는 한 바퀴를 65536칸(한 칸은 약 0.0055°)으로 나눈 가장 가까운 방향으로 바꿔 다룬다. 스냅샷의 `aim`도 그 방향을 -π 이상 π 미만의 라디안으로 보낸다.
-- `slot`: 정수 0~4. 지금 쥐고 있는 슬롯이다. 0은 쥐고 있는 슬롯 없음. 1~4는 해당 슬롯의 유지 입력이다. 현재 동작이 끝나고 마나가 충분하면 다음 동작을 시작한다. 중간 기술 교체·동작 시간 단축·기본기 중첩은 허용하지 않는다.
-- `press`: 정수 0~4. 없어도 되고 없으면 0이다. 지난 입력을 보낸 뒤에 누른 슬롯이다(여럿이면 마지막 것). 0은 새로 누른 슬롯 없음. 범위를 벗어나면 그 입력을 거절하고, 숫자가 아니면 그 입력을 무시한다.
-  - 서버는 틱마다 한 번 슬롯을 본다. 지난 틱 뒤에 `press`가 1~4인 입력이 왔으면 그 슬롯(여럿이면 마지막 것)을 쓰고, 없으면 마지막 입력의 `slot`을 쓴다. 그래서 누른 입력 뒤에 다른 입력이 같은 틱 사이에 와도 누름이 지워지지 않고, 쥐고 있던 슬롯을 뗀 입력이 마지막 쥐고 있음과 함께 와도 그 슬롯이 다시 나가지 않는다.
-  - 누름은 그 틱에만 쓴다. 동작 중이라 시작하지 못하면 버리고 다음 틱으로 넘기지 않는다. 계속 쥐고 있으면 `slot`으로 동작이 끝나는 틱에 나간다.
-  - `press`를 보내지 않아도 `slot`으로 기술을 쓸 수 있다. 다만 서버의 틱 사이에 눌렀다 뗀 슬롯은 서버가 알 수 없어 나가지 않는다.
-  - 공식 클라이언트는 지난 입력을 보낸 뒤에 누른 슬롯을, 보내기 전에 떼었어도 다음 입력의 `press`로 한 번 보낸다. `slot`은 그 입력을 보내는 순간에 쥐고 있는 슬롯이다.
+- `press`: 정수 0~4. 없어도 되고 없으면 0이다. 지난 입력을 보낸 뒤에 누른 슬롯이다(여럿이면 마지막 것). 0은 새로 누른 슬롯 없음. 범위를 벗어나면 그 입력을 거절하고, 숫자가 아니면 그 입력을 무시한다. **기술은 `press`로만, 누를 때 한 번 시작한다.**
+  - 서버는 틱마다 한 번 입력을 본다. 지난 틱 뒤에 `press`가 1~4인 입력이 왔으면 그 슬롯(여럿이면 마지막 것)의 기술을 시작한다. 누른 입력 뒤에 뗀 입력이 같은 틱 사이에 함께 와도 누름이 지워지지 않는다.
+  - 다른 기술을 쓰는 중이라 시작하지 못한 누름은, 그 버튼을 계속 누르고 있는 동안(`slot`이 그 슬롯인 동안)만 남는다. 쓰던 기술이 끝나는 틱에 시작하고, 그 전에 떼면 버린다. 중간 기술 교체·동작 시간 단축·기본기 중첩은 허용하지 않는다.
+  - 마나가 모자랄 때 누른 것은 버린다. 누르고 있다가 마나가 차도 저절로 시작하지 않는다.
+  - 공식 클라이언트는 지난 입력을 보낸 뒤에 누른 슬롯을, 보내기 전에 떼었어도 다음 입력의 `press`로 한 번 보낸다.
+- `slot`: 정수 0~4. 그 입력을 보내는 순간에 누르고 있는 슬롯이다. 0은 누르고 있는 슬롯 없음. `slot`만으로는 기술이 시작되지 않는다.
+  - 누르고 있는 동안 그 슬롯으로 쓴 기술의 기운이 이어진다. 장판이 나갈 틱에 `slot`이 그 기술의 슬롯이면 장판이 한 틱 미뤄지고, 아니면 그 틱에 나간다. 짧게 눌러도 기술의 `auraSeconds`만큼은 기운이 돌고, `rules.maxAuraSeconds`가 지나면 누르고 있어도 장판이 나간다. 한 번 나간 장판은 다시 눌러도 기운으로 돌아가지 않는다.
+  - 다른 슬롯의 `press`가 오면 누르고 있던 슬롯은 뗀 것으로 본다. 그 누름이 한 틱 안에 지나가 `slot`이 다시 앞의 슬롯이어도 같다.
+  - 누르고 있다고 기술이 끝날 때마다 다시 시작하지는 않는다. 다시 쓰려면 다시 누른다(`press`).
 - 기술 시작 시 서버가 마나를 소비한다. 실제로 맞히지 않아도 환불하지 않는다. 같은 기술을 여러 메시지로 요청해도 한 틱에 여러 번 발동하지 않는다.
-- 입력이 0.35초 이상 없거나 연결이 끊기면 이동과 추가 사용 입력을 중단한다. 이미 시작한 기술의 시간은 계속 흐른다.
+- 입력이 0.35초 이상 없거나 연결이 끊기면 이동을 멈추고, 누르고 있던 슬롯은 뗀 것으로 본다. 이미 시작한 기술의 시간은 계속 흐른다.
 - x/y/hp/mana/damage/tier/actions 같은 추가 필드로 서버 상태를 정할 수 없다. 예전 `fire` 필드는 슬롯 밖 사격을 발생시키지 않는다.
 
 ```json
@@ -110,12 +122,12 @@ slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 
 
 | 필드 | 내용 |
 | --- | --- |
-| type, version, room, you | snapshot, 5, 방 코드, 수신자 공개 ID |
+| type, version, room, you | snapshot, 6, 방 코드, 수신자 공개 ID |
 | now, elapsed | 방 시간 / 첫 투입 이후 임무 시간. 임무 종료 후 elapsed 고정. 둘 다 틱 시각이다(맨 위 시간 필드 참고) |
 | phase, result | staging / active / ended, null / success / failure |
 | map | width, height, cell, columns, rows, campX, campY. 아직 받지 못했을 때만 온다 |
 | walls, wallChanges, mapRevision | 행 우선 byte 타일 배열의 Base64 / 받은 판 뒤로 바뀐 칸 `[칸 번호, 값, …]` / 판 번호. 0 빈 지면, 1 파괴 가능, 2 맵 경계, 3 분대가 아직 보지 못한 칸. 판 번호는 공개 벽 배열이 바뀐 수라 분대가 새 칸을 보거나 본 벽이 부서질 때 는다. walls나 wallChanges는 그 판을 아직 받지 못했을 때만 오고, 둘이 함께 오지는 않는다 |
-| rules | deploy, speed, playerRadius, guardHalfAngle, parryFollowupSeconds, skills. 아직 받지 못했을 때만 온다 |
+| rules | deploy, speed, playerRadius, guardHalfAngle, maxAuraSeconds, skills. 아직 받지 못했을 때만 온다 |
 | sight | 팀 시야 다각형 배열. 다각형은 `[x0,y0,x1,y1,…]`이며 좌표는 정수다(딱 절반이면 0에서 먼 쪽으로 반올림) |
 | players | 분대 전체 상태 |
 | enemies | 팀 시야에 실제 들어온 적과 기술 예고 |
@@ -125,7 +137,7 @@ slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 
 | extraction | x, y, progress, duration, unlocked. 분대가 그 칸을 보기 전에는 null |
 | notices | 최근 안내 최대 6개: id, at(나온 시각, 초), text. id는 방마다 1부터 늘어나는 순번이라 같은 틱에 같은 문구가 와도 다르다. 클라이언트는 id로 새 안내를 가린다 |
 
-`rules.skills`는 기술별 `id, kind, mana, contactAfter, activeSeconds, duration, range, halfWidth, guardsFront, hasFollowup, singleTarget, breaksStructures, followupBreaksStructures, around`를 제공한다. 기술은 strike, parry, grab, spin, spinblock, spingrab 여섯이다. kind는 strike / block / channel이다. 뒤의 여섯 값은 기술별 동작이다. `guardsFront`는 먼저 치지 않고 앞에서 들어오는 공격에만 반응함, `hasFollowup`은 유효 시간 뒤 상성 없는 반격, `singleTarget`은 가장 가까운 한 명만 판정, `breaksStructures`는 접촉 중에 시설과 벽을 부숨, `followupBreaksStructures`는 반격이 시설과 벽을 부숨, `around`는 조준하지 않는 둘레 기술(범위가 대원 둘레 반지름 `range`의 원이고 `halfWidth`는 쓰지 않음, `guardsFront`이면 모든 방향을 막음, 벽은 치지 않음)을 뜻한다. 동작은 id가 아니라 이 값으로 정해진다. 이 수치를 클라이언트가 돌려보내도 서버 설정을 바꾸지 않는다.
+`rules.skills`는 기술별 `id, kind, mana, auraSeconds, zoneSeconds, duration, range, halfWidth, plainZone, singleTarget, breaksStructures, around`를 제공한다. 기술은 strike, parry, grab, spin, spinblock, spingrab 여섯이다. kind는 strike / block / channel이고 기운과 장판의 상성 종류다. `auraSeconds`는 기운이 도는 가장 짧은 시간, `zoneSeconds`는 장판이 깔려 있는 시간, `duration`은 버튼을 짧게 눌렀을 때 기술 전체의 길이다. `range`와 `halfWidth`는 장판의 크기다. 뒤의 네 값은 기술별 동작이다. `plainZone`은 장판에 상성이 없음(받아치기의 반격. 기운을 두른 적에게 닿아도 일반 피해만 주고, 적의 방어 기운이 향한 쪽에서는 막힘), `singleTarget`은 한 시전에 적 하나만 판정, `breaksStructures`는 장판이 시설과 벽을 부숨, `around`는 조준하지 않는 둘레 기술(기운이 모든 방향으로 돌고, 장판이 대원 둘레 반지름 `range`의 원이며 `halfWidth`는 쓰지 않음, 벽은 치지 않음)을 뜻한다. `around`가 아닌 기술의 기운은 조준 방향의 앞 `guardHalfAngle` × 2(120°)로 돈다. 동작은 id가 아니라 이 값으로 정해진다. `rules.maxAuraSeconds`는 버튼을 누르고 있을 때 기운이 도는 가장 긴 시간이다. 이 수치를 클라이언트가 돌려보내도 서버 설정을 바꾸지 않는다.
 
 대원:
 
@@ -150,12 +162,18 @@ tiers([타격, 방어, 채널]), action(null 또는 기술 객체)
 
 ```text
 id, skill, kind, slot, tier, phase,
-aim, startedAt, contactAt, activeUntil, followupUntil, endsAt, range, halfWidth, target
+aim, startedAt, contactAt, activeUntil, endsAt, range, halfWidth, target
 ```
 
 적의 기술 객체에는 그 행동이 노린 대원의 id `target`이 있다. 대원의 기술 객체와 노린 대원이 없는 행동에는 빠진다. 적의 `aim`은 예고(`telegraph`) 동안 그 대원 쪽으로 바뀔 수 있고, 공격 창(`active`)부터는 바뀌지 않는다. 공식 클라이언트는 나를 노린 예고를 내 예측 위치 쪽으로 그린다. 서버가 마지막으로 도는 틱(`contactAt`의 한 틱 전)이 지나면, 그 틱에 서버가 본 내 자리(마지막 스냅샷의 내 위치에 확인받지 않은 입력을 그 틱까지만 다시 적용한 자리) 쪽으로 굳혀 그린다. 전송 형식에 따로 더한 값은 없다.
 
-시간 필드는 서버 `now`와 같은 절대 시간이며 틱 시각이다(맨 위 시간 필드 참고). 반격은 `activeUntil`부터 `followupUntil` 전까지다. 반격이 없는 기술과 적의 행동은 두 값이 같다. `phase`는 telegraph / active / followup / recovery / interrupted. 플레이어의 후속 반격은 `kind: "none"`이며 RPS가 없다. 적의 telegraph에는 이미 상성이 있고 recovery에는 없다. `slot`은 플레이어 1~4, 적은 0이다. 적이 다음 행동에서 노릴 대원(미래 표적)이나 숨겨진 적의 좌표는 기술 객체에 넣지 않는다. 적의 `target`은 보이는 적의 지금 행동이 이미 향한 대원이다.
+시간 필드는 서버 `now`와 같은 절대 시간이며 틱 시각이다(맨 위 시간 필드 참고). 대원의 기술도 적의 행동도 같은 세 단계로 진행한다. `startedAt`부터 `contactAt` 전까지는 몸에 기운이 돌고, `contactAt`에 장판이 나가 기운이 사라지며, `activeUntil`에 장판이 걷히고, `endsAt`에 끝난다.
+
+- 대원 기술의 `phase`는 aura / zone / recovery다. `kind`는 지금 단계의 상성 종류라, 받아치기처럼 장판에 상성이 없는 기술은 zone 동안 `none`이다. 그 밖에는 기술의 종류 그대로다. 완벽 대응을 냈거나 끊긴 기술은 `actions`에서 바로 빠진다.
+- 대원이 버튼을 누르고 있으면 기운이 이어져 장판이 나가는 틱이 한 틱씩 밀린다. 그동안 서버는 계속 누른다고 보고 `contactAt`을 `startedAt + rules.maxAuraSeconds`(틱으로 올림)로 보내고, `activeUntil`·`endsAt`·`busy`도 그만큼 밀어 보낸다. 버튼을 떼면 다음 스냅샷부터 실제로 장판이 나가는 틱으로 온다. 그래서 `phase`가 aura인 기술의 세 시각은 스냅샷마다 달라질 수 있다. 클라이언트는 가장 최근 스냅샷의 값으로 그린다.
+- 적 행동의 `phase`는 telegraph / active / recovery다. telegraph 동안 기운이 돌고 장판이 깔릴 자리가 보인다. active(공격 창)에 장판이 나가고 기운은 없다. recovery에도 기운이 없다.
+
+`slot`은 플레이어 1~4, 적은 0이다. 적이 다음 행동에서 노릴 대원(미래 표적)이나 숨겨진 적의 좌표는 기술 객체에 넣지 않는다. 적의 `target`은 보이는 적의 지금 행동이 이미 향한 대원이다.
 
 상성·합산·피해 규칙은 [전투 명세](combat.md)에 있다. 클라이언트는 모양·진행률·예고를 그리며 판정 결과를 결정하지 않는다. `effects.kind`는 break / partial / draw / guard / hit / hurt / heal / deploy이며 표시용이다.
 

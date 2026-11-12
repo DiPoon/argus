@@ -139,7 +139,7 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
     expect(me.player!.mana).toBe(mana - 1);
   }
   // 키를 누른 채 창이 포커스를 잃었다가 돌아오면 그 키는 자동 반복(repeat)으로만 들어온다.
-  // 이때도 다시 누르지 않고 기술이 이어져야 한다.
+  // 자동 반복은 새로 누른 것이 아니므로 기술이 다시 나가면 안 된다. 떼었다 다시 눌러야 나간다.
   await expect.poll(() => me.player?.busy).toBe(0);
   const held = me.player!.mana;
   await page.keyboard.down('Digit1');
@@ -148,15 +148,20 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
   await expect.poll(() => me.player?.busy).toBe(0);
   // 이미 눌린 키를 다시 누르면 Playwright는 repeat=true로 보낸다.
   await page.keyboard.down('Digit1');
-  await expect.poll(() => me.player?.mana).toBeLessThan(held - 1);
+  await page.waitForTimeout(600);
+  expect(me.player!.mana).toBe(held - 1);
+  await page.keyboard.up('Digit1');
+  await page.keyboard.down('Digit1');
+  await expect.poll(() => me.player?.mana).toBe(held - 2);
   await page.keyboard.up('Digit1');
   // 좌클릭을 누른 채 우클릭을 누르면 브라우저는 pointerdown 대신 pointermove로만 알린다.
-  // 나중에 누른 우클릭(받아치기)이 이어서 나가야 한다.
+  // 타격은 뗀 것이 되어 장판이 나가고, 나중에 누른 우클릭(받아치기)이 타격이 끝난 뒤 이어서 나가야 한다.
   await expect.poll(() => me.player?.busy).toBe(0);
   await page.mouse.down({ button: 'left' });
+  await expect.poll(() => me.player?.actions.at(-1)?.slot).toBe(1);
   await page.mouse.down({ button: 'right' });
   await expect.poll(() => me.player?.actions.at(-1)?.slot).toBe(2);
-  // 좌클릭부터 떼는 것도 pointermove로만 알린다. 버튼이 눌린 채로 남으면 타격이 계속 나가 마나가 준다.
+  // 좌클릭부터 떼는 것도 pointermove로만 알린다. 뗀 것을 놓치면 받아치기의 기운이 최대 시간까지 이어진다.
   await page.mouse.up({ button: 'left' });
   await page.mouse.up({ button: 'right' });
   await expect.poll(() => me.player?.busy).toBe(0);
@@ -265,6 +270,69 @@ test('a press goes out once in press, apart from the slot that stays held', asyn
   expect(pressed(3)[0].slot).toBe(0);
   await page.waitForTimeout(200);
   expect(inputs.filter(input => input.press > 0)).toHaveLength(3);
+  expect(me.errors).toEqual([]);
+});
+
+test('a held skill key keeps the aura going, the zone goes out on release, and holding on does not cast again', async ({ page }) => {
+  const me = observe(page);
+  // 장판은 0.24초만 깔려 있어 스냅샷 한두 장에만 보인다. 마지막 스냅샷만 보면 놓치므로, 받은 스냅샷마다 내 기술을 적어 둔다.
+  const seen: { id: number; phase: string; held: number }[] = [];
+  page.on('websocket', ws => ws.on('framereceived', frame => {
+    try {
+      const data = JSON.parse(frame.payload.toString());
+      if (data.type !== 'snapshot') return;
+      const action = data.players.find((p: { id: string }) => p.id === data.you)?.actions.at(-1);
+      if (action) seen.push({ id: action.id, phase: action.phase, held: action.contactAt - action.startedAt });
+    } catch { }
+  }));
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => me.player?.state).toBe('waiting');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+  await page.keyboard.down('KeyD'); await page.keyboard.down('KeyS');
+  await page.waitForTimeout(470);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
+  await expect.poll(() => me.player?.mana).toBe(24);
+  const action = () => me.player?.actions.at(-1);
+  // 최대 기운 시간이다(시험 수치 1초, rules.maxAuraSeconds). 규칙은 첫 스냅샷에만 실려 오므로 값을 적어 둔다.
+  const maxAura = 1;
+  // 타격 키를 누르고 있는다. 타격의 기운은 짧게 누르면 0.18초지만, 누르고 있는 동안에는 이어진다.
+  // 서버는 계속 누른다고 보고 장판이 나갈 시각을 최대 기운 시간(시작 1초 뒤)으로 알린다.
+  await page.keyboard.down('Digit1');
+  await expect.poll(() => action()?.phase).toBe('aura');
+  const first = action()!.id;
+  await page.waitForTimeout(500);
+  expect(action()!.id).toBe(first);
+  expect(action()!.phase).toBe('aura');
+  expect(action()!.contactAt - action()!.startedAt).toBeCloseTo(maxAura, 1);
+  // 기술 막대는 지금 단계를 적는다.
+  await expect(page.locator('#skill-bar .skill-slot.active small')).toHaveText('기운');
+  // 떼면 장판이 나간다. 장판이 나간 시각은 뗀 때라, 시작 0.18초 뒤도 최대 기운 시간도 아니다.
+  await page.keyboard.up('Digit1');
+  await expect.poll(() => me.player?.busy).toBe(0);
+  const released = seen.filter(entry => entry.id === first && entry.phase === 'zone');
+  expect(released.length, '장판이 나간 스냅샷').toBeGreaterThan(0);
+  expect(released[0].held).toBeGreaterThan(.45);
+  expect(released[0].held).toBeLessThan(.95);
+  expect(me.player!.mana).toBe(23);
+
+  // 끝까지 누르고 있으면 최대 기운 시간에 장판이 나가고, 기술이 끝나도 다시 나가지 않는다.
+  await page.keyboard.down('Digit1');
+  await expect.poll(() => action()?.phase).toBe('aura');
+  const second = action()!.id;
+  expect(second).not.toBe(first);
+  await expect.poll(() => seen.some(entry => entry.id === second && entry.phase !== 'aura'), { timeout: 3000 }).toBe(true);
+  const forced = seen.filter(entry => entry.id === second && entry.phase !== 'aura');
+  expect(forced[0].held).toBeCloseTo(maxAura, 1);
+  await expect.poll(() => me.player?.actions.length).toBe(0);
+  await page.waitForTimeout(1200);
+  expect(me.player!.actions).toHaveLength(0);
+  expect(me.player!.mana).toBe(22);
+  // 그동안 다른 기술이 시작되지 않았다.
+  expect(new Set(seen.map(entry => entry.id)).size).toBe(2);
+  await page.keyboard.up('Digit1');
   expect(me.errors).toEqual([]);
 });
 
@@ -450,7 +518,8 @@ test('wire protocol rejects forged state, invalid slots, replay and stolen ident
     expect(self()!.ack).toBe(0);
     send({ type: 'loadout', slots: ['strike', 'parry', 'grab', 'grab'] });
     send({ type: 'deploy', x: 1000, y: 700 });
-    send({ type: 'input', seq: 2, moveX: 0, moveY: 0, aim: 0, slot: 1 });
+    // 마나가 0이라 눌러도 기술이 나가지 않는다.
+    send({ type: 'input', seq: 2, moveX: 0, moveY: 0, aim: 0, slot: 1, press: 1 });
     await expect.poll(() => self()?.ack).toBe(2);
     expect(self()!.x).toBe(camp.x); expect(self()!.slots[3]).toBe('strike'); expect(self()!.mana).toBe(0);
     expect(self()!.actions).toHaveLength(0);

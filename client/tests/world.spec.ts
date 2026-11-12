@@ -77,12 +77,12 @@ function snapshot(): Snapshot {
   const walls = new Uint8Array(40 * 30);
   walls[10 * 40 + 10] = 1;
   return {
-    type: 'snapshot', version: 5, room: 'ROOM01', you: 'pilot', now: 10, elapsed: 5,
+    type: 'snapshot', version: 6, room: 'ROOM01', you: 'pilot', now: 10, elapsed: 5,
     phase: 'active', result: null,
     walls: Buffer.from(walls).toString('base64'), mapRevision: 0,
     extraction: { x: 1080, y: 1130, progress: 0, duration: 20, unlocked: false },
     map: { width: 1920, height: 1440, cell: 48, columns: 40, rows: 30, campX: 300, campY: 730 },
-    rules: { deploy: 5, speed: 180, playerRadius: 13, guardHalfAngle: Math.PI / 3, parryFollowupSeconds: .18, skills: [] },
+    rules: { deploy: 5, speed: 180, playerRadius: 13, guardHalfAngle: Math.PI / 3, maxAuraSeconds: 1, skills: [] },
     players: [{
       id: 'pilot', name: 'Pilot', x: 400, y: 730, rawX: 400 * 4096, rawY: 730 * 4096, slots: ['strike', 'parry', 'grab', 'strike'],
       state: 'alive', connected: true, hasDeployed: true, aim: 0, hp: 6, maxHp: 6,
@@ -144,7 +144,7 @@ test('enemy tells refresh color and disappear immediately with lost visibility',
   const state = snapshot();
   state.enemies = [elite(900)];
   state.enemies[0].action = { id: 901, skill: 'strike', kind: 'strike', slot: 0, tier: 2, phase: 'telegraph',
-    aim: Math.PI, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, followupUntil: 11.25, endsAt: 12, range: 82, halfWidth: 24 };
+    aim: Math.PI, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, endsAt: 12, range: 82, halfWidth: 24 };
   const result = await page.evaluate(state => {
     const world = window.testWorld;
     world.update(structuredClone(state)); world.draw(1 / 60);
@@ -209,7 +209,7 @@ test('enemy telegraphs turn smoothly, point at me when I am the target and stop 
   // 적은 예고하는 동안 노린 대원 쪽으로 돌고 공격 창부터 방향을 고정한다. 적의 눈(반지름 3의 점)이 적 가운데에서 어느 쪽에
   // 있는지로 그린 방향을 잰다. 화면 시계(performance.now)를 고정해, 브라우저가 잠깐 멈춰도 결과가 같게 한다.
   const action = (id: number, aim: number, extra: Partial<CombatAction> = {}): CombatAction => ({ id, skill: 'strike', kind: 'strike',
-    slot: 0, tier: 1, phase: 'telegraph', aim, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, followupUntil: 11.25, endsAt: 12,
+    slot: 0, tier: 1, phase: 'telegraph', aim, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, endsAt: 12,
     range: 82, halfWidth: 24, ...extra });
   const scene = (now: number, telegraph: CombatAction): Snapshot => ({ ...snapshot(), now, enemies: [{ ...elite(920), action: telegraph }] });
   // [먼저 받은 스냅샷, 나중에 받은 스냅샷, 두 스냅샷 사이(ms), 나중 것을 받고 그리기까지(ms)]
@@ -264,17 +264,19 @@ test('enemy telegraphs turn smoothly, point at me when I am the target and stop 
   expect(drawn[7]).toBeCloseTo(Math.atan2(12, -60), 2);
 });
 
-test('gauges and guard arcs start their own path instead of a line from an earlier point', async ({ page }) => {
+// 받아치기의 기술 정의다. 방어의 기운 0.55초 뒤 상성 없는 반격 장판이 0.18초 나간다.
+const parrySkill = { id: 'parry' as const, kind: 'block' as const, mana: 1, auraSeconds: .55, zoneSeconds: .18, duration: .98,
+  range: 54, halfWidth: 10, plainZone: true, singleTarget: false, breaksStructures: true, around: false };
+
+test('gauges and aura arcs start their own path instead of a line from an earlier point', async ({ page }) => {
   const state = snapshot();
-  // 적의 예고 게이지, 대원의 받아치기 방어 호, 탈출 진행도는 모두 원호로 그린다.
+  // 적의 예고 게이지, 대원의 기운이 향한 쪽(앞 120°의 호)과 기운이 남은 시간, 탈출 진행도는 모두 원호로 그린다.
   state.enemies = [elite(910)];
   state.enemies[0].action = { id: 911, skill: 'block', kind: 'block', slot: 0, tier: 1, phase: 'telegraph',
-    aim: Math.PI, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, followupUntil: 11.25, endsAt: 12, range: 62, halfWidth: 15 };
-  state.rules.skills = [{ id: 'parry', kind: 'block', mana: 1, contactAfter: 0, activeSeconds: .55, duration: .98,
-    range: 54, halfWidth: 10, guardsFront: true, hasFollowup: true, singleTarget: false, breaksStructures: false,
-    followupBreaksStructures: true }];
-  state.players[0].actions = [{ id: 912, skill: 'parry', kind: 'block', slot: 2, tier: 1, phase: 'active', aim: 0,
-    startedAt: 9.8, contactAt: 9.8, activeUntil: 10.35, followupUntil: 10.53, endsAt: 10.78, range: 54, halfWidth: 10 }];
+    aim: Math.PI, startedAt: 9.5, contactAt: 11, activeUntil: 11.25, endsAt: 12, range: 62, halfWidth: 15 };
+  state.rules.skills = [parrySkill];
+  state.players[0].actions = [{ id: 912, skill: 'parry', kind: 'block', slot: 2, tier: 1, phase: 'aura', aim: 0,
+    startedAt: 9.8, contactAt: 10.35, activeUntil: 10.53, endsAt: 10.78, range: 54, halfWidth: 10 }];
   state.extraction = { ...state.extraction!, progress: 6, unlocked: true };
   const arcs = await page.evaluate(state => {
     const world = window.testWorld as unknown as DrawnWorld;
@@ -303,7 +305,8 @@ test('gauges and guard arcs start their own path instead of a line from an earli
   // 이 검사가 아무것도 보지 못하는 것이므로, 조용히 통과하지 않고 실패한다.
   const expected = [
     { name: '적 예고 게이지', x: 460, y: 730, radius: 32 },
-    { name: '받아치기 방어 호', x: 400, y: 730, radius: 28 },
+    { name: '받아치기의 기운이 향한 쪽', x: 400, y: 730, radius: 28 },
+    { name: '기운이 남은 시간', x: 400, y: 730, radius: 34 },
     { name: '탈출 진행도', x: 1080, y: 1130, radius: 80 },
   ];
   for (const arc of expected) {
@@ -313,66 +316,130 @@ test('gauges and guard arcs start their own path instead of a line from an earli
   expect(arcs.flatMap(found => found.stray === null ? [] : [found.stray])).toEqual([]);
 });
 
-test('a parry followup is drawn until the followupUntil the server sent, not the followup time added on its own', async ({ page }) => {
-  // 서버는 유효 시간과 반격 시간을 합친 초를 시작부터 한 번에 틱으로 올려 반격 끝을 정한다.
-  // 300틱(10초)에 시작한 받아치기는 317틱(10.57)에 반격으로 바뀌고 322틱(10.73)에 반격이 끝난다.
-  // activeUntil에 반격 시간 0.18초를 더하면 10.75라 반격이 서버보다 오래 보인다.
+test('a parry counter zone is drawn from the contactAt to the activeUntil the server sent, not from times added up on its own', async ({ page }) => {
+  // 서버는 기운과 장판을 합친 초를 시작부터 한 번에 틱으로 올려 장판이 걷히는 틱을 정한다.
+  // 300틱(10초)에 시작한 받아치기는 317틱(10.57)에 반격 장판이 나가고 322틱(10.73)에 걷힌다.
+  // contactAt에 장판 시간 0.18초를 더하면 10.75라 반격이 서버보다 오래 보인다.
   const state = snapshot();
-  state.rules.skills = [{ id: 'parry', kind: 'block', mana: 1, contactAfter: 0, activeSeconds: .55, duration: .98,
-    range: 54, halfWidth: 10, guardsFront: true, hasFollowup: true, singleTarget: false, breaksStructures: false,
-    followupBreaksStructures: true }];
-  state.players[0].actions = [{ id: 920, skill: 'parry', kind: 'block', slot: 2, tier: 1, phase: 'active', aim: 0,
-    startedAt: 10, contactAt: 10, activeUntil: 10.57, followupUntil: 10.73, endsAt: 11, range: 54, halfWidth: 10 }];
+  state.rules.skills = [parrySkill];
+  state.players[0].actions = [{ id: 920, skill: 'parry', kind: 'block', slot: 2, tier: 1, phase: 'aura', aim: 0,
+    startedAt: 10, contactAt: 10.57, activeUntil: 10.73, endsAt: 11, range: 54, halfWidth: 10 }];
   const fills = await page.evaluate(state => {
     type Drawing = { context: { instructions: { action: string; data: { style?: { color?: number } } }[] } };
     const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; units: Drawing };
-    // 반격 색(상성 없음)으로 채운 도형을 센다. 이 장면에서 그 색을 쓰는 것은 반격뿐이다.
-    const followupFills = (now: number) => {
+    // 반격 색(상성 없음)으로 채운 도형을 센다. 이 장면에서 그 색을 쓰는 것은 반격 장판뿐이다.
+    const counterFills = (now: number) => {
       world.update(structuredClone({ ...state, now })); world.draw(1 / 60);
       return world.units.context.instructions.filter(i => i.action === 'fill' && i.data.style?.color === 0xeabd73).length;
     };
-    return { guard: followupFills(10.5), followup: followupFills(10.65), after: followupFills(10.735) };
+    return { aura: counterFills(10.5), zone: counterFills(10.65), after: counterFills(10.735) };
   }, state);
-  // 방어 중에는 반격을 그리지 않으므로, 반격 색이 다른 그림에 섞이지 않았는지도 함께 확인한다.
-  expect(fills.guard).toBe(0);
-  expect(fills.followup).toBeGreaterThan(0);
+  // 기운이 도는 동안에는 반격을 미리 그리지 않으므로, 반격 색이 다른 그림에 섞이지 않았는지도 함께 확인한다.
+  // 스냅샷의 단계가 아직 aura여도 화면 시계가 contactAt을 지나면 반격을 그린다. 화면은 스냅샷 사이에서 시각으로 단계를 정한다.
+  expect(fills.aura).toBe(0);
+  expect(fills.zone).toBeGreaterThan(0);
   expect(fills.after).toBe(0);
 });
 
-test('skills around the player draw a circle of their reach, and an all-direction guard draws a full ring', async ({ page }) => {
+test('an aura glows on the body while it lasts and gives way to the zone, for players and enemies', async ({ page }) => {
+  // 기운은 몸 둘레의 옅은 빛(몸 반지름 + 8의 원을 상성 색으로 채움)이다. 대원은 그 바깥에 기운이 향한 쪽(반지름 28의 호나 고리)과
+  // 기운이 남은 시간(반지름 34의 호)을 그린다. 장판이 나가면 기운은 사라지고 장판만 진하게 그린다(docs/combat.md "기운과 장판").
   const state = snapshot();
-  const around = { mana: 1, contactAfter: .18, activeSeconds: .42, duration: .66, range: 48, halfWidth: 0,
-    guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true, followupBreaksStructures: false, around: true };
-  // 회전 베기와 회전 방어는 상성 종류만 다르다. ring은 이 검사에만 있는 둘레 방어다. 지금 그런 기술은 없지만 속성의 뜻대로 그리는지 본다.
+  const strike = { id: 'strike' as const, kind: 'strike' as const, mana: 1, auraSeconds: .18, zoneSeconds: .24, duration: .66,
+    range: 54, halfWidth: 10, plainZone: false, singleTarget: false, breaksStructures: true, around: false };
+  state.rules.skills = [strike, parrySkill];
+  // 대원은 (400, 730), 분쇄자(반지름 22)는 (460, 730)에 있다. 둘 다 10.2초에 장판이 나간다.
+  state.enemies = [elite(940)];
+  state.enemies[0].action = { id: 941, skill: 'channel', kind: 'channel', slot: 0, tier: 1, phase: 'telegraph',
+    aim: Math.PI, startedAt: 9.4, contactAt: 10.2, activeUntil: 10.45, endsAt: 11.1, range: 68, halfWidth: 18 };
+  state.players[0].actions = [{ id: 942, skill: 'strike', kind: 'strike', slot: 1, tier: 1, phase: 'aura', aim: 0,
+    startedAt: 10, contactAt: 10.2, activeUntil: 10.43, endsAt: 10.67, range: 54, halfWidth: 10 }];
+  const drawn = await page.evaluate(state => {
+    type Style = { color?: number; alpha?: number };
+    type Painted = { action: string; data: { style?: Style; path?: { instructions: { action: string; data: number[] }[] } } };
+    const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; units: { context: { instructions: Painted[] } } };
+    const scene = (now: number, parry = false) => {
+      const copy = structuredClone({ ...state, now });
+      if (parry) Object.assign(copy.players[0].actions[0], { skill: 'parry', kind: 'block', slot: 2, contactAt: 10.57, activeUntil: 10.73, endsAt: 11 });
+      world.update(copy); world.draw(1 / 60);
+      const painted = world.units.context.instructions;
+      // 채운 원을 [x, y, 반지름, 색, 투명도]로, 원호를 [x, y, 반지름]으로 모은다.
+      const glows = painted.filter(i => i.action === 'fill').flatMap(i => (i.data.path?.instructions ?? [])
+        .filter(step => step.action === 'circle').map(step => [...step.data.slice(0, 3), i.data.style?.color ?? -1, i.data.style?.alpha ?? 1]));
+      const arcs = painted.flatMap(i => i.data.path?.instructions ?? []).filter(step => step.action === 'arc').map(step => step.data.slice(0, 3));
+      // 장판은 반투명하게 채운 다각형이다. 분쇄자의 몸도 다각형이지만 불투명하다.
+      const zones = painted.filter(i => i.action === 'fill' && (i.data.path?.instructions ?? []).some(step => step.action === 'poly'))
+        .map(i => [i.data.style?.color ?? -1, i.data.style?.alpha ?? 1]).filter(zone => zone[1] < 1);
+      return { glows, arcs, zones };
+    };
+    return { aura: scene(10.1), zone: scene(10.3), parry: scene(10.1, true) };
+  }, state);
+  const glowAt = (shapes: number[][], x: number, radius: number) => shapes.filter(shape => Math.hypot(shape[0] - x, shape[1] - 730) < 1 && shape[2] === radius);
+  const arcAt = (shapes: number[][], x: number, radius: number) => shapes.filter(shape => Math.hypot(shape[0] - x, shape[1] - 730) < 1 && shape[2] === radius).length;
+  // 기운이 도는 동안: 대원 몸 둘레(13 + 8)에 타격 색 빛, 분쇄자 몸 둘레(22 + 8)에 잡기 색 빛이 있다.
+  expect(glowAt(drawn.aura.glows, 400, 21).map(shape => shape[3])).toEqual([affinityColors.strike]);
+  expect(glowAt(drawn.aura.glows, 460, 30).map(shape => shape[3])).toEqual([affinityColors.channel]);
+  expect(glowAt(drawn.aura.glows, 400, 21)[0][4]).toBeLessThan(.5);
+  // 대원의 기운이 향한 쪽(앞 120°의 호)과 남은 시간, 적의 예고 게이지가 있다.
+  expect(arcAt(drawn.aura.arcs, 400, 28)).toBe(1);
+  expect(arcAt(drawn.aura.arcs, 400, 34)).toBe(1);
+  expect(arcAt(drawn.aura.arcs, 460, 32)).toBe(1);
+  // 장판이 깔릴 자리는 옅게 그린다(대원의 타격 장판과 적의 잡기 장판).
+  expect(drawn.aura.zones.map(zone => zone[1])).toEqual([.08, .08]);
+  // 장판이 나간 뒤: 빛과 호는 사라지고 장판만 진하게 그린다. 색은 그대로 상성 색이다.
+  expect(glowAt(drawn.zone.glows, 400, 21)).toEqual([]);
+  expect(glowAt(drawn.zone.glows, 460, 30)).toEqual([]);
+  expect(arcAt(drawn.zone.arcs, 400, 28) + arcAt(drawn.zone.arcs, 400, 34) + arcAt(drawn.zone.arcs, 460, 32)).toBe(0);
+  expect(drawn.zone.zones.map(zone => zone[1])).toEqual([.28, .28]);
+  expect(drawn.zone.zones.map(zone => zone[0]).sort()).toEqual([affinityColors.channel, affinityColors.strike].sort());
+  // 받아치기의 기운은 방어 색이다. 반격 장판에는 상성이 없으므로 깔릴 자리를 미리 그리지 않는다(적의 잡기 장판 자리만 있다).
+  expect(glowAt(drawn.parry.glows, 400, 21).map(shape => shape[3])).toEqual([affinityColors.block]);
+  expect(drawn.parry.zones).toEqual([[affinityColors.channel, .08]]);
+});
+
+test('skills around the player draw a circle of their reach, and their aura draws a full ring', async ({ page }) => {
+  const state = snapshot();
+  const around = { mana: 1, auraSeconds: .18, zoneSeconds: .24, duration: .66, range: 48, halfWidth: 0,
+    plainZone: false, singleTarget: false, breaksStructures: true, around: true };
+  // 회전 베기와 회전 방어는 상성 종류만 다르다. ring은 이 검사에만 있는, 장판 없이 기운만 있는 둘레 방어다.
+  // 지금 그런 기술은 없지만 속성의 뜻대로 그리는지 본다.
   state.rules.skills = [
     { id: 'spin', kind: 'strike', ...around },
     { id: 'spinblock', kind: 'block', ...around },
-    { id: 'ring' as 'spin', kind: 'block', ...around, contactAfter: 0, range: 0, guardsFront: true, breaksStructures: false },
+    { id: 'ring' as 'spin', kind: 'block', ...around, auraSeconds: .55, zoneSeconds: 0, range: 0, breaksStructures: false },
   ];
   const shapes = await page.evaluate(state => {
     const world = window.testWorld as unknown as DrawnWorld;
-    // 대원이 그 기술을 쓰는 중인 장면을 그리고, 그린 원과 원호를 [x, y, 반지름]으로 모은다.
-    const drawn = (skill: string) => {
+    // 대원이 그 기술을 쓰는 중인 장면을 그리고, 그린 원과 원호를 [x, y, 반지름]으로 모은다. now(10초)는 contactAt이 9.98이면 장판 중,
+    // 10.35이면 기운 중이다.
+    const drawn = (skill: string, contactAt: number) => {
       const definition = state.rules.skills.find(d => d.id === skill)!;
       const scene = structuredClone(state);
-      scene.players[0].actions = [{ id: 930, skill, kind: definition.kind, slot: 1, tier: 1, phase: 'active', aim: 0,
-        startedAt: 9.8, contactAt: 9.8 + definition.contactAfter, activeUntil: 10.22, followupUntil: 10.22, endsAt: 10.46,
+      scene.players[0].actions = [{ id: 930, skill, kind: definition.kind, slot: 1, tier: 1, phase: contactAt > state.now ? 'aura' : 'zone', aim: 0,
+        startedAt: 9.8, contactAt, activeUntil: contactAt + definition.zoneSeconds, endsAt: 10.46,
         range: definition.range, halfWidth: 0 }];
       world.update(scene); world.draw(1 / 60);
       const steps = [world.units, world.props].flatMap(drawing => drawing.context.instructions.flatMap(i => i.data.path?.instructions ?? []));
       const pick = (action: string) => steps.filter(step => step.action === action).map(step => step.data.slice(0, 3));
       return { circles: pick('circle'), arcs: pick('arc') };
     };
-    return { spin: drawn('spin'), spinblock: drawn('spinblock'), ring: drawn('ring') };
+    return { spin: drawn('spin', 9.98), spinblock: drawn('spinblock', 9.98), spinAura: drawn('spin', 10.35), ring: drawn('ring', 10.35) };
   }, state);
   // 대원(400, 730)을 중심으로 그 반지름의 도형이 몇 개인지 센다. 채우기와 테두리가 같은 경로를 쓰면 두 번 셀 수 있다.
   const at = (shapes: number[][], radius: number) => shapes.filter(([x, y, r]) => r === radius && Math.hypot(x - 400, y - 730) < 1).length;
-  // 둘레 기술은 조준 방향의 사각형이 아니라 대원 둘레 반지름 48의 원이다. 상성 종류와 관계없다.
+  // 둘레 기술의 장판은 조준 방향의 사각형이 아니라 대원 둘레 반지름 48의 원이다. 상성 종류와 관계없다. 장판이 나가면 기운의 고리는 없다.
   expect(at(shapes.spin.circles, 48)).toBeGreaterThan(0);
   expect(at(shapes.spinblock.circles, 48)).toBeGreaterThan(0);
-  // 둘레 방어는 반지름 28의 고리다. 앞만 막는 받아치기의 방어 호(같은 반지름의 원호)는 그리지 않는다.
+  expect(at(shapes.spin.circles, 28)).toBe(0);
+  // 둘레 기술의 기운은 모든 방향으로 돌므로 반지름 28의 고리다. 앞만 향하는 기술의 호(같은 반지름의 원호)는 그리지 않는다.
+  // 기운이 도는 동안에는 장판이 깔릴 자리(반지름 48의 원)도 옅게 보인다.
+  expect(at(shapes.spinAura.circles, 28)).toBeGreaterThan(0);
+  expect(at(shapes.spinAura.arcs, 28)).toBe(0);
+  expect(at(shapes.spinAura.circles, 48)).toBeGreaterThan(0);
+  // 장판이 없는 둘레 방어는 고리만 그린다. 깔릴 장판이 없으므로 반지름 0의 원도 그리지 않는다.
   expect(at(shapes.ring.circles, 28)).toBeGreaterThan(0);
   expect(at(shapes.ring.arcs, 28)).toBe(0);
+  expect(at(shapes.ring.circles, 0)).toBe(0);
 });
 
 test('the camera keeps the player in the middle at the edge of the map', async ({ page }) => {

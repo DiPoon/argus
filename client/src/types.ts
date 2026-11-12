@@ -3,19 +3,24 @@ export type Skill = 'strike' | 'parry' | 'grab' | 'spin' | 'spinblock' | 'spingr
 export type Affinity = 'strike' | 'block' | 'channel' | 'none';
 export const skillNames: Record<Skill, string> = { strike: '근접 타격', parry: '받아치기', grab: '잡기', spin: '회전 베기', spinblock: '회전 방어', spingrab: '회전 잡기' };
 export const affinityNames: Record<Affinity, string> = { strike: '타격', block: '방어', channel: '잡기', none: '반격' };
+// 기술에는 몸에 도는 기운과 범위에 깔리는 장판이 있다(protocol v6). auraSeconds는 기운이 도는 가장 짧은 시간,
+// zoneSeconds는 장판이 깔려 있는 시간, duration은 버튼을 짧게 눌렀을 때 기술 전체의 길이다.
 export interface SkillDefinition {
-  id: Skill; kind: Affinity; mana: number; contactAfter: number; activeSeconds: number;
+  id: Skill; kind: Affinity; mana: number; auraSeconds: number; zoneSeconds: number;
   duration: number; range: number; halfWidth: number;
   // 기술별 동작. 그림도 id가 아니라 이 속성으로 정한다.
-  guardsFront: boolean; hasFollowup: boolean; singleTarget: boolean; breaksStructures: boolean;
-  followupBreaksStructures: boolean;
-  // 조준하지 않는 둘레 기술이다. 범위가 대원 둘레의 원(반지름 range)이고, 방어는 모든 방향을 막는다.
+  // plainZone은 장판에 상성이 없는 기술(받아치기의 반격)이다.
+  plainZone: boolean; singleTarget: boolean; breaksStructures: boolean;
+  // 조준하지 않는 둘레 기술이다. 기운이 모든 방향으로 돌고, 장판이 대원 둘레의 원(반지름 range)이다.
   around: boolean;
 }
+// 대원의 기술과 적의 행동이다. startedAt부터 contactAt 전까지 몸에 기운이 돌고, contactAt에 장판이 나가 기운이 사라지며,
+// activeUntil에 장판이 걷힌다. 대원의 단계는 aura·zone·recovery, 적의 단계는 telegraph·active·recovery다.
+// 대원이 버튼을 누르고 있는 동안에는 서버가 최대 기운 시간까지 누른다고 보고 세 시각을 보낸다. 떼면 당겨진다.
 export interface CombatAction {
   id: number; skill: string; kind: Affinity; slot: number; tier: number;
-  phase: 'telegraph' | 'active' | 'followup' | 'recovery' | 'interrupted';
-  aim: number; startedAt: number; contactAt: number; activeUntil: number; followupUntil: number; endsAt: number;
+  phase: 'aura' | 'zone' | 'telegraph' | 'active' | 'recovery';
+  aim: number; startedAt: number; contactAt: number; activeUntil: number; endsAt: number;
   range: number; halfWidth: number;
   // 적의 행동이 노린 대원의 id다. 대원의 행동과 노린 대원이 없는 행동에는 없다(protocol v5, 2026-11-08).
   target?: string;
@@ -42,7 +47,7 @@ export interface Snapshot {
   // 탈출 지점은 분대가 그 칸을 보기 전까지 null이다. 시설과 보급도 본 칸에 있는 것만 온다(protocol v5).
   extraction: (Position & { progress: number; duration: number; unlocked: boolean }) | null;
   map: { width: number; height: number; cell: number; columns: number; rows: number; campX: number; campY: number };
-  rules: { deploy: number; speed: number; playerRadius: number; guardHalfAngle: number; parryFollowupSeconds: number; skills: SkillDefinition[] };
+  rules: { deploy: number; speed: number; playerRadius: number; guardHalfAngle: number; maxAuraSeconds: number; skills: SkillDefinition[] };
   players: Player[]; enemies: Enemy[];
   facilities: (Position & { id: number; hp: number; maxHp: number })[];
   // kind는 보급 종류(시설 자리 상자도 field)이고 uses는 남은 횟수다. 다 쓴 상자는 0, 부목표 상자는 1에서 회수하면 0이다.
