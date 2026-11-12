@@ -204,6 +204,12 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     expect(me.player!.actions.at(-1)!.skill).toBe('spin');
     await expect(skillButton).toHaveClass(/\bheld\b/);
     await expect(skillButton).toHaveClass(/\bactive\b/);
+    // 버튼을 누르고 있는 동안에는 기운이 이어진다. 서버는 장판이 나갈 시각을 최대 기운 시간(시작 1초 뒤)으로 알리고,
+    // 기술 버튼은 지금 단계를 적는다. 짧게 눌렀다면 장판은 시작 0.18초 뒤에 나간다.
+    const aura = me.player!.actions.at(-1)!;
+    expect(aura.phase).toBe('aura');
+    expect(aura.contactAt - aura.startedAt).toBeCloseTo(1, 1);
+    await expect(skillButton.locator('small')).toHaveText('기운');
     const casting = me.player!;
     await expect.poll(() => me.player?.x).toBeLessThan(casting.x - 15);
     // 기술 버튼의 손가락만 뗀다. 조이스틱을 민 손가락은 그대로라 대원은 계속 걷는다.

@@ -400,7 +400,8 @@ internal static class Program
                         {
                             continue;
                         }
-                        // press는 없어도 된다. 없으면 이 입력에 새로 누른 슬롯이 없는 것이다.
+                        // press는 없어도 된다. 없으면 이 입력에 새로 누른 슬롯이 없는 것이다. 기술은 press로만 시작하고,
+                        // slot은 누르고 있는 슬롯이라 그 기술의 기운을 잇는 데만 쓰인다.
                         int press = 0;
                         if (root.TryGetProperty("press", out JsonElement pressedSlot) &&
                             (pressedSlot.ValueKind != JsonValueKind.Number || !pressedSlot.TryGetInt32(out press)))

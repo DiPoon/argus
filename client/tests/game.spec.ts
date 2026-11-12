@@ -138,6 +138,30 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
     expect(me.player!.actions.at(-1)!.skill).toBe(skill);
     expect(me.player!.mana).toBe(mana - 1);
   }
+  const before = me.player!;
+  await page.reload();
+  await expect.poll(() => me.player?.id).toBe(before.id);
+  expect(me.player!.slots[3]).toBe('grab');
+  expect(me.player!.mana).toBe(before.mana);
+  expect(me.errors).toEqual([]);
+});
+
+// 생성 작전에서 혼자 캠프에 서 있기만 하는 대원은 처음 적들에게 가장 이르면 9초쯤, 시드의 5%가 13초 안에 쓰러진다(2026-11-13에
+// 시드 300개로 잰 값). 그래서 한 검사가 착지 뒤에 오래 머물지 않게, 겹쳐 누르기와 자동 반복 확인을 위의 검사에서 떼어 따로 둔다.
+test('a key held through lost focus does not cast again, and a second mouse button pressed over the first casts after it', async ({ page }) => {
+  const me = observe(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => me.player?.state).toBe('waiting');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+  await page.keyboard.down('KeyD'); await page.keyboard.down('KeyS');
+  await page.waitForTimeout(470);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
+  await expect.poll(() => me.player?.mana).toBe(24);
+  const canvas = (await page.locator('#canvas-host canvas').boundingBox())!;
+  await page.mouse.move(canvas.x + canvas.width * .05, canvas.y + canvas.height / 2);
   // 키를 누른 채 창이 포커스를 잃었다가 돌아오면 그 키는 자동 반복(repeat)으로만 들어온다.
   // 자동 반복은 새로 누른 것이 아니므로 기술이 다시 나가면 안 된다. 떼었다 다시 눌러야 나간다.
   await expect.poll(() => me.player?.busy).toBe(0);
@@ -148,7 +172,7 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
   await expect.poll(() => me.player?.busy).toBe(0);
   // 이미 눌린 키를 다시 누르면 Playwright는 repeat=true로 보낸다.
   await page.keyboard.down('Digit1');
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(450);
   expect(me.player!.mana).toBe(held - 1);
   await page.keyboard.up('Digit1');
   await page.keyboard.down('Digit1');
@@ -166,13 +190,9 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
   await page.mouse.up({ button: 'right' });
   await expect.poll(() => me.player?.busy).toBe(0);
   const settled = me.player!.mana;
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(700);
   expect(me.player!.mana).toBe(settled);
-  const before = me.player!;
-  await page.reload();
-  await expect.poll(() => me.player?.id).toBe(before.id);
-  expect(me.player!.slots[3]).toBe('grab');
-  expect(me.player!.mana).toBe(before.mana);
+  expect(me.player!.state).toBe('alive');
   expect(me.errors).toEqual([]);
 });
 
