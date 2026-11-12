@@ -836,6 +836,52 @@ test('the mission progress does not make the top row taller while fighting on a 
   }
 });
 
+test('gaining mana does not widen the health and mana box: the idle hint is no wider than the out-of-mana hint', async ({ browser }) => {
+  // 터치 화면의 체력·마나 상자는 내용만큼 넓고, 그 폭은 아래의 상태 글자가 정한다. 위쪽 줄 높이 검사와 휴대폰 크기 점검은 마나가 없는
+  // 상태(투입 직후)로 잰다. 그래서 마나가 있을 때의 대기 문구가 더 넓으면 어디에도 걸리지 않은 채 상자가 넓어진다.
+  // 2026-11-13에 대기 문구를 길게 고쳤을 때 한글 글꼴에서 상자가 211px에서 260px이 되어, 533x320 가로 화면의 위쪽 줄이 두 줄로 꺾이고
+  // 세로 화면 열여덟 가지에서 한 줄 더 높아졌다. 글자 폭은 글꼴마다 다르므로 정해 둔 값이 아니라 두 문구의 폭을 같은 화면에서 비교한다.
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const wire = await relay(page);
+  let mana = 0;
+  wire.change = data => {
+    const me = data.players.find(p => p.id === data.you);
+    if (me) me.mana = mana;
+    return data;
+  };
+  try {
+    await page.goto(quietRoom);
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await expect(page.locator('#deploy-panel')).toBeVisible();
+    await leaveFullscreen(page);
+    await deployAtCamp(page);
+    const status = page.locator('#combat-status');
+    await expect(status).toBeVisible();
+    const measure = () => page.evaluate(() => ({
+      hud: document.getElementById('combat-hud')!.getBoundingClientRect().width,
+      row: document.querySelector('.top-row')!.getBoundingClientRect().height,
+      text: document.getElementById('combat-status')!.textContent ?? '',
+    }));
+    // 넓은 가로 화면, 좁은 가로 화면, 세로 화면이다. 좁은 두 화면은 상자가 넓어지면 위쪽 줄이 한 줄 더 높아지는 크기다.
+    for (const size of [{ width: 844, height: 390 }, { width: 568, height: 320 }, { width: 360, height: 640 }]) {
+      const where = `${size.width}x${size.height}`;
+      await page.setViewportSize(size);
+      // 마나가 없으면 상태 글자에 empty가 붙는다. 기술을 쓰지 않으므로 마나가 있으면 대기 문구다.
+      mana = 0;
+      await expect(status, where).toHaveClass(/empty/);
+      const empty = await measure();
+      mana = 3;
+      await expect(status, where).not.toHaveClass(/empty/);
+      const idle = await measure();
+      expect(idle.text, where).not.toBe(empty.text);
+      expect(idle.text, where).not.toMatch(/초$/);
+      expect(idle.hud, `${where} 체력·마나 상자 폭`).toBeLessThanOrEqual(empty.hud);
+      expect(idle.row, `${where} 위쪽 줄 높이`).toBeLessThanOrEqual(empty.row + 0.5);
+    }
+  } finally { await context.close(); }
+});
+
 test('a PC screen shows the mission progress on the map only when its window is too narrow for the side panel', async ({ page }) => {
   const wire = await relay(page);
   await page.goto('/');

@@ -568,7 +568,10 @@ function updateUi() {
         showHand(element.querySelector<HTMLElement>('.hand')!, view.kind);
       }
     }
-    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고 안에서 이기는 기술을 누르세요 · 누르고 있으면 기운 유지';
+    // 터치 화면의 체력·마나 상자는 내용만큼 넓고, 그 폭은 이 글자가 정한다. 대기 문구가 마나가 없을 때의 문구보다 넓으면
+    // 마나가 생기는 순간 상자가 넓어져, 좁은 가로 화면에서 위쪽 줄이 꺾이고 세로 화면에서 한 줄 더 높아진다. 화면 배치는 마나가 없는
+    // 상태로 재므로 그보다 넓지 않게 쓴다(touch.spec.ts가 두 문구의 폭을 비교한다).
+    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고 안에서 이기는 기술 · 누른 채로 기운 유지';
     $('combat-status').classList.toggle('empty', p.mana === 0);
   }
   $('touch-controls').hidden = !touchMode || !alive || ended;
