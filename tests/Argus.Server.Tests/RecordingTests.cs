@@ -110,16 +110,22 @@ internal static class RecordingTests
                 }
                 double heading = tick * 0.05;
                 double aim = tick * 0.1 + i;
+                // 16틱마다 기술 하나를 눌러 9틱 동안 누르고 있는다. 누르고 있는 동안 기운이 이어진다.
+                // 그 사이 다른 틱에는 다른 기술을 짧게 누른다(누르고 있는 슬롯 없이 누름만). 다시 돌릴 때 누름이나 누르고 있음이 빠지면 갈라진다.
+                int chosen = 1 + (tick / 16 + i) % 4;
                 int slot = 0;
-                if (tick % 8 == 0)
-                {
-                    slot = 1 + (tick / 8 + i) % 4;
-                }
-                // 쥐고 있는 슬롯과 다른 틱에 짧게 누른 슬롯도 보낸다. 다시 돌릴 때 빠지면 기술이 나가지 않아 갈라진다.
                 int press = 0;
-                if (tick % 8 == 4)
+                if (tick % 16 == 0)
                 {
-                    press = 1 + (tick / 8 + i) % 4;
+                    press = chosen;
+                }
+                if (tick % 16 <= 9)
+                {
+                    slot = chosen;
+                }
+                if (tick % 16 == 12)
+                {
+                    press = 1 + (chosen + 1) % 4;
                 }
                 sequence++;
                 bool accepted = match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), aim, slot, press);
@@ -252,7 +258,7 @@ internal static class RecordingTests
                         {
                             slot = 1 + tick / 10 % 4;
                         }
-                        room.Match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), heading, slot);
+                        room.Match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), heading, slot, slot);
                     }
                     if (tick == 400)
                     {

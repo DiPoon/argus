@@ -8,7 +8,7 @@ namespace Argus.Server.Game;
 public sealed class SnapshotMessage
 {
     public string Type { get; set; } = "snapshot";
-    public int Version { get; set; } = 5;
+    public int Version { get; set; } = 6;
     public string Room { get; set; } = "";
     public double Now { get; set; }
     public double Elapsed { get; set; }
@@ -65,6 +65,8 @@ public sealed class PlayerSnapshot
     public double MaxHp { get; set; }
     public int Mana { get; set; }
     public int MaxMana { get; set; }
+    // 지금 기술이 끝나 다음 기술을 쓸 수 있을 때까지 남은 시간(초)이다. 기술을 쓰고 있지 않으면 0이다.
+    // 버튼을 누르고 있어 기운이 이어지는 중이면 최대 기운 시간까지 누른다고 보고 센다.
     public double Busy { get; set; }
     public List<ActionSnapshot> Actions { get; set; } = new List<ActionSnapshot>();
     public double Deploy { get; set; }
@@ -75,20 +77,25 @@ public sealed class PlayerSnapshot
     public double LandingY { get; set; }
 }
 
+// 대원의 기술과 적의 행동을 같은 모양으로 담는다. 둘 다 기운이 도는 동안 → 장판이 깔린 동안 → 회복 순서로 진행한다.
 public sealed class ActionSnapshot
 {
     public int Id { get; set; }
     public string Skill { get; set; } = "";
+    // 지금 단계의 상성 종류다. 기운이 도는 동안에는 기운의 종류, 장판이 깔린 동안에는 장판의 종류다.
+    // 상성 없는 장판(받아치기의 반격)이 깔린 동안에는 none이다.
     public string Kind { get; set; } = "";
     public int Slot { get; set; }
     public int Tier { get; set; } = 1;
+    // 대원의 기술은 aura(기운) → zone(장판) → recovery, 적의 행동은 telegraph(예고, 기운이 돈다) → active(공격 창, 장판이 나감) → recovery다.
     public string Phase { get; set; } = "";
     public double Aim { get; set; }
     public double StartedAt { get; set; }
+    // 장판이 나가는 시각이다. 이때부터 몸의 기운은 없다. 대원이 버튼을 누르고 있어 기운이 이어지는 중이면,
+    // 계속 누른다고 보고 최대 기운 시간에 나가는 것으로 보낸다. 떼면 그 틱으로 당겨진다. 뒤의 두 시각도 함께 움직인다.
     public double ContactAt { get; set; }
+    // 장판이 걷히는 시각이다.
     public double ActiveUntil { get; set; }
-    // 반격이 끝나는 시각이다. 반격은 ActiveUntil부터 이 시각 전까지이고, 반격이 없는 기술과 적의 행동은 ActiveUntil과 같다.
-    public double FollowupUntil { get; set; }
     public double EndsAt { get; set; }
     public double Range { get; set; }
     public double HalfWidth { get; set; }
@@ -182,6 +189,7 @@ public sealed class RulesSnapshot
     public double Speed { get; set; }
     public double PlayerRadius { get; set; }
     public double GuardHalfAngle { get; set; }
-    public double ParryFollowupSeconds { get; set; }
+    // 기운이 도는 가장 긴 시간(초)이다. 버튼을 누르고 있어도 이 시간이 지나면 장판이 나간다.
+    public double MaxAuraSeconds { get; set; }
     public List<SkillDefinition> Skills { get; set; } = new List<SkillDefinition>();
 }

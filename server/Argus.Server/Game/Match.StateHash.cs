@@ -99,9 +99,9 @@ public sealed partial class Match
         hasher.AddDouble(player.MaxHp);
         hasher.AddInt(player.Mana);
         hasher.AddInt(player.MaxMana);
-        hasher.AddLong(player.BusyUntilTick);
         hasher.AddInt(player.RequestedSlot);
         hasher.AddInt(player.PressedSlot);
+        hasher.AddInt(player.ArmedSlot);
         hasher.AddInt(player.Actions.Count);
         for (int i = 0; i < player.Actions.Count; i++)
         {
@@ -109,15 +109,15 @@ public sealed partial class Match
             hasher.AddInt(action.Id);
             hasher.AddText(action.Skill.Id);
             hasher.AddInt(action.Slot);
+            // 기술의 단계가 바뀌는 틱은 시작 틱과 버튼을 누르고 있어 밀린 틱 수, 기술 정의에서 구하므로 그 둘만 적는다.
             hasher.AddLong(action.StartedTick);
-            hasher.AddLong(action.ContactTick);
-            hasher.AddLong(action.ActiveUntilTick);
-            hasher.AddLong(action.EndsTick);
+            hasher.AddLong(action.HeldTicks);
             hasher.AddBool(action.Cancelled);
+            hasher.AddBool(action.Countered);
             hasher.AddOptionalInt(action.Target);
             hasher.AddBool(action.TargetLocked);
             hasher.AddIntSet(action.JudgedEnemies);
-            hasher.AddIntSet(action.FollowupHits);
+            hasher.AddIntSet(action.PlainHits);
             hasher.AddIntSet(action.HitFacilities);
             hasher.AddIntSet(action.HitWalls);
         }

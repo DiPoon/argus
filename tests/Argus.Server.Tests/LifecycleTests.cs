@@ -31,7 +31,7 @@ internal static class LifecycleTests
         tests.Add(new TestCase("Deployment never discloses hidden occupancy; a blocked arrival lands nearby without overlap", BlockedDeployment));
         tests.Add(new TestCase("A broadcast serializes the shared part once and matches a snapshot built for one recipient", SharedSnapshot));
         tests.Add(new TestCase("Effects, notices and actions keep their wire shape and send tick times as seconds rounded like now", TimedWireShape));
-        tests.Add(new TestCase("A parry followup ends on the tick its followupUntil names, not after the followup time rounded on its own", FollowupWireTime));
+        tests.Add(new TestCase("A skill's wire phases change on the ticks its contactAt and activeUntil name, also while its aura is held", SkillWireTimes));
         tests.Add(new TestCase("Extraction progress times sixty rounds back to the exact half-tick count, odd counts included", ExtractionProgressWire));
         tests.Add(new TestCase("Coordinates go out rounded to hundredths for drawing and as exact raw values for prediction", CoordinateWireRounding));
         tests.Add(new TestCase("Two identical notices on the same tick keep distinct ids that keep growing", NoticeIds));
@@ -184,7 +184,7 @@ internal static class LifecycleTests
         Fixture f = new Fixture();
         f.Player.Mana = 10;
         FixedVector from = f.Player.Position;
-        f.Match.Input(f.Player, 0, 0, -1, 0, 1);
+        f.Match.Input(f.Player, 0, 0, -1, 0, 1, 1);
         Advance(f.Match, 1);
         Check(Distance(from, f.Player.Position) < 65);
         Equal(f.Player.Mana, 9);
@@ -305,9 +305,10 @@ internal static class LifecycleTests
         // 캠프 상자를 다 써서 마나가 비어 있으므로 시설을 칠 마나를 채워 둔다.
         f.Player.Mana = f.Player.MaxMana;
         f.Player.Position = facility.Position - FixedVector.FromInt(55, 0);
+        // 틱마다 타격을 짧게 누른다. 기술은 누를 때만 시작한다.
         for (int i = 0; i < 100; i++)
         {
-            f.Match.Input(f.Player, i, 0, 0, 0, 1);
+            f.Match.Input(f.Player, i, 0, 0, 0, 0, 1);
             f.Match.Step();
         }
         Near(facility.Hp, 0);
@@ -335,7 +336,7 @@ internal static class LifecycleTests
         using (JsonDocument json = JsonDocument.Parse(snapshot))
         {
             JsonElement root = json.RootElement;
-            Equal(root.GetProperty("version").GetInt32(), 5);
+            Equal(root.GetProperty("version").GetInt32(), 6);
             Check(!root.TryGetProperty("pulse", out JsonElement _) && !root.TryGetProperty("nextPulse", out JsonElement _), "전역 충격 필드가 남아 있습니다");
             JsonElement supplies = root.GetProperty("supplies");
             Equal(supplies.GetArrayLength(), f.Match.Supplies.Count);
@@ -472,7 +473,7 @@ internal static class LifecycleTests
         f.Match.Effects.Add(new Effect(9003, FixedVector.FromInt(1300, 1100), "break", f.Match.Tick + Rules.ToTicks(1)));
         string serialized = Encoding.UTF8.GetString(Snapshot.Create(f.Match, f.Player, RoomHost.Json));
         using JsonDocument json = JsonDocument.Parse(serialized);
-        Equal(json.RootElement.GetProperty("version").GetInt32(), 5);
+        Equal(json.RootElement.GetProperty("version").GetInt32(), 6);
         Equal(json.RootElement.GetProperty("enemies").GetArrayLength(), 1);
         Check(!serialized.Contains("9001") && !serialized.Contains("9002") && !serialized.Contains("9003"));
         Player ally = Ally(f, "scout");
@@ -514,9 +515,9 @@ internal static class LifecycleTests
             Check(until > now && until < now + 1, $"투입 효과의 until {until}이 초가 아닙니다");
         }
 
-        // 다음 틱에 타격을 시작해 기술 시각도 본다.
+        // 다음 틱에 타격을 짧게 눌러 시작해 기술 시각도 본다.
         player.Mana = player.MaxMana;
-        Check(match.Input(player, 1, 0, 0, 0, 1));
+        Check(match.Input(player, 1, 0, 0, 0, 0, 1));
         match.Step();
         using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(match, player, RoomHost.Json)))
         {
@@ -527,54 +528,107 @@ internal static class LifecycleTests
             Check(!action.TryGetProperty("target", out JsonElement _), "대원의 기술에 노린 대원이 담겼습니다");
             // 방금 시작한 기술의 startedAt은 같은 틱의 now와 정확히 같다.
             Equal(action.GetProperty("startedAt").GetDouble(), now);
-            string[] times = new string[] { "contactAt", "activeUntil", "followupUntil", "endsAt" };
+            string[] times = new string[] { "contactAt", "activeUntil", "endsAt" };
             for (int i = 0; i < times.Length; i++)
             {
                 double value = action.GetProperty(times[i]).GetDouble();
                 CheckTickTime(value);
                 Check(value > now && value < now + 1, $"기술의 {times[i]} {value}가 초가 아닙니다");
             }
-            // 타격에는 반격이 없으므로 반격 구간이 비어 있다.
-            Equal(action.GetProperty("followupUntil").GetDouble(), action.GetProperty("activeUntil").GetDouble());
+            // 방금 시작한 기술은 기운이 도는 중이다. 반격이 끝나는 시각(followupUntil)은 protocol v6에서 없앴다.
+            Equal(action.GetProperty("phase").GetString(), "aura");
+            Check(!action.TryGetProperty("followupUntil", out JsonElement _), "없앤 followupUntil이 담겼습니다");
+            Equal(PropertyNames(action), "id,skill,kind,slot,tier,phase,aim,startedAt,contactAt,activeUntil,endsAt,range,halfWidth");
+            // 규칙에는 최대 기운 시간과 기술의 기운·장판 시간이 담긴다.
+            JsonElement rules = root.GetProperty("rules");
+            Equal(rules.GetProperty("maxAuraSeconds").GetDouble(), match.Rules.MaxAuraSeconds);
+            Check(!rules.TryGetProperty("parryFollowupSeconds", out JsonElement _), "없앤 parryFollowupSeconds가 담겼습니다");
+            JsonElement strike = Find(rules.GetProperty("skills"), "id", "strike");
+            Equal(PropertyNames(strike), "id,kind,mana,auraSeconds,zoneSeconds,duration,range,halfWidth,plainZone,singleTarget,breaksStructures,around");
         }
     }
 
-    private static void FollowupWireTime()
+    private static void SkillWireTimes()
     {
-        // 받아치기의 반격은 시작부터 잰 초(유효 시간 + 반격 시간)를 한 번에 올림한 틱에 끝난다.
-        // 반격 시간만 따로 올림해 유효 시간 끝에 더하면 한 틱 늦을 수 있다(docs/combat.md의 예).
-        // 그래서 서버가 반격이 끝나는 시각(followupUntil)을 보내고, 단계(phase)도 바로 그 틱에 바뀌어야 한다.
+        // 기술의 단계는 시작부터 잰 초를 한 번에 올림한 틱에 바뀐다. 받아치기의 반격 장판은 기운 0.55초 뒤 0.18초 깔리는데,
+        // 0.18초만 따로 올림해 더하면 한 틱 늦는다(docs/combat.md의 예). 버튼을 누르고 있으면 뒤의 단계가 그만큼 밀린다.
+        // 그래서 서버가 장판이 나가는 시각(contactAt)과 걷히는 시각(activeUntil)을 보내고, 단계(phase)도 바로 그 틱에 바뀌어야 한다.
         Match match = new Match("WIRE02", new Rules { MaxEnemies = 0 }, 1);
         Player player = match.Join("p", "pilot")!;
         Check(match.Deploy(player, match.Layout.Camp.X.ToDouble(), match.Layout.Camp.Y.ToDouble()));
         Advance(match, match.Rules.DeploySeconds);
         player.Mana = player.MaxMana;
-        // 2번 슬롯은 받아치기다. 주변에 적이 없어도 빈 방어 뒤에 반격한다.
-        Check(match.Input(player, 1, 0, 0, 0, 2));
+        // 2번 슬롯은 받아치기다. 짧게 누른다. 주변에 적이 없어도 기운이 끝나면 반격한다.
+        Check(match.Input(player, 1, 0, 0, 0, 0, 2));
         match.Step();
         PlayerAction parry = player.Actions[0];
         Equal(parry.Skill.Id, "parry");
-        long followupUntil = parry.StartedTick + Rules.ToTicks(match.Rules.Parry.ActiveSeconds + match.Rules.ParryFollowupSeconds);
-        Check(followupUntil > parry.ActiveUntilTick, "반격 구간이 비어 있습니다");
+        Equal(parry.ZoneTick - parry.StartedTick, 17L);
+        Equal(parry.ZoneUntilTick - parry.StartedTick, 22L);
+        Equal(parry.EndsTick - parry.StartedTick, 30L);
 
-        // 유효 시간이 끝나기 직전까지는 방어이고, 끝나는 틱부터 반격이다.
-        StepUntil(match, parry.ActiveUntilTick - 1);
-        Equal(SnapshotPhase(match, player), "active");
+        // 기운이 끝나기 직전까지는 기운이고 종류는 방어다. 장판이 나가는 틱부터 장판이고, 반격은 상성이 없어 종류가 none이다.
+        StepUntil(match, parry.ZoneTick - 1);
+        Equal(SnapshotPhase(match, player), "aura");
+        Equal(SnapshotAction(match, player, "kind"), "block");
         match.Step();
-        Equal(SnapshotPhase(match, player), "followup");
+        Equal(SnapshotPhase(match, player), "zone");
+        Equal(SnapshotAction(match, player, "kind"), "none");
 
-        // 반격의 마지막 틱까지 반격이고, 보낸 followupUntil의 틱에서 회복으로 바뀐다.
-        StepUntil(match, followupUntil - 1);
+        // 장판의 마지막 틱까지 장판이고, 보낸 activeUntil의 틱에서 회복으로 바뀐다.
+        StepUntil(match, parry.ZoneUntilTick - 1);
         using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(match, player, RoomHost.Json)))
         {
             JsonElement action = json.RootElement.GetProperty("players")[0].GetProperty("actions")[0];
-            Equal(action.GetProperty("phase").GetString(), "followup");
-            double until = action.GetProperty("followupUntil").GetDouble();
+            Equal(action.GetProperty("phase").GetString(), "zone");
+            double contact = action.GetProperty("contactAt").GetDouble();
+            double until = action.GetProperty("activeUntil").GetDouble();
+            CheckTickTime(contact);
             CheckTickTime(until);
-            Equal((long)Math.Round(until * Rules.TicksPerSecond), followupUntil);
+            Equal((long)Math.Round(contact * Rules.TicksPerSecond), parry.ZoneTick);
+            Equal((long)Math.Round(until * Rules.TicksPerSecond), parry.ZoneUntilTick);
         }
         match.Step();
         Equal(SnapshotPhase(match, player), "recovery");
+        Equal(SnapshotAction(match, player, "kind"), "block");
+        StepUntil(match, parry.EndsTick);
+        Equal(player.Actions.Count, 0);
+
+        // 버튼을 누르고 있는 동안에는 계속 누른다고 보고, 최대 기운 시간에 장판이 나가는 것으로 보낸다. 남은 시간(busy)도 그만큼이다.
+        // 떼면 실제로 장판이 나간 틱으로 보낸다.
+        Check(match.Input(player, 2, 0, 0, 0, 1, 1));
+        match.Step();
+        PlayerAction strike = player.Actions[0];
+        long limit = strike.StartedTick + Rules.ToTicks(match.Rules.MaxAuraSeconds);
+        long sequence = 3;
+        for (int i = 0; i < 12; i++)
+        {
+            Check(match.Input(player, sequence, 0, 0, 0, 1));
+            sequence++;
+            match.Step();
+            using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(match, player, RoomHost.Json)))
+            {
+                JsonElement self = json.RootElement.GetProperty("players")[0];
+                JsonElement action = self.GetProperty("actions")[0];
+                Equal(action.GetProperty("phase").GetString(), "aura");
+                Equal((long)Math.Round(action.GetProperty("contactAt").GetDouble() * Rules.TicksPerSecond), limit);
+                Equal((long)Math.Round(action.GetProperty("activeUntil").GetDouble() * Rules.TicksPerSecond), limit + 7);
+                Equal((long)Math.Round(action.GetProperty("endsAt").GetDouble() * Rules.TicksPerSecond), limit + 14);
+                Equal((long)Math.Round(self.GetProperty("busy").GetDouble() * Rules.TicksPerSecond), limit + 14 - match.Tick);
+            }
+        }
+        Check(match.Input(player, sequence, 0, 0, 0, 0));
+        match.Step();
+        Equal(strike.ZoneTick, match.Tick);
+        using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(match, player, RoomHost.Json)))
+        {
+            JsonElement self = json.RootElement.GetProperty("players")[0];
+            JsonElement action = self.GetProperty("actions")[0];
+            Equal(action.GetProperty("phase").GetString(), "zone");
+            Equal((long)Math.Round(action.GetProperty("contactAt").GetDouble() * Rules.TicksPerSecond), match.Tick);
+            Equal((long)Math.Round(action.GetProperty("endsAt").GetDouble() * Rules.TicksPerSecond), match.Tick + 14);
+            Equal((long)Math.Round(self.GetProperty("busy").GetDouble() * Rules.TicksPerSecond), 14L);
+        }
     }
 
     private static void ExtractionProgressWire()
@@ -682,6 +736,16 @@ internal static class LifecycleTests
         {
             JsonElement action = json.RootElement.GetProperty("players")[0].GetProperty("actions")[0];
             return action.GetProperty("phase").GetString();
+        }
+    }
+
+    // 대원의 첫 기술이 스냅샷에서 갖는 문자열 속성 name의 값이다.
+    private static string? SnapshotAction(Match match, Player player, string name)
+    {
+        using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(match, player, RoomHost.Json)))
+        {
+            JsonElement action = json.RootElement.GetProperty("players")[0].GetProperty("actions")[0];
+            return action.GetProperty(name).GetString();
         }
     }
 
@@ -1133,7 +1197,7 @@ internal static class LifecycleTests
         Advance(match, rules.DeploySeconds + 0.01);
         player.Mana = player.MaxMana;
         long sequence = 1;
-        match.Input(player, sequence, 0, 0, 0, 1);
+        match.Input(player, sequence, 0, 0, 0, 0, 1);
         Advance(match, Rules.Step);
         int first = player.Actions[player.Actions.Count - 1].Id;
         sequence++;
@@ -1146,7 +1210,7 @@ internal static class LifecycleTests
         }
         Check(match.Enemies.Count > 0, "적이 생성되지 않았습니다");
         sequence++;
-        match.Input(player, sequence, 0, 0, 0, 1);
+        match.Input(player, sequence, 0, 0, 0, 0, 1);
         Advance(match, Rules.Step);
         int second = player.Actions[player.Actions.Count - 1].Id;
         // 그 사이 보이는 곳에서는 아무 일도 없었다. 숨은 생성이 순번을 쓰면 빈 번호로 생성 수가 드러난다.

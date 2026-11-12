@@ -382,7 +382,8 @@ internal static class EncounterTests
             Enemy enemy = Telegraphing(f, GruntSkill(kinds[i]));
             EnemyAction action = enemy.Action!;
             f.Player.Position = enemy.Position + FixedVector.FromInt(0, 50);
-            // 행동이 닿기 세 틱 전에 둘레 기술을 시작한다. 행동이 닿을 때 둘레 기술은 준비 동작 중이다.
+            // 장판이 나가기 세 틱 전에 둘레 기술을 시작한다. 예고 중에는 지는 기운이라 아무 일도 없고,
+            // 장판이 나가 닿을 때 둘레 기술의 기운은 아직 돌고 있다.
             StepUntil(f.Match, action.ContactTick - 3);
             Prepare(f, f.Player, losing[i]);
             StepUntil(f.Match, action.EndsTick);
@@ -454,7 +455,8 @@ internal static class EncounterTests
     private static void TeammateFlanksTurningEnemy()
     {
         // 다른 대원을 노리는 적은 동료가 옆에서 칠 수 있다(합의 규칙, docs/combat.md). 서버가 만든 도는 행동에서도 측면이다.
-        // 동료가 병사 옆에서 상성이 지는 회전 잡기로 쳐도, 범위 밖이라 일반 피해 1로 병사가 쓰러지고 동료는 다치지 않는다.
+        // 병사가 타격을 예고하는 동안 동료가 병사 옆에서 상성이 지는 회전 잡기의 장판으로 친다. 병사의 기운은 노린 대원 쪽으로만
+        // 돌므로, 범위 밖의 동료는 일반 피해 1로 병사를 쓰러뜨리고 다치지 않는다. 노린 대원도 그 타격을 맞지 않는다.
         Fixture f = new Fixture();
         Player ally = Ally(f, "ally");
         ally.Position = f.Player.Position + FixedVector.FromInt(-60, 0);
@@ -462,11 +464,14 @@ internal static class EncounterTests
         EnemyAction action = enemy.Action!;
         Equal(action.TargetId, f.Player.Id);
         ally.Position = enemy.Position + FixedVector.FromInt(0, 50);
-        StepUntil(f.Match, action.ContactTick - 3);
-        Prepare(f, ally, "spingrab");
+        // 회전 잡기의 장판은 시작 6틱 뒤에 나간다. 병사의 장판이 나가기 네 틱 전이라 병사는 아직 예고 중이다.
+        StepUntil(f.Match, action.ContactTick - 10);
+        PlayerAction spin = Prepare(f, ally, "spingrab");
+        Check(spin.ZoneTick < action.ContactTick, "병사의 장판이 먼저 나갑니다");
         StepUntil(f.Match, action.EndsTick);
         Near(enemy.Hp, 0);
         Near(ally.Hp, ally.MaxHp);
+        Near(f.Player.Hp, f.Player.MaxHp);
     }
 
     private static void FallenTargetKeepsDirection()

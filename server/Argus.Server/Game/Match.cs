@@ -63,6 +63,8 @@ public sealed partial class Match
     private readonly Fixed _visionSquared;
     // 캠프 시야 반경의 제곱이다. 캠프 시야는 규칙이 아니라 맵에 정해져 있어 한 번만 구한다.
     private static readonly Fixed CampVisionSquared = Fixed.FromInt(BattleMap.CampVision * BattleMap.CampVision);
+    // 기운이 도는 가장 긴 틱 수다(Rules.MaxAuraSeconds). 버튼을 누르고 있어도 기술을 시작한 지 이만큼 지나면 장판이 나간다.
+    private readonly long _maxAuraTicks;
     // 입력이 이만큼(0.35초, 11틱) 없으면 대원을 멈춘다. 끊긴 연결이 마지막 입력으로 계속 움직이지 않게 한다.
     // 틱을 올린 뒤 비교하므로, 입력 하나는 받은 다음 틱부터 최대 10틱(InputTimeoutTicks - 1) 쓰인다. 클라이언트 예측도 같은 한도를 쓴다.
     public static readonly long InputTimeoutTicks = Rules.ToTicks(0.35);
@@ -109,6 +111,7 @@ public sealed partial class Match
             _guardCosine = Angle.FromUnits(guardHalfAngle).Cos();
         }
         _playerStep = Fixed.FromDouble(rules.PlayerSpeed) / Rules.TicksPerSecond;
+        _maxAuraTicks = Rules.ToTicks(rules.MaxAuraSeconds);
         VisionRange = Fixed.FromDouble(rules.Vision);
         _visionSquared = VisionRange * VisionRange;
         // 시설과 보급은 배치의 순서대로 1번부터 번호를 붙인다.
@@ -370,10 +373,10 @@ public sealed partial class Match
         }
         player.Aim = Angle.FromRadians(aim);
         player.RequestedSlot = slot;
-        // 누름(press)은 쥐고 있음(slot)과 따로 기억한다. 서버는 틱마다 한 번만 슬롯을 보므로, 기억하지 않으면 다음 틱 진행 전에
-        // 뒤따라온 입력이 누름을 덮어 기술이 나가지 않는다. 2026-11-05 휴대폰 시험에서 입력이 0.17초 끊겼다가 [누름, 뗌]이
-        // 한꺼번에 와서 누른 회전 방어가 나가지 않았다. slot으로 누름을 짐작하면 쥐고 있던 기술이 손을 뗀 뒤에 한 번 더 나가고,
-        // 다른 기술을 쥔 채 짧게 누른 기술이 덮인다.
+        // 누름(press)은 누르고 있음(slot)과 따로 기억한다. 기술은 누름으로만 시작하고, 누르고 있음은 기운을 잇는 데 쓴다.
+        // 서버는 틱마다 한 번만 입력을 보므로, 누름을 기억하지 않으면 다음 틱 진행 전에 뒤따라온 입력이 누름을 덮어 기술이
+        // 나가지 않는다. 2026-11-05 휴대폰 시험에서 입력이 0.17초 끊겼다가 [누름, 뗌]이 한꺼번에 와서 누른 회전 방어가
+        // 나가지 않았다. slot으로 누름을 짐작하지 않는다. slot만으로는 새로 눌렀는지 계속 누르고 있는지 알 수 없다.
         if (press > 0)
         {
             player.PressedSlot = press;
@@ -389,6 +392,7 @@ public sealed partial class Match
         player.Move = FixedVector.Zero;
         player.RequestedSlot = 0;
         player.PressedSlot = 0;
+        player.ArmedSlot = 0;
     }
 
     // HTTP로 참가만 하고 아직 WebSocket으로 접속하지 않은 자리로 둔다. 짧은 유예(FirstConnectSeconds) 안에
@@ -549,8 +553,9 @@ public sealed partial class Match
             player.Hp = player.MaxHp;
             player.Mana = 0;
             player.Actions.Clear();
-            player.BusyUntilTick = Tick;
             player.RequestedSlot = 0;
+            player.PressedSlot = 0;
+            player.ArmedSlot = 0;
             player.State = "alive";
             player.HasDeployed = true;
             player.Move = FixedVector.Zero;
@@ -614,7 +619,7 @@ public sealed partial class Match
 
     private void UpdatePlayer(Player player)
     {
-        // 입력이 0.35초(11틱) 동안 없으면 멈춘다(InputTimeoutTicks).
+        // 입력이 0.35초(11틱) 동안 없으면 멈춘다(InputTimeoutTicks). 누르고 있던 버튼도 뗀 것으로 본다.
         if (Tick - player.LastInputTick >= InputTimeoutTicks)
         {
             player.Move = FixedVector.Zero;
@@ -628,28 +633,81 @@ public sealed partial class Match
                 player.Actions.RemoveAt(i);
             }
         }
-        // 지난 틱 뒤에 누른 슬롯이 있으면 쥐고 있는 슬롯보다 먼저 쓴다. 나중에 누른 것이 나간다는 규칙과 같고,
-        // 그 뒤에 뗀 입력이 와서 쥐고 있는 슬롯이 0이어도 이번 틱은 누른 것으로 본다.
-        // 누른 기억은 이번 틱에만 쓰고 비운다. 기술을 쓰는 중이라 시작하지 못하면 그대로 버린다.
-        int slot = player.RequestedSlot;
-        if (player.PressedSlot > 0)
-        {
-            slot = player.PressedSlot;
-        }
+        // 지난 틱 뒤에 누른 슬롯이다(여럿이면 마지막에 누른 것). 이 틱에만 쓰고 비운다.
+        int pressed = player.PressedSlot;
         player.PressedSlot = 0;
-        if (slot > 0 && Tick >= player.BusyUntilTick)
+        HoldAuras(player, pressed);
+        StartPressedSkill(player, pressed);
+        UpdateSupplies(player);
+    }
+
+    // 버튼을 누르고 있으면 기운이 이어진다. 장판이 나갈 틱이 되었는데 그 기술의 버튼을 아직 누르고 있으면 장판을 한 틱 미룬다.
+    // 떼었거나 최대 기운 시간이 되었으면 미루지 않아 이 틱에 장판이 나간다. 한 번 나간 장판은 다시 누른다고 기운으로 돌아가지 않는다.
+    // 짧게 누른 기술은 가장 짧은 기운 시간(준비 동작)이 지난 틱에 장판이 나간다.
+    // 다른 버튼을 눌렀으면(pressed) 누르고 있던 버튼은 뗀 것으로 본다. 입력이 몰려 와 그 누름이 한 틱 안에 지나갔어도 같다.
+    private void HoldAuras(Player player, int pressed)
+    {
+        for (int i = 0; i < player.Actions.Count; i++)
         {
-            SkillDefinition skill = Rules.Skill(player.Slots[slot - 1]);
-            if (player.Mana >= skill.Mana)
+            PlayerAction action = player.Actions[i];
+            if (Tick != action.ZoneTick)
             {
-                player.Mana -= skill.Mana;
-                _nextId++;
-                PlayerAction action = new PlayerAction(_nextId, skill, slot, Tick);
-                player.Actions.Add(action);
-                player.BusyUntilTick = action.EndsTick;
+                continue;
+            }
+            bool held = player.RequestedSlot == action.Slot;
+            if (pressed != 0 && pressed != action.Slot)
+            {
+                held = false;
+            }
+            bool belowLimit = Tick < action.StartedTick + _maxAuraTicks;
+            if (held && belowLimit)
+            {
+                action.Hold();
             }
         }
-        UpdateSupplies(player);
+    }
+
+    // 버튼을 누르고 있다면 기운이 이어져 장판이 나갈 틱이다. 스냅샷이 기술의 시각을 미리 알릴 때 쓴다.
+    // 누르고 있지 않거나 이미 장판이 나갔으면 실제 틱(ZoneTick)과 같다.
+    public long ExpectedZoneTick(Player player, PlayerAction action)
+    {
+        if (Tick >= action.ZoneTick || player.RequestedSlot != action.Slot)
+        {
+            return action.ZoneTick;
+        }
+        return Math.Max(action.ZoneTick, action.StartedTick + _maxAuraTicks);
+    }
+
+    // 기술은 버튼을 누를 때 한 번 시작한다. 누르고 있다고 기술이 끝날 때마다 다시 시작하지 않는다. 완벽 대응은 누른 순간에
+    // 나므로, 다시 시작하게 두면 손을 떼기도 전에 같은 기술이 한 번 더 나가 다음 기술을 막는다.
+    // - 지난 틱 뒤에 누른 슬롯이 있으면 그 슬롯이 기다리는 누름이 된다(여럿이면 마지막에 누른 것).
+    // - 기술을 쓰는 중이라 시작하지 못한 누름은 그 버튼을 계속 누르고 있는 동안만 남는다. 떼면 버린다.
+    // - 기술을 쓰고 있지 않으면 기다리는 누름으로 기술을 시작하고, 누름은 쓴 것으로 친다. 마나가 모자라도 누름은 버린다.
+    private void StartPressedSkill(Player player, int pressed)
+    {
+        if (pressed > 0)
+        {
+            player.ArmedSlot = pressed;
+        }
+        else if (player.ArmedSlot != player.RequestedSlot)
+        {
+            player.ArmedSlot = 0;
+        }
+        if (player.ArmedSlot == 0 || player.Actions.Count > 0)
+        {
+            return;
+        }
+        int slot = player.ArmedSlot;
+        player.ArmedSlot = 0;
+        SkillDefinition skill = Rules.Skill(player.Slots[slot - 1]);
+        if (player.Mana < skill.Mana)
+        {
+            return;
+        }
+        player.Mana -= skill.Mana;
+        _nextId++;
+        PlayerAction started = new PlayerAction(_nextId, skill, slot, Tick);
+        player.Actions.Add(started);
     }
 
     private void UpdateSupplies(Player player)
@@ -761,6 +819,7 @@ public sealed partial class Match
         player.State = "waiting";
         player.Deaths++;
         player.RequestedSlot = 0;
+        player.ArmedSlot = 0;
         player.Actions.Clear();
         player.Move = FixedVector.Zero;
         Note($"{player.Name} 사망 · 증원 위치를 선택하세요");

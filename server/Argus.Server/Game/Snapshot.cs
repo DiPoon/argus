@@ -91,8 +91,12 @@ public static class Snapshot
             {
                 EnemyAction action = enemy.Action;
                 // 적 기술은 이름이 따로 없어 상성 종류를 이름으로도 보낸다.
-                ActionSnapshot display = CreateAction(action, action.Skill.Kind, action.Skill.Kind, action.Aim,
+                ActionSnapshot display = CreateAction(action.Id, action.Skill.Kind, action.Skill.Kind, action.Aim,
                     action.Skill.Range, action.Skill.HalfWidth);
+                display.StartedAt = Seconds(action.StartedTick);
+                display.ContactAt = Seconds(action.ContactTick);
+                display.ActiveUntil = Seconds(action.ActiveUntilTick);
+                display.EndsAt = Seconds(action.EndsTick);
                 display.Tier = action.Skill.Tier;
                 display.Target = action.TargetId;
                 display.Phase = "recovery";
@@ -166,7 +170,7 @@ public static class Snapshot
         rules.Speed = match.Rules.PlayerSpeed;
         rules.PlayerRadius = Round(Rules.PlayerRadius);
         rules.GuardHalfAngle = match.Rules.GuardHalfAngle;
-        rules.ParryFollowupSeconds = match.Rules.ParryFollowupSeconds;
+        rules.MaxAuraSeconds = match.Rules.MaxAuraSeconds;
         for (int i = 0; i < Rules.AllSkills.Count; i++)
         {
             rules.Skills.Add(Rules.AllSkills[i]);
@@ -261,32 +265,43 @@ public static class Snapshot
         entry.MaxHp = player.MaxHp;
         entry.Mana = player.Mana;
         entry.MaxMana = player.MaxMana;
-        entry.Busy = Seconds(Math.Max(0, player.BusyUntilTick - match.Tick));
+        long busyUntil = match.Tick;
         for (int i = 0; i < player.Actions.Count; i++)
         {
             PlayerAction action = player.Actions[i];
             // 대원의 기술 방향은 사용 중에도 조준을 따라 바뀐다.
-            ActionSnapshot display = CreateAction(action, action.Skill.Id, action.Skill.Kind, player.Aim,
+            ActionSnapshot display = CreateAction(action.Id, action.Skill.Id, action.Skill.Kind, player.Aim,
                 action.Skill.Range, action.Skill.HalfWidth);
-            // 반격 끝은 규칙 값으로 다시 계산하면 올림 방식에 따라 한 틱 어긋날 수 있으므로 서버가 정한 틱을 보낸다.
-            display.FollowupUntil = Seconds(action.FollowupUntilTick(match.Rules.ParryFollowupSeconds));
+            // 버튼을 누르고 있으면 기운이 이어져 장판이 나가는 틱이 뒤로 밀린다. 계속 누른다고 보고 최대 기운 시간에 나가는 것으로
+            // 보낸다. 그러지 않으면 화면이 스냅샷 사이에서 장판이 나간 것으로 그렸다가 다음 스냅샷에서 기운으로 되돌린다.
+            // 뒤의 단계도 같은 틱 수만큼 밀린다. 누르고 있지 않으면 미룸은 0이라 실제 틱 그대로다.
+            long wait = match.ExpectedZoneTick(player, action) - action.ZoneTick;
+            display.StartedAt = Seconds(action.StartedTick);
+            display.ContactAt = Seconds(action.ZoneTick + wait);
+            display.ActiveUntil = Seconds(action.ZoneUntilTick + wait);
+            display.EndsAt = Seconds(action.EndsTick + wait);
             display.Slot = action.Slot;
             display.Phase = "recovery";
-            if (action.Cancelled)
+            if (action.HasAura(match.Tick))
             {
-                display.Phase = "interrupted";
+                display.Phase = "aura";
             }
-            else if (action.IsActive(match.Tick))
+            else if (action.ZoneOut(match.Tick))
             {
-                display.Phase = "active";
-            }
-            else if (action.IsFollowup(match.Tick, match.Rules.ParryFollowupSeconds))
-            {
-                display.Phase = "followup";
-                display.Kind = "none";
+                display.Phase = "zone";
+                // 상성 없는 장판(받아치기의 반격)이다.
+                if (action.Skill.PlainZone)
+                {
+                    display.Kind = "none";
+                }
             }
             entry.Actions.Add(display);
+            if (action.EndsTick + wait > busyUntil)
+            {
+                busyUntil = action.EndsTick + wait;
+            }
         }
+        entry.Busy = Seconds(busyUntil - match.Tick);
         if (player.State == "deploying")
         {
             entry.Deploy = Seconds(Math.Max(0, player.DeployTick - match.Tick));
@@ -299,22 +314,15 @@ public static class Snapshot
         return entry;
     }
 
-    // 적과 대원의 행동에 공통인 값(id, 기술, 상성, 방향, 시각, 범위)을 담는다. 단계·티어·슬롯은 부르는 쪽이 채운다.
-    private static ActionSnapshot CreateAction(ITimedAction action, string skill, string kind, Angle aim,
-        double range, double halfWidth)
+    // 적과 대원의 행동에 공통인 값(id, 기술, 상성, 방향, 범위)을 담는다. 시각·단계·티어·슬롯은 부르는 쪽이 채운다.
+    // 시각은 틱으로 다루지만 통신 형식은 초다.
+    private static ActionSnapshot CreateAction(int id, string skill, string kind, Angle aim, double range, double halfWidth)
     {
         ActionSnapshot display = new ActionSnapshot();
-        display.Id = action.Id;
+        display.Id = id;
         display.Skill = skill;
         display.Kind = kind;
         display.Aim = aim.ToRadians();
-        // 시각은 틱으로 다루지만 통신 형식은 초다.
-        display.StartedAt = Seconds(action.StartedTick);
-        display.ContactAt = Seconds(action.ContactTick);
-        display.ActiveUntil = Seconds(action.ActiveUntilTick);
-        // 적의 행동에는 반격이 없어 유효 시간 끝과 같다. 대원의 기술은 부르는 쪽이 반격 끝으로 바꾼다.
-        display.FollowupUntil = display.ActiveUntil;
-        display.EndsAt = Seconds(action.EndsTick);
         display.Range = range;
         display.HalfWidth = halfWidth;
         return display;

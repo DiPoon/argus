@@ -21,6 +21,7 @@ internal static class Program
             LifecycleTests.Register(tests);
             EquipmentTests.Register(tests);
             CombatTests.Register(tests);
+            AuraTests.Register(tests);
             EncounterTests.Register(tests);
             DeterminismTests.Register(tests);
             RecordingTests.Register(tests);
@@ -223,6 +224,8 @@ internal static class TestTools
         return ally;
     }
 
+    // player가 skill을 방금(age초 전에) 짧게 눌러 시작한 것으로 둔다. 입력을 거치지 않으므로 버튼은 누르고 있지 않다.
+    // 그래서 기운은 가장 짧은 시간만 돌고 장판이 나간다. 버튼을 누르고 있는 장면은 입력(Match.Input)으로 만든다.
     public static PlayerAction Prepare(Fixture fixture, Player player, string skill, double age = 0)
     {
         return Prepare(fixture, player, fixture.Match.Rules.Skill(skill), age);
@@ -235,7 +238,6 @@ internal static class TestTools
         // age초 전에 시작한 기술이다. 틱으로 올려 센다.
         PlayerAction action = new PlayerAction(_id, skill, 1, fixture.Match.Tick - Rules.ToTicks(age));
         player.Actions.Add(action);
-        player.BusyUntilTick = action.EndsTick;
         return action;
     }
 

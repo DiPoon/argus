@@ -97,7 +97,7 @@ internal static class Program
 
     private static IResult Health()
     {
-        return Results.Ok(new { status = "ok", protocol = 5 });
+        return Results.Ok(new { status = "ok", protocol = 6 });
     }
 
     private static IResult CreateRoom(EntryRequest request, RoomHost host, HttpContext context)

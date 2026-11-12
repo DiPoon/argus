@@ -2,10 +2,12 @@ namespace Argus.Server.Game;
 
 public sealed partial class Match
 {
+    // 적의 장판 하나에 대한 대원의 대응이다. 장판 안에서 두른 기운이거나, 기운을 두른 그 적에게 닿은 대원의 장판이다.
     private sealed class Response
     {
         public Player Player { get; }
         public PlayerAction Action { get; }
+        // 대원의 장판이 적에게 닿은 대응이면 true, 대원의 기운이면 false다.
         public bool Initiates { get; }
 
         public Response(Player player, PlayerAction action, bool initiates)
@@ -17,15 +19,18 @@ public sealed partial class Match
     }
 
     // 같은 틱의 판정은 모두 그 틱이 시작할 때의 대원 상태로 한다(2026-11-04 합의). 적은 목록 순서대로 하나씩 판정하므로,
-    // 앞의 판정이 대원의 기술을 끊거나 대원을 쓰러뜨리면 뒤의 판정이 그 결과를 읽어 같은 장면이 적 목록 순서에 따라 다르게 끝난다.
-    // 그래서 판정 도중에는 기술을 끊을 대원만 적어 두고(_interrupted), 쓰러짐도 미룬다. 둘 다 이 틱의 전투가 끝난 뒤 적용한다.
+    // 앞의 판정이 대원의 기술을 끝내거나 대원을 쓰러뜨리면 뒤의 판정이 그 결과를 읽어 같은 장면이 적 목록 순서에 따라 다르게 끝난다.
+    // 그래서 판정 도중에는 기술이 끊길 대원(_interrupted)과 완벽 대응을 내어 끝날 기술(_countered)만 적어 두고, 쓰러짐도 미룬다.
+    // 모두 이 틱의 전투가 끝난 뒤 적용한다(ApplyCombatResults).
     // 대원이 받는 피해는 더하기라 순서와 관계없으므로 바로 깎는다. 적이 받는 피해도 그 적의 판정만 읽으므로 바로 준다.
     private readonly List<Player> _interrupted = new List<Player>();
+    private readonly List<Response> _countered = new List<Response>();
 
     private void ResolveCombat()
     {
         // 앞 틱에서 예외로 전투가 중간에 멈췄다면 적어 둔 것이 남아 있을 수 있다. 이 틱의 판정만 적용하도록 비우고 시작한다.
         _interrupted.Clear();
+        _countered.Clear();
         ChooseGrabTargets();
         for (int i = 0; i < Enemies.Count; i++)
         {
@@ -34,23 +39,18 @@ public sealed partial class Match
             {
                 continue;
             }
-            if (enemy.Action != null && enemy.Action.IsActive(Tick))
-            {
-                ResolveEnemyAction(enemy, enemy.Action);
-            }
-            else
-            {
-                ResolveIdleEnemy(enemy);
-            }
-            ResolveFollowups(enemy);
+            ResolveEnemy(enemy);
         }
         ResolveStructures();
         ApplyCombatResults();
     }
 
-    // 이 틱의 판정이 다 끝난 뒤, 진 대원의 기술을 끊고 체력이 다한 대원을 쓰러뜨린다.
+    // 이 틱의 판정이 다 끝난 뒤 적용한다. 완벽 대응을 낸 기술은 장판 없이 거기서 끝나고, 진 대원의 기술은 끊긴다.
+    // 끝나거나 끊긴 기술은 목록에서 바로 빠지므로, 대원은 다음 틱부터 다음 기술을 쓸 수 있다(2026-11-11 합의).
+    // 그 뒤 체력이 다한 대원을 쓰러뜨린다.
     private void ApplyCombatResults()
     {
+        // 끊긴 대원의 기술을 먼저 표시하고 비운다. 같은 틱에 한 장판은 이기고 다른 장판에는 진 기술은 두 표시가 모두 남는다.
         for (int i = 0; i < _interrupted.Count; i++)
         {
             Player player = _interrupted[i];
@@ -58,8 +58,16 @@ public sealed partial class Match
             {
                 player.Actions[j].Cancelled = true;
             }
+            player.Actions.Clear();
         }
         _interrupted.Clear();
+        for (int i = 0; i < _countered.Count; i++)
+        {
+            Response response = _countered[i];
+            response.Action.Countered = true;
+            response.Player.Actions.Remove(response.Action);
+        }
+        _countered.Clear();
         for (int i = 0; i < Players.Count; i++)
         {
             Player player = Players[i];
@@ -70,6 +78,8 @@ public sealed partial class Match
         }
     }
 
+    // 한 명만 판정하는 기술(잡기)이 이 틱에 판정할 적을 고른다. 대상을 바꾸는 곳은 여기 한 곳이고, 판정(ResolveEnemy)은
+    // 고른 대상을 읽기만 한다. 판정 도중에 대상을 정하면 적 목록의 순서가 대상을 정한다.
     private void ChooseGrabTargets()
     {
         for (int i = 0; i < Players.Count; i++)
@@ -82,7 +92,7 @@ public sealed partial class Match
             for (int j = 0; j < player.Actions.Count; j++)
             {
                 PlayerAction action = player.Actions[j];
-                if (!action.IsActive(Tick) || !action.Skill.SingleTarget || action.TargetLocked)
+                if (!action.Skill.SingleTarget || action.TargetLocked)
                 {
                     continue;
                 }
@@ -92,65 +102,95 @@ public sealed partial class Match
                     action.TargetLocked = true;
                     continue;
                 }
-                // 대상을 바꾸는 곳은 여기 한 곳이고, 판정(ResolveEnemyAction·ResolveIdleEnemy)은 고른 대상을 읽기만 한다.
-                // 지금 대원에게 닿는 공격을 기술이 향한 쪽에서 한 적(몸 판정으로 대응할 적)이 있으면 그중 가장 가까운 적을 고른다.
-                // 그런 적이 없으면 잡기 범위 안에서 가장 가까운 적이다. 공격해 오는 적을 먼저 보는 것은, 아직 아무도 잡지 않은 잡기로
-                // 그 공격에 대응하게 하려는 것이다. 이미 다른 적을 잡았으면(대상을 정했으면) 그 공격에는 대응하지 못한다.
-                Enemy? attacker = null;
-                Fixed attackerDistance = Fixed.Zero;
-                Enemy? nearest = null;
-                Fixed closest = Fixed.Zero;
-                for (int k = 0; k < Enemies.Count; k++)
+                if (action.HasAura(Tick))
                 {
-                    Enemy enemy = Enemies[k];
-                    if (enemy.Hp <= 0)
-                    {
-                        continue;
-                    }
-                    bool attacking = enemy.Action != null && enemy.Action.IsActive(Tick) && Incoming(enemy, enemy.Action, player) &&
-                        SkillFaces(player, action, enemy);
-                    bool covers = SkillCovers(player, action.Skill, enemy.Position, enemy.Definition.Radius);
-                    if (!attacking && !covers)
-                    {
-                        continue;
-                    }
-                    // 두 후보 모두 대원에서 적까지의 같은 사선을 쓰므로 한 번만 따라간다.
-                    if (!Map.LineOfSight(player.Position, enemy.Position))
-                    {
-                        continue;
-                    }
-                    Fixed distance = FixedVector.DistanceSquared(player.Position, enemy.Position);
-                    if (attacking && Closer(enemy, distance, attacker, attackerDistance))
-                    {
-                        attacker = enemy;
-                        attackerDistance = distance;
-                    }
-                    if (covers && Closer(enemy, distance, nearest, closest))
-                    {
-                        nearest = enemy;
-                        closest = distance;
-                    }
+                    // 기운이 도는 동안에는 매 틱 다시 고른다. 받아칠 장판이 없으면 대상을 비운다.
+                    action.Target = AuraTarget(player, action);
                 }
-                Enemy? chosen = nearest;
-                if (attacker != null)
+                else if (action.ZoneOut(Tick))
                 {
-                    chosen = attacker;
-                }
-                // 준비 동작 중에는 매 틱 다시 고른다. 후보가 없으면 대상을 비워 범위를 벗어난 적이 대상으로 남지 않게 한다.
-                if (chosen == null)
-                {
-                    action.Target = null;
-                    continue;
-                }
-                action.Target = chosen.Id;
-                // 접촉하는 틱이나 그 뒤에 고른 대상으로 정한다. 접촉 틱에도 다시 고르므로 접촉 순간 가장 가까운 적이 된다.
-                // 접촉 순간 범위에 아무도 없었으면 유효 시간 안에 처음 들어온 적이 대상이 된다.
-                if (Tick >= action.ContactTick)
-                {
-                    action.TargetLocked = true;
+                    // 장판이 나간 틱에 범위 안에서 가장 가까운 적을 잡는다. 그때 범위에 아무도 없었으면 장판이 깔려 있는 동안
+                    // 처음 들어온 적이 대상이 된다. 장판으로 고른 대상은 바꾸지 않는다.
+                    action.Target = ZoneTarget(player, action);
+                    if (action.Target.HasValue)
+                    {
+                        action.TargetLocked = true;
+                    }
                 }
             }
         }
+    }
+
+    // 한 명만 판정하는 기운이 받아칠 장판을 낸 적이다. 대원을 덮은 장판(예고 중인 장판 포함) 가운데 기운이 향한 쪽의 것만 본다.
+    // 기운이 이기는 장판을 낸 가장 가까운 적을 고른다. 이기는 장판이 없으면 지금 실제로 닿는 장판(나간 장판)을 낸 가장 가까운 적이다.
+    // 그 적과는 비기거나 진다. 이기는 장판을 먼저 보는 것은, 종류가 섞인 예고 속에서도 잡기가 받아칠 수 있는 장판을 받아치게 하려는 것이다.
+    private int? AuraTarget(Player player, PlayerAction action)
+    {
+        Enemy? winning = null;
+        Fixed winningDistance = Fixed.Zero;
+        Enemy? landing = null;
+        Fixed landingDistance = Fixed.Zero;
+        for (int k = 0; k < Enemies.Count; k++)
+        {
+            Enemy enemy = Enemies[k];
+            EnemyAction? attack = enemy.Action;
+            if (enemy.Hp <= 0 || attack == null || !attack.ZoneJudged(Tick))
+            {
+                continue;
+            }
+            if (!Covers(enemy, attack, player) || !SkillFaces(player, action, enemy))
+            {
+                continue;
+            }
+            Fixed distance = FixedVector.DistanceSquared(player.Position, enemy.Position);
+            bool wins = Affinity.Beats(action.Skill.Kind, attack.Skill.Kind);
+            if (wins && Closer(enemy, distance, winning, winningDistance))
+            {
+                winning = enemy;
+                winningDistance = distance;
+            }
+            bool lands = attack.ZoneOut(Tick) && !attack.HitPlayers.Contains(player.Id);
+            if (lands && Closer(enemy, distance, landing, landingDistance))
+            {
+                landing = enemy;
+                landingDistance = distance;
+            }
+        }
+        if (winning != null)
+        {
+            return winning.Id;
+        }
+        if (landing != null)
+        {
+            return landing.Id;
+        }
+        return null;
+    }
+
+    // 한 명만 판정하는 장판이 잡을 적이다. 장판의 범위 안에서 사선이 열린 가장 가까운 적이다. 없으면 null이다.
+    private int? ZoneTarget(Player player, PlayerAction action)
+    {
+        Enemy? nearest = null;
+        Fixed closest = Fixed.Zero;
+        for (int k = 0; k < Enemies.Count; k++)
+        {
+            Enemy enemy = Enemies[k];
+            if (enemy.Hp <= 0 || !SkillReaches(player, action.Skill, enemy.Position, enemy.Definition.Radius))
+            {
+                continue;
+            }
+            Fixed distance = FixedVector.DistanceSquared(player.Position, enemy.Position);
+            if (Closer(enemy, distance, nearest, closest))
+            {
+                nearest = enemy;
+                closest = distance;
+            }
+        }
+        if (nearest == null)
+        {
+            return null;
+        }
+        return nearest.Id;
     }
 
     // candidate가 지금까지 고른 best보다 가까운지 본다. 거리가 같으면 id가 작은 적이다. 적 목록의 순서에 기대지 않는다.
@@ -163,19 +203,14 @@ public sealed partial class Match
         return distance == bestDistance && candidate.Id < best.Id;
     }
 
-    private bool PlayerContact(Player player, PlayerAction action, Enemy enemy)
-    {
-        return SkillReaches(player, action.Skill, enemy.Position, enemy.Definition.Radius);
-    }
-
-    // 대원의 기술이 target(반지름 radius인 몸)에 닿는지 본다. 둘레 기술은 대원 둘레의 원, 그 밖에는 조준 방향의 사각형이다.
+    // 대원의 장판이 target(반지름 radius인 몸)에 닿는지 본다. 둘레 기술은 대원 둘레의 원, 그 밖에는 조준 방향의 사각형이다.
     // 몸의 중심이 벽 반대편이면 닿지 않는다.
     private bool SkillReaches(Player player, SkillDefinition skill, FixedVector target, Fixed radius)
     {
         return SkillCovers(player, skill, target, radius) && Map.LineOfSight(player.Position, target);
     }
 
-    // SkillReaches에서 사선을 뺀 모양만 본다. 같은 사선을 다른 판정과 함께 한 번만 따라갈 때 쓴다.
+    // SkillReaches에서 사선을 뺀 모양만 본다.
     private bool SkillCovers(Player player, SkillDefinition skill, FixedVector target, Fixed radius)
     {
         if (skill.Around)
@@ -205,7 +240,7 @@ public sealed partial class Match
     }
 
     // origin에서 aim 방향을 기준으로 target이 전방 120°(방어 각도) 안에 있는지 본다.
-    // 대원의 방어, 적 방어의 반격 차단, 측면 공격 판정이 모두 이 계산을 쓴다.
+    // 대원의 기운이 향한 쪽, 적 방어의 반격 차단, 측면 공격 판정이 모두 이 계산을 쓴다.
     // 사잇각을 구하지 않고 내적으로 비교한다. 사잇각이 반각 이하 ⟺ offset·forward ≥ |offset| × cos(반각)이다.
     // 반각이 반 바퀴 이상이면 내적을 보지 않고 모든 방향을 막는다. 방향 벡터는 1/4096 단위로 반올림해 길이가 1보다 조금 길 수 있어,
     // 코사인 -1과 내적으로 비교하면 정확히 뒤쪽(약 1° 안)을 놓친다. 반각이 60°일 때 이 오차는 0.01° 안쪽이라 판정에 드러나지 않는다.
@@ -224,13 +259,7 @@ public sealed partial class Match
         return along >= offset.Length() * _guardCosine;
     }
 
-    // 받아치기의 방어가 적을 향했고 몸의 중심 사이가 벽에 가리지 않는지 본다.
-    private bool GuardFaces(Player player, PlayerAction action, Enemy enemy)
-    {
-        return SkillFaces(player, action, enemy) && Map.LineOfSight(player.Position, enemy.Position);
-    }
-
-    // 기술이 향한 쪽에 적이 있는지 방향만 본다. 받아치기의 방어와 몸 판정이 쓴다. 둘레 기술은 모든 방향, 그 밖에는 앞 120°다.
+    // 대원의 기운이 향한 쪽에 적이 있는지 본다. 둘레 기술은 모든 방향, 그 밖에는 앞 120°다.
     private bool SkillFaces(Player player, PlayerAction action, Enemy enemy)
     {
         if (action.Skill.Around)
@@ -240,13 +269,13 @@ public sealed partial class Match
         return Faces(player.Position, player.AimDirection, enemy.Position);
     }
 
-    // 대원이 적 행동이 향한 범위 안에 있는지 본다. 타격과 잡기는 그 공격이 닿는 범위다.
-    // 방어는 밀어치기가 닿는 범위와 방패가 향한 전방 120°를 합친다.
+    // 적의 기운이 대원 쪽으로 도는지 본다. 적의 기운은 그 행동이 향한 범위 안의 대원에게만 돈다(2026-10-14 합의).
+    // 타격과 잡기는 그 장판이다. 방어는 밀어치기의 장판과 방패가 향한 전방 120°를 합친다.
     // 밀어치기는 적 몸 옆까지 조금 더 닿으므로, 전방 120°만 보면 그 자리의 대원이 맞기만 하고 상성으로 대응하지 못한다.
+    // 범위 밖에서 친 대원의 장판에는 상성이 없다(측면 공격).
     private bool InActionArea(Enemy enemy, EnemyAction attack, Player player)
     {
-        bool reached = InReach(enemy.Position, attack.Direction, attack.Skill.RangeFixed, attack.Skill.HalfWidthFixed, player.Position, Rules.PlayerRadius);
-        if (reached)
+        if (Covers(enemy, attack, player))
         {
             return true;
         }
@@ -257,19 +286,48 @@ public sealed partial class Match
         return false;
     }
 
-    private bool Incoming(Enemy enemy, EnemyAction attack, Player player)
+    // 적의 장판이 대원의 몸을 덮는지 본다. 예고 중인 장판도 같은 모양이다. 몸의 중심 사이가 벽에 가리면 덮지 않는다.
+    private bool Covers(Enemy enemy, EnemyAction attack, Player player)
     {
-        return Tick >= attack.ContactTick && Tick < attack.ActiveUntilTick && !attack.HitPlayers.Contains(player.Id) &&
-            InReach(enemy.Position, attack.Direction, attack.Skill.RangeFixed, attack.Skill.HalfWidthFixed, player.Position, Rules.PlayerRadius);
+        return InReach(enemy.Position, attack.Direction, attack.Skill.RangeFixed, attack.Skill.HalfWidthFixed, player.Position, Rules.PlayerRadius);
     }
 
-    private void ResolveEnemyAction(Enemy enemy, EnemyAction attack)
+    // 대원에게 지금 기운이 도는 기술이 있는지다.
+    private bool HasAura(Player player)
     {
+        for (int i = 0; i < player.Actions.Count; i++)
+        {
+            if (player.Actions[i].HasAura(Tick))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 적 하나에 대한 이 틱의 판정이다.
+    // 1. 상성 없이 들어가는 타격을 먼저 준다. 기운이 없는 적(무행동·회복·공격 창)을 친 장판, 적의 기운이 향하지 않은 쪽에서 친
+    //    장판(측면 공격), 받아치기의 반격이 그렇다. 그 피해로 적이 쓰러지면 이 틱 그 적의 공격은 무효다.
+    // 2. 이 적의 장판에 대한 대응을 모은다. 장판 안에서 장판 쪽으로 두른 기운과, 기운을 두른 이 적에게 닿은 대원의 장판이다.
+    //    적의 장판은 예고할 때부터 대원의 기운과 판정하고, 대원의 장판은 나간 뒤에만 적의 기운과 판정한다.
+    // 3. 이기는 대응의 수가 티어 이상이면 완벽 대응이다. 적을 처치하고, 대응한 기술은 거기서 끝난다.
+    // 4. 아니면 실제로 닿은 대원만 판정한다. 적의 나간 장판에 닿은 대원과, 자기 장판으로 이 적의 기운을 친 대원이다.
+    //    예고 중인 장판 안에서 기운을 두르고만 있는 대원에게는 아무 일도 없다. 그 판정은 장판이 나가 닿을 때로 미룬다.
+    private void ResolveEnemy(Enemy enemy)
+    {
+        // 이 적의 장판이다. 예고 중이면 아직 나가지 않은 장판이고 몸에 기운이 돈다. 공격 창이면 나간 장판이고 기운은 없다.
+        // 행동이 없거나 회복 중이면 장판도 기운도 없다.
+        EnemyAction? attack = null;
+        if (enemy.Action != null && enemy.Action.ZoneJudged(Tick))
+        {
+            attack = enemy.Action;
+        }
+        bool aura = attack != null && attack.HasAura(Tick);
         List<Response> responses = new List<Response>();
-        // 적 행동의 범위 밖에서 친 대원들이다. 그 행동의 상성을 받지 않고 일반 피해만 준다.
-        List<Response> flanks = new List<Response>();
+        // 상성 없이 들어가는 대원의 장판이다.
+        List<Response> plainHits = new List<Response>();
+        // 적의 나간 장판에 닿은 대원이다.
         List<Player> threatened = new List<Player>();
-        bool contact = false;
         for (int i = 0; i < Players.Count; i++)
         {
             Player player = Players[i];
@@ -277,81 +335,94 @@ public sealed partial class Match
             {
                 continue;
             }
-            bool incoming = Incoming(enemy, attack, player);
-            if (incoming)
+            // 장판이 이 대원을 덮는지는 나간 장판이거나 대원에게 기운이 돌 때만 쓰인다. 그때만 사선을 따라간다.
+            bool covered = false;
+            if (attack != null && (!aura || HasAura(player)))
+            {
+                covered = Covers(enemy, attack, player);
+            }
+            // 이 장판과 이미 피해를 주고받은 대원에게는 다시 닿지 않는다.
+            if (attack != null && covered && !aura && !attack.HitPlayers.Contains(player.Id))
             {
                 threatened.Add(player);
-                contact = true;
             }
             for (int j = 0; j < player.Actions.Count; j++)
             {
                 PlayerAction action = player.Actions[j];
-                if (!action.IsActive(Tick) || action.JudgedEnemies.Contains(enemy.Id))
+                // 한 명만 판정하는 기술(잡기)은 ChooseGrabTargets가 고른 대상만 판정한다. 여기서는 대상을 바꾸지 않는다.
+                if (action.Skill.SingleTarget && action.Target != enemy.Id)
                 {
                     continue;
                 }
-                bool initiates = false;
-                if (action.Skill.GuardsFront)
+                if (action.HasAura(Tick))
                 {
-                    // 방어 창에 들어온 공격이 없으면 아무 판정도 일어나지 않는다.
-                    if (!incoming || !GuardFaces(player, action, enemy))
+                    // 기운: 이 적의 장판 안에 있고 기운이 그 적 쪽을 향하면 대응이다. 기술의 사거리와 관계없다.
+                    // 이 장판에 이미 당한 대원의 기운도 대응으로 친다. 그 대원에게 장판이 다시 닿지 않을 뿐이다.
+                    if (covered && !action.JudgedEnemies.Contains(enemy.Id) && SkillFaces(player, action, enemy))
                     {
-                        continue;
+                        responses.Add(new Response(player, action, false));
                     }
+                    continue;
+                }
+                if (!action.ZoneOut(Tick))
+                {
+                    continue;
+                }
+                // 장판: 나간 장판은 닿은 적을 한 번씩 친다. 상성 없는 장판(반격)은 기운의 판정과 따로 센다.
+                HashSet<int> struck = action.JudgedEnemies;
+                if (action.Skill.PlainZone)
+                {
+                    struck = action.PlainHits;
+                }
+                if (struck.Contains(enemy.Id) || !SkillReaches(player, action.Skill, enemy.Position, enemy.Definition.Radius))
+                {
+                    continue;
+                }
+                // 적에게 기운이 돌고 그 기운이 이 대원 쪽으로 돌 때만 상성으로 판정한다.
+                bool affinity = attack != null && aura && !action.Skill.PlainZone && InActionArea(enemy, attack, player);
+                if (affinity)
+                {
+                    responses.Add(new Response(player, action, true));
                 }
                 else
                 {
-                    // 몸 판정: 기술을 쓰는 동안 대원 몸에는 그 기술의 상성이 있다(2026-11-01 합의). 적의 공격이 대원에게 닿고 그 공격이
-                    // 기술이 향한 쪽(둘레 기술은 모든 방향, 그 밖에는 앞 120°)에서 왔으면 기술의 사거리와 관계없이 대응으로 친다.
-                    // 받아치기와 같은 판정이다. 적의 공격은 대원의 기술보다 멀리 닿아, 이 판정이 없으면 맞는 기술을 제때 써도 맞기만 하는 거리가 있다.
-                    // 한 명만 판정하는 기술(잡기)은 ChooseGrabTargets가 고른 대상만 판정한다. 여기서는 대상을 바꾸지 않는다.
-                    if (action.Skill.SingleTarget && action.Target != enemy.Id)
-                    {
-                        continue;
-                    }
-                    bool body = incoming && SkillFaces(player, action, enemy);
-                    bool reaches = SkillCovers(player, action.Skill, enemy.Position, enemy.Definition.Radius);
-                    if (!body && !reaches)
-                    {
-                        continue;
-                    }
-                    // 두 판정 모두 대원에서 적까지의 같은 사선을 쓰므로 한 번만 따라간다. 몸의 중심 사이가 벽에 가리면 대응하지 못한다.
-                    if (!Map.LineOfSight(player.Position, enemy.Position))
-                    {
-                        continue;
-                    }
-                    // 적 행동의 범위 밖에서 친 대원에게는 그 행동의 상성을 적용하지 않는다(측면 공격).
-                    // 무행동 적을 칠 때처럼 접촉한 순간 일반 피해만 준다. 공격이 대원에게 닿았다면 범위 안이다.
-                    if (!body && !InActionArea(enemy, attack, player))
-                    {
-                        if (Tick >= action.ContactTick)
-                        {
-                            flanks.Add(new Response(player, action, true));
-                        }
-                        continue;
-                    }
-                    initiates = reaches && Tick >= action.ContactTick;
-                }
-                responses.Add(new Response(player, action, initiates));
-                if (initiates)
-                {
-                    contact = true;
+                    plainHits.Add(new Response(player, action, true));
                 }
             }
         }
-        // 측면 공격을 먼저 처리한다. 그 피해로 적이 쓰러지면 이 행동은 무효가 되어 앞쪽 대원도 피해를 받지 않는다.
-        for (int i = 0; i < flanks.Count; i++)
+
+        // 1. 상성 없는 타격을 먼저 준다. 다른 대원의 타격으로 이미 쓰러진 적은 치지 않은 것으로 둔다.
+        for (int i = 0; i < plainHits.Count; i++)
         {
-            Response flank = flanks[i];
-            flank.Action.JudgedEnemies.Add(enemy.Id);
-            DamageEnemy(enemy, 1, flank.Player);
+            Response hit = plainHits[i];
+            if (enemy.Hp <= 0)
+            {
+                break;
+            }
+            if (hit.Action.Skill.PlainZone)
+            {
+                hit.Action.PlainHits.Add(enemy.Id);
+                // 상성 없는 반격도 적의 방어 기운이 향한 쪽에서는 막힌다. 이것은 RPS 승패가 아니다.
+                bool guarded = attack != null && aura && attack.Skill.Kind == "block" &&
+                    Faces(enemy.Position, attack.Direction, hit.Player.Position);
+                if (guarded)
+                {
+                    Effect(enemy.Position, "guard", 0.4);
+                    continue;
+                }
+            }
+            else
+            {
+                hit.Action.JudgedEnemies.Add(enemy.Id);
+            }
+            DamageEnemy(enemy, 1, hit.Player);
         }
-        if (enemy.Hp <= 0 || !contact)
+        if (enemy.Hp <= 0 || attack == null)
         {
             return;
         }
 
-        // 같은 공격에 유효한 대응을 먼저 모두 모은다. 플레이어 순서 때문에 C가 먼저 다치면 안 된다.
+        // 2~3. 같은 장판에 유효한 대응을 먼저 모두 센다. 플레이어 순서 때문에 C가 먼저 다치면 안 된다.
         List<Response> counters = new List<Response>();
         for (int i = 0; i < responses.Count; i++)
         {
@@ -363,11 +434,13 @@ public sealed partial class Match
         }
         if (counters.Count >= attack.Skill.Tier)
         {
+            // 완벽 대응이다. 처치는 가장 먼저 시작한 기술의 대원이 가져간다.
             Response credit = counters[0];
             for (int i = 0; i < counters.Count; i++)
             {
                 Response response = counters[i];
                 response.Action.JudgedEnemies.Add(enemy.Id);
+                EndSkill(response);
                 if (response.Action.Id < credit.Action.Id)
                 {
                     credit = response;
@@ -377,6 +450,7 @@ public sealed partial class Match
             return;
         }
 
+        // 4. 실제로 닿은 대원만 판정한다.
         double enemyDamage = 0;
         // 비김 피해로 쓰러뜨리면 비긴 대원 중 가장 먼저 기술을 시작한 대원이 처치를 가져간다.
         Response? drawCredit = null;
@@ -389,6 +463,7 @@ public sealed partial class Match
             }
             Response? best = null;
             int priority = -1;
+            // 적의 나간 장판에 닿은 대원과, 자기 장판으로 이 적의 기운을 친 대원이 판정받는다.
             bool engaged = threatened.Contains(player);
             for (int j = 0; j < responses.Count; j++)
             {
@@ -406,7 +481,7 @@ public sealed partial class Match
                 {
                     rank = 2;
                 }
-                if (candidate.Initiates || rank == 2)
+                if (candidate.Initiates)
                 {
                     engaged = true;
                 }
@@ -427,9 +502,9 @@ public sealed partial class Match
             }
             if (priority == 2)
             {
-                // 2티어에 하나만 맞춘 경우다(부분 대응). 이 구현의 기본 기술은 중단되고 대원은 피해 1을 받는다.
+                // 2티어에 하나만 맞춘 경우다(부분 대응). 대원은 피해 1을 받고 기술이 끊긴다.
                 // 적은 기술별 부분 대응 피해를 받고 그 피해로도 쓰러지며, 처치는 이 대원이 가져간다.
-                // 맞는 대응이 둘이면 위에서 완전 파훼로 끝나므로 한 판정에 이 경우는 많아야 한 명이다.
+                // 맞는 대응이 둘이면 위에서 완벽 대응으로 끝나므로 한 판정에 이 경우는 많아야 한 명이다.
                 // 같은 적 행동에 맞는 대응이 따로 닿으면 판정마다 이 피해를 받는다.
                 // 비김 피해는 대원을 모두 본 뒤에 주므로 이 피해가 먼저다. 이 피해로 쓰러지면 비김 피해는 더하지 않는다.
                 CancelActions(player);
@@ -438,6 +513,7 @@ public sealed partial class Match
             }
             else if (priority == 1)
             {
+                // 같은 종류라 비긴다. 기술은 끊기지 않는다.
                 enemyDamage += 1;
                 if (best != null && (drawCredit == null || best.Action.Id < drawCredit.Action.Id))
                 {
@@ -447,6 +523,8 @@ public sealed partial class Match
             }
             else
             {
+                // 적의 나간 장판을 받아치지 못했거나, 대원의 장판이 그것을 이기는 기운에 닿았다(적의 완벽 대응).
+                // 대원만 피해를 받고 기술이 끊긴다.
                 CancelActions(player);
                 HurtInCombat(player, attack.Skill.Tier);
             }
@@ -460,6 +538,20 @@ public sealed partial class Match
         }
     }
 
+    // 완벽 대응을 낸 기술은 거기서 끝난다. 이 틱의 다른 판정은 아직 기운을 두른 상태로 보도록, 끝내는 것은 ApplyCombatResults에서 한다.
+    // 같은 순간 여러 장판을 받아친 기술은 한 번만 적는다.
+    private void EndSkill(Response response)
+    {
+        for (int i = 0; i < _countered.Count; i++)
+        {
+            if (_countered[i].Action == response.Action)
+            {
+                return;
+            }
+        }
+        _countered.Add(response);
+    }
+
     // 진 대원의 기술을 끊는다. 이 틱의 다른 판정은 아직 기술을 쓰던 상태로 보도록, 끊는 것은 ApplyCombatResults에서 한다.
     private void CancelActions(Player player)
     {
@@ -467,76 +559,6 @@ public sealed partial class Match
         {
             _interrupted.Add(player);
         }
-    }
-
-    private void ResolveIdleEnemy(Enemy enemy)
-    {
-        for (int i = 0; i < Players.Count; i++)
-        {
-            Player player = Players[i];
-            if (player.State != "alive")
-            {
-                continue;
-            }
-            for (int j = 0; j < player.Actions.Count; j++)
-            {
-                PlayerAction action = player.Actions[j];
-                if (enemy.Hp <= 0 || !action.IsActive(Tick) || Tick < action.ContactTick ||
-                    action.Skill.GuardsFront || action.JudgedEnemies.Contains(enemy.Id))
-                {
-                    continue;
-                }
-                if (action.Skill.SingleTarget && action.Target != enemy.Id)
-                {
-                    continue;
-                }
-                if (PlayerContact(player, action, enemy))
-                {
-                    action.JudgedEnemies.Add(enemy.Id);
-                    DamageEnemy(enemy, 1, player);
-                }
-            }
-        }
-    }
-
-    private void ResolveFollowups(Enemy enemy)
-    {
-        for (int i = 0; i < Players.Count; i++)
-        {
-            Player player = Players[i];
-            if (player.State != "alive")
-            {
-                continue;
-            }
-            for (int j = 0; j < player.Actions.Count; j++)
-            {
-                PlayerAction action = player.Actions[j];
-                if (enemy.Hp <= 0 || !action.IsFollowup(Tick, Rules.ParryFollowupSeconds) ||
-                    action.FollowupHits.Contains(enemy.Id) || !PlayerContact(player, action, enemy))
-                {
-                    continue;
-                }
-                // 빈 방어 뒤에도 나오며, 상대가 어떤 상성이든 일반 피해만 준다.
-                action.FollowupHits.Add(enemy.Id);
-                if (EnemyBlocksFollowup(enemy, player))
-                {
-                    // 상성 없는 피해도 전방 방어에는 막힌다. 이것은 RPS 승패가 아니다.
-                    Effect(enemy.Position, "guard", 0.4);
-                    continue;
-                }
-                DamageEnemy(enemy, 1, player);
-            }
-        }
-    }
-
-    private bool EnemyBlocksFollowup(Enemy enemy, Player player)
-    {
-        EnemyAction? guard = enemy.Action;
-        if (guard == null || guard.Skill.Kind != "block" || !guard.IsActive(Tick))
-        {
-            return false;
-        }
-        return Faces(enemy.Position, guard.Direction, player.Position);
     }
 
     // 벽을 친 효과를 벽 면에서 대원 쪽으로 당기는 거리다.
@@ -556,10 +578,8 @@ public sealed partial class Match
             for (int j = 0; j < player.Actions.Count; j++)
             {
                 PlayerAction action = player.Actions[j];
-                bool contact = action.Skill.BreaksStructures && action.IsActive(Tick) && Tick >= action.ContactTick;
-                // 반격이 구조물을 부수는지도 기술 속성으로 정한다. 공개되는 속성만 보고도 동작을 알 수 있어야 한다.
-                bool followup = action.Skill.FollowupBreaksStructures && action.IsFollowup(Tick, Rules.ParryFollowupSeconds);
-                if (!contact && !followup)
+                // 구조물은 나간 장판이 부순다. 부수는지는 기술 속성으로 정한다. 공개되는 속성만 보고도 동작을 알 수 있어야 한다.
+                if (!action.Skill.BreaksStructures || !action.ZoneOut(Tick))
                 {
                     continue;
                 }

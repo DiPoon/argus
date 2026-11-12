@@ -5,12 +5,18 @@ namespace Argus.Server.Game;
 public sealed class SkillDefinition
 {
     public string Id { get; }
+    // 기운과 장판의 상성 종류다.
     public string Kind { get; }
     public int Mana { get; }
-    public double ContactAfter { get; }
-    public double ActiveSeconds { get; }
+    // 기운이 도는 가장 짧은 시간(초)이다. 버튼을 짧게 눌러도 이만큼은 돈다(준비 동작).
+    // 버튼을 누르고 있으면 최대 기운 시간(Rules.MaxAuraSeconds)까지 이어지고, 떼면 장판이 나간다.
+    public double AuraSeconds { get; }
+    // 장판이 깔려 있는 시간(초)이다. 0이면 장판이 없는 기술이다.
+    public double ZoneSeconds { get; }
+    // 버튼을 짧게 눌렀을 때 기술 전체의 길이(초)다. 기운, 장판, 그 뒤의 회복을 합친 시간이다.
+    // 버튼을 누르고 있어 기운이 길어지면 그만큼 길어진다.
     public double Duration { get; }
-    // 사거리와 반폭은 클라이언트에 그대로 보내는 설정 값이다. 판정은 아래의 고정소수점 값으로 한다.
+    // 장판의 사거리와 반폭이다. 클라이언트에 그대로 보내는 설정 값이고, 판정은 아래의 고정소수점 값으로 한다.
     public double Range { get; }
     public double HalfWidth { get; }
     // 판정용 고정소수점 사거리와 반폭이다. 설정 값에서 한 번만 바꿔 둔다. 통신과 상태 요약의 JSON에는 넣지 않는다.
@@ -19,45 +25,49 @@ public sealed class SkillDefinition
     [JsonIgnore]
     public Fixed HalfWidthFixed { get; }
     // 기술별 동작은 id가 아니라 아래 속성으로 판단한다. 같은 종류의 새 기술도 속성만 정하면 같은 판정을 받는다.
-    // 먼저 치지 않고, 유효 시간 동안 앞에서 들어오는 공격에만 반응한다.
-    public bool GuardsFront { get; }
-    // 유효 시간이 끝나면 상성 없는 일반 반격을 낸다.
-    public bool HasFollowup { get; }
-    // 처음 닿은 가장 가까운 적 하나만 대상으로 정하고 그 적만 판정한다.
+    // 장판에 상성이 없다(받아치기의 반격). 기운을 두른 적에게 닿아도 상성으로 판정하지 않고 일반 피해만 준다.
+    // 그래서 적의 기운에 당하지 않는다. 적의 방어 기운이 향한 쪽에서는 막힌다.
+    public bool PlainZone { get; }
+    // 한 시전에 적 하나만 판정한다. 기운은 장판 하나만 받아치고, 장판은 가장 가까운 적 하나만 친다.
     public bool SingleTarget { get; }
-    // 접촉 중에 시설과 파괴 가능한 벽을 부순다.
+    // 장판이 시설과 파괴 가능한 벽을 부순다.
     public bool BreaksStructures { get; }
-    // 유효 시간 뒤의 반격이 시설과 파괴 가능한 벽을 부순다. HasFollowup인 기술에만 의미가 있다.
-    public bool FollowupBreaksStructures { get; }
-    // 조준하지 않는 둘레 기술이다. 범위가 조준 방향의 사각형이 아니라 대원 둘레의 원이고, 사거리가 그 반지름이다(반폭은 쓰지 않는다).
-    // 방어(GuardsFront)는 앞만이 아니라 모든 방향에서 들어오는 공격을 막는다. 벽은 조준 방향으로만 치므로 둘레 기술은 벽을 치지 않는다.
+    // 조준하지 않는 둘레 기술이다. 기운은 모든 방향으로 돈다. 장판은 조준 방향의 사각형이 아니라 대원 둘레의 원이고,
+    // 사거리가 그 반지름이다(반폭은 쓰지 않는다). 벽은 조준 방향으로만 치므로 둘레 기술은 벽을 치지 않는다.
     public bool Around { get; }
 
-    public SkillDefinition(string id, string kind, int mana, double contactAfter,
-        double activeSeconds, double duration, double range, double halfWidth,
-        bool guardsFront, bool hasFollowup, bool singleTarget, bool breaksStructures, bool followupBreaksStructures,
-        bool around)
+    public SkillDefinition(string id, string kind, int mana, double auraSeconds,
+        double zoneSeconds, double duration, double range, double halfWidth,
+        bool plainZone, bool singleTarget, bool breaksStructures, bool around)
     {
+        if (auraSeconds < 0 || zoneSeconds < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(auraSeconds), auraSeconds, "기운과 장판의 시간은 0 이상이어야 합니다");
+        }
+        // 기술 전체의 길이는 기운과 장판을 합친 시간보다 짧을 수 없다. 짧으면 장판이 깔려 있는 중에 기술이 끝난다.
+        // 판정이 쓰는 틱 수로 비교한다. 초로 비교하면 0.1 + 0.2가 0.3보다 조금 큰 것 같은 실수 오차에 걸린다.
+        if (Rules.ToTicks(duration) < Rules.ToTicks(auraSeconds + zoneSeconds))
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration), duration, "기술의 길이가 기운과 장판을 합친 시간보다 짧습니다");
+        }
         Id = id;
         Kind = kind;
         Mana = mana;
-        ContactAfter = contactAfter;
-        ActiveSeconds = activeSeconds;
+        AuraSeconds = auraSeconds;
+        ZoneSeconds = zoneSeconds;
         Duration = duration;
         Range = range;
         HalfWidth = halfWidth;
         RangeFixed = Fixed.FromDouble(range);
         HalfWidthFixed = Fixed.FromDouble(halfWidth);
-        GuardsFront = guardsFront;
-        HasFollowup = hasFollowup;
+        PlainZone = plainZone;
         SingleTarget = singleTarget;
         BreaksStructures = breaksStructures;
-        FollowupBreaksStructures = followupBreaksStructures;
         Around = around;
     }
 }
 
-// 상성 종류로 승패를 비교하고, 완전 파훼에 필요한 대응 수는 별도로 합산한다.
+// 상성 종류로 승패를 비교하고, 완벽 대응에 필요한 대응 수는 별도로 합산한다.
 public static class Affinity
 {
     public static bool Beats(string response, string attack)
