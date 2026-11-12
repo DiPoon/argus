@@ -1132,7 +1132,30 @@ internal static class LifecycleTests
         Equal(fixedRoom.Match.Layout.Camp, reference.Camp);
         Check(!fixedRoom.Match.Rules.AllowEliteEnemies, "손으로 만든 맵의 방에 엘리트가 나옵니다");
         Equal(fixedRoom.Match.Rules.EnemyWindupMultiplier, 2.0);
+        Check(fixedRoom.Match.Enemies.Count > 0, "손으로 만든 맵의 방에 처음 적이 없습니다");
         allowing.Detach(fixedRoom, fixedPlayer, fixedPeer);
+
+        // 조용한 방도 서버 설정이 허락할 때만 고를 수 있다. 같은 맵인데 처음 적이 없고, 작전이 한참 진행되어도 증원이 오지 않는다.
+        // 조작과 화면을 보는 브라우저 검사가 쓴다. 적이 다가와 대원을 치면 그런 검사의 결과가 흔들린다.
+        Check(host.Create(new EntryRequest("pilot", null, EntryRequest.QuietLayout), null, out failure) == null);
+        Equal(failure, EntryFailure.LayoutUnavailable);
+        Guest calm = allowing.Create(new EntryRequest("pilot", null, EntryRequest.QuietLayout))!;
+        (Room quietRoom, Player quietPlayer, Peer quietPeer) = allowing.Attach(calm.Room, calm.Token)!.Value;
+        Equal(quietRoom.Match.Layout.Columns, reference.Columns);
+        Equal(quietRoom.Match.Layout.Camp, reference.Camp);
+        Equal(quietRoom.Match.Layout.Facilities.Count, reference.Facilities.Count);
+        Equal(quietRoom.Match.Layout.InitialEnemySpots.Count, 0);
+        Equal(quietRoom.Match.Enemies.Count, 0);
+        Check(quietRoom.Match.Deploy(quietPlayer, reference.Camp.X.ToDouble(), reference.Camp.Y.ToDouble()));
+        Advance(quietRoom.Match, 60);
+        Equal(quietRoom.Match.Phase, "active");
+        Equal(quietRoom.Match.Enemies.Count, 0);
+        Equal(quietPlayer.State, "alive");
+        Near(quietPlayer.Hp, quietPlayer.MaxHp);
+        // 기록의 배치로 다시 만들어도 적이 없다. 재생이 이 배치를 쓴다.
+        MissionLayout restored = LayoutRecord.From(quietRoom.Match.Layout).ToLayout();
+        Equal(restored.InitialEnemySpots.Count, 0);
+        allowing.Detach(quietRoom, quietPlayer, quietPeer);
     }
 
     private static void EntryFailures()

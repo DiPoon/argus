@@ -116,12 +116,16 @@ const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([x, y]) =>
 const lobbyChoices = (page: Page) => page.evaluate(() => Object.fromEntries(['slot-1', 'slot-2', 'slot-3', 'free-slot'].map(name =>
   [name, [...document.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)].map(input => input.value)])));
 
+// 기술을 쓰는 검사는 적이 없는 조용한 방에서 돈다(주소의 ?layout=quiet, 서버 설정 Argus:Missions:AllowHandmade가 필요하다).
+// 생성 작전에서는 처음 적들이 캠프로 와서 대원을 치고, 맞거나 받아친 기술은 그 순간 기술 목록에서 빠져 검사가 흔들린다(game.spec.ts의 설명).
+const quietRoom = '/?layout=quiet';
+
 test('a phone picks only around skills in a one-screen lobby and fights with the joystick and skill buttons', async ({ browser }) => {
   const context = await browser.newContext(phone);
   const page = await context.newPage();
   const me = observe(page);
   try {
-    await page.goto('/');
+    await page.goto(quietRoom);
     await expect(page.locator('body')).toHaveClass(/\btouch\b/);
     // 로비는 휴대폰 가로 화면 한 장에 들어온다. 페이지도 장비 칸도 스크롤하지 않고 모든 버튼과 선택지가 보인다.
     for (const size of [{ width: 844, height: 390 }, { width: 740, height: 320 }]) {
@@ -424,7 +428,7 @@ test('fingers that stay on the joystick and skill buttons keep working through l
   page.on('pageerror', error => errors.push(error.message));
   const last = () => wire.inputs.at(-1);
   try {
-    await page.goto('/');
+    await page.goto(quietRoom);
     await page.getByRole('button', { name: '새 작전 시작' }).tap();
     await deployAtCamp(page);
     const fingers = new Fingers(await context.newCDPSession(page));
@@ -503,7 +507,7 @@ test('a skill button pressed between two operations does not cast in the next on
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
-    await page.goto('/');
+    await page.goto(quietRoom);
     await page.getByRole('button', { name: '새 작전 시작' }).tap();
     await deployAtCamp(page);
     // 조이스틱과 기술 버튼을 쥔 채 나가도 손가락 상태가 다음 작전으로 넘어가지 않는다.
@@ -544,7 +548,7 @@ test('on a touch screen a pen is like a finger: the map casts nothing and the ai
   const page = await context.newPage();
   const wire = await relay(page);
   try {
-    await page.goto('/');
+    await page.goto(quietRoom);
     await page.getByRole('button', { name: '새 작전 시작' }).tap();
     await deployAtCamp(page);
     await expect.poll(() => wire.inputs.length).toBeGreaterThan(0);
@@ -624,7 +628,7 @@ test('the page leaves no room for the phone to zoom, reload or go back in the mi
 
 test('on a PC screen a finger still aims and casts like the mouse', async ({ page }) => {
   const wire = await relay(page);
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect(page.locator('#room-code')).not.toHaveText('------');
   await page.getByRole('button', { name: '캠프 선택' }).click();

@@ -3,6 +3,13 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import type { Snapshot } from '../src/types';
 
+// 조작을 보는 검사는 적이 없는 조용한 방에서 돈다. 주소에 ?layout=quiet를 붙여 방을 만들면 서버가 손으로 만든 맵에 처음 적도 증원도
+// 없는 방을 준다(서버 설정 Argus:Missions:AllowHandmade가 켜져 있어야 하고, 꺼져 있으면 방 만들기가 HTTP 403이다).
+// 생성 작전에서는 처음 적들이 캠프로 와서 대원을 친다. 캠프에 서 있기만 하는 대원은 가장 이르면 4초에 처음 맞고 9초에 쓰러진다
+// (2026-11-13에 시드 300개로 잰 값). 맞거나 받아친 기술은 그 순간 기술 목록에서 빠지므로, 기술이 스냅샷에 보이는지로 확인하는
+// 검사가 근처에 온 적 하나에 흔들린다.
+const quietRoom = '/?layout=quiet';
+
 function observe(page: Page) {
   let snapshot: Snapshot | undefined;
   const errors: string[] = [];
@@ -19,7 +26,8 @@ test('four guests deploy, collect mana, cast while moving and reconnect with the
   const observed = pages.map(observe);
   const page = pages[0], me = observed[0];
   try {
-    await Promise.all(pages.map(p => p.goto('/')));
+    // 첫 대원이 조용한 방을 만들고 나머지는 방 코드로 참가한다.
+    await Promise.all(pages.map((p, index) => p.goto(index === 0 ? quietRoom : '/')));
     await page.screenshot({ path: 'test-results/argus-rps-lobby.png', fullPage: true });
     await page.getByLabel('호출명').fill('Alpha');
     await page.getByRole('button', { name: '새 작전 시작' }).click();
@@ -110,7 +118,7 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
   const me = observe(page);
   const sent: string[] = [];
   page.on('websocket', ws => ws.on('framesent', frame => sent.push(String(frame.payload))));
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.locator('input[name="free-slot"][value="grab"]').check();
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect.poll(() => me.player?.slots[3]).toBe('grab');
@@ -146,11 +154,10 @@ test('all four input bindings use slots, consume mana on whiffs and keep the fre
   expect(me.errors).toEqual([]);
 });
 
-// 생성 작전에서 혼자 캠프에 서 있기만 하는 대원은 처음 적들에게 가장 이르면 9초쯤, 시드의 5%가 13초 안에 쓰러진다(2026-11-13에
-// 시드 300개로 잰 값). 그래서 한 검사가 착지 뒤에 오래 머물지 않게, 겹쳐 누르기와 자동 반복 확인을 위의 검사에서 떼어 따로 둔다.
+// 겹쳐 누르기와 자동 반복 확인은 위의 검사에서 떼어 따로 둔다. 한 검사가 길어지지 않게 하려는 것이다.
 test('a key held through lost focus does not cast again, and a second mouse button pressed over the first casts after it', async ({ page }) => {
   const me = observe(page);
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect.poll(() => me.player?.state).toBe('waiting');
   await page.getByRole('button', { name: '캠프 선택' }).click();
@@ -198,7 +205,7 @@ test('a key held through lost focus does not cast again, and a second mouse butt
 
 test('a skill key held through deployment does not cast after landing until it is pressed again', async ({ page }) => {
   const me = observe(page);
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect.poll(() => me.player?.state).toBe('waiting');
   await page.getByRole('button', { name: '캠프 선택' }).click();
@@ -232,7 +239,7 @@ test('a skill key held through deployment does not cast after landing until it i
 
 test('a skill key pressed and released between two input sends still casts once', async ({ page }) => {
   const me = observe(page);
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect.poll(() => me.player?.state).toBe('waiting');
   await page.getByRole('button', { name: '캠프 선택' }).click();
@@ -267,7 +274,7 @@ test('a press goes out once in press, apart from the slot that stays held', asyn
     window.dispatchEvent(new KeyboardEvent('keyup', { code }));
   }, code);
   const pressed = (slot: number) => inputs.filter(input => input.press === slot);
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect.poll(() => me.player?.state).toBe('waiting');
   await page.getByRole('button', { name: '캠프 선택' }).click();
@@ -305,7 +312,7 @@ test('a held skill key keeps the aura going, the zone goes out on release, and h
       if (action) seen.push({ id: action.id, phase: action.phase, held: action.contactAt - action.startedAt });
     } catch { }
   }));
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect.poll(() => me.player?.state).toBe('waiting');
   await page.getByRole('button', { name: '캠프 선택' }).click();
@@ -358,7 +365,7 @@ test('a held skill key keeps the aura going, the zone goes out on release, and h
 
 test('a mouse button held while the window loses focus is not a new press when it comes back', async ({ page }) => {
   const me = observe(page);
-  await page.goto('/');
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).click();
   await expect.poll(() => me.player?.state).toBe('waiting');
   await page.getByRole('button', { name: '캠프 선택' }).click();

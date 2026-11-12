@@ -277,6 +277,9 @@ public sealed class EntryRequest
 {
     // 검사가 손으로 만든 맵의 방을 만들 때만 쓰는 값이다. 서버 설정(Argus:Missions:AllowHandmade)이 켜져 있어야 받는다.
     public const string HandmadeLayout = "handmade";
+    // 손으로 만든 맵에 적이 처음부터 없고 증원도 오지 않는 조용한 방이다. 같은 서버 설정이 켜져 있어야 받는다.
+    // 조작과 화면을 보는 브라우저 검사가 쓴다. 적이 다가와 대원을 치면 그런 검사의 결과가 흔들린다.
+    public const string QuietLayout = "quiet";
     public string? Name { get; }
     public string[]? Slots { get; }
     // 방을 만들 때 고르는 맵이다. 비어 있으면 생성 작전이다. 참가할 때는 쓰지 않는다.
@@ -397,16 +400,20 @@ public sealed class RoomHost : BackgroundService
             failure = EntryFailure.InvalidRequest;
             return null;
         }
-        // 운영 방은 모두 생성 작전이다. 손으로 만든 맵은 서버 설정이 허락할 때 검사가 고를 수 있고, 다른 값은 받지 않는다.
+        // 운영 방은 모두 생성 작전이다. 손으로 만든 맵과 그 맵의 조용한 방은 서버 설정이 허락할 때 검사가 고를 수 있고,
+        // 다른 값은 받지 않는다.
         bool handmade = false;
+        bool quiet = false;
         if (request.Layout != null)
         {
-            if (request.Layout != EntryRequest.HandmadeLayout || !_allowHandmade)
+            handmade = request.Layout == EntryRequest.HandmadeLayout;
+            quiet = request.Layout == EntryRequest.QuietLayout;
+            bool known = handmade || quiet;
+            if (!known || !_allowHandmade)
             {
                 failure = EntryFailure.LayoutUnavailable;
                 return null;
             }
-            handmade = true;
         }
 
         // 맵을 만들기 전에 생성 잠금 안에서 자리를 예약한다. 상한은 등록된 방과 맵을 만들고 있는 방을 합쳐 세므로,
@@ -435,6 +442,12 @@ public sealed class RoomHost : BackgroundService
             {
                 rules = new Rules();
                 layout = MissionLayout.CreateHandmade();
+            }
+            else if (quiet)
+            {
+                // 조용한 방에는 처음 적이 없고(CreateQuiet) 증원도 오지 않는다(적 상한 0).
+                rules = new Rules { MaxEnemies = 0 };
+                layout = MissionLayout.CreateQuiet();
             }
             else
             {

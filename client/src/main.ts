@@ -285,6 +285,9 @@ function clearInput() {
   if (me()?.state === 'alive' && snapshot?.phase === 'active') sendInput(0, 0, world?.control.aim ?? 0, 0);
 }
 
+// 방을 만들 때 고를 검사용 맵이다. 주소의 ?layout=… 값이고, 없으면 서버가 생성 작전을 만든다.
+const testLayout = new URLSearchParams(location.search).get('layout');
+
 async function enter(code?: string) {
   if (connecting) return;
   const inputCode = code?.trim().toUpperCase();
@@ -300,6 +303,9 @@ async function enter(code?: string) {
       body: JSON.stringify({
         name: $<HTMLInputElement>('callsign').value || '대원',
         slots: [chosenSkill('slot-1'), chosenSkill('slot-2'), chosenSkill('slot-3'), chosenSkill('free-slot')],
+        // 주소에 ?layout=…이 있으면 방을 만들 때 그 맵을 고른다. 서버가 설정으로 허락한 검사용 맵(handmade, quiet)만 받고,
+        // 운영 서버는 거절한다(HTTP 403). 조작을 보는 브라우저 검사가 적이 없는 방(quiet)을 이렇게 만든다.
+        ...(!inputCode && testLayout ? { layout: testLayout } : {}),
       }),
     });
     if (!response.ok) {

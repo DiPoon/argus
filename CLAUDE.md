@@ -35,6 +35,7 @@ dotnet run --project tools/Argus.Replay -- server/Argus.Server/recordings
 
 # 브라우저 검사 (서버가 5077에서 실행 중이어야 한다). 임무 봇이 손으로 만든 맵을 고를 수 있게 서버를
 # Argus__Missions__AllowHandmade=true로 띄운다. 이 설정이 없으면 임무 봇의 방 만들기가 HTTP 403이다.
+# 조작을 보는 검사가 쓰는 적 없는 방(주소의 ?layout=quiet)도 같은 설정이 필요하다.
 cd client && npx playwright install --with-deps chromium && npm run test:e2e
 ```
 
@@ -94,7 +95,7 @@ cd client && PLAYWRIGHT_BROWSERS_PATH=$D/browsers LD_LIBRARY_PATH=$D/root/usr/li
 
 ### Match — 한 방의 전체 상태
 
-`Match`는 `partial class`로 네 파일에 나뉜다. 어디를 고칠지 먼저 판단한다. 맵 크기와 임무 배치(처음 벽, 캠프, 탈출 지점, 시설, 보급, 처음 적 자리, 증원 타원)는 `Game/MissionLayout.cs`의 데이터이고, 방은 만들 때 받은 배치로 진행한다(`Match.Layout`, 맵은 `Match.Map`). 운영 방은 `MissionGenerator`가 방의 시드로 만든 맵을 쓴다(아래 "작전 생성"). 손으로 만든 40×30 맵(`MissionLayout.CreateHandmade`)은 검사가 쓰고, 설정 `Argus:Missions:AllowHandmade`가 켜진 서버에서는 방을 만들 때 `layout: "handmade"`로 고를 수 있다(브라우저 검사의 임무 봇. 봇은 본 칸으로만 길을 내고, 갈 곳을 아직 보지 못했으면 본 곳의 경계 가운데 맵 가운데에 가장 가까운 칸으로 가며 찾는다). 그 밖에는 HTTP 403이다(`EntryFailure.LayoutUnavailable`). 생성기가 만든 배치도 받으므로 배치의 생성자가 검사한다. 모든 자리는 맵 안이어야 하고, 캠프와 탈출 지점은 대원이 설 수 있어야 하며, 시설·보급은 벽 칸이 아니어야 한다. 처음 적 자리는 그 종류의 몸이 벽에 닿지 않고 들어가야 하고, 두 적의 몸이 겹치지 않아야 한다. 그래서 검사를 통과한 배치로는 언제나 방을 만들 수 있다(`Match`가 처음 적을 두지 못하면 생성자가 예외를 낸다). 증원 타원은 반지름이 1 이상이고 맵 안에 들어가야 하며, 가장 큰 적이 설 수 있는 점이 하나는 있어야 한다. 목록은 읽기 전용이다. 맵 크기는 방마다의 값(`BattleMap.Columns`·`Rows`·`Width`·`Height`)이고 칸 크기(`BattleMap.Cell`, 48)와 캠프 시야(`BattleMap.CampVision`)만 상수다.
+`Match`는 `partial class`로 네 파일에 나뉜다. 어디를 고칠지 먼저 판단한다. 맵 크기와 임무 배치(처음 벽, 캠프, 탈출 지점, 시설, 보급, 처음 적 자리, 증원 타원)는 `Game/MissionLayout.cs`의 데이터이고, 방은 만들 때 받은 배치로 진행한다(`Match.Layout`, 맵은 `Match.Map`). 운영 방은 `MissionGenerator`가 방의 시드로 만든 맵을 쓴다(아래 "작전 생성"). 손으로 만든 40×30 맵(`MissionLayout.CreateHandmade`)은 검사가 쓰고, 설정 `Argus:Missions:AllowHandmade`가 켜진 서버에서는 방을 만들 때 `layout: "handmade"`로 고를 수 있다. `layout: "quiet"`는 같은 맵에 처음 적도 증원도 없는 조용한 방이다(`MissionLayout.CreateQuiet`, 적 상한 0). 조작과 화면을 보는 브라우저 검사가 주소의 `?layout=quiet`로 만든다. 생성 작전에서는 처음 적들이 캠프로 와서 대원을 치고(가만히 선 대원은 가장 이르면 4초에 처음 맞고 9초에 쓰러진다), 맞거나 받아친 기술은 그 순간 기술 목록에서 빠지므로, 기술이 스냅샷에 보이는지로 확인하는 검사가 적 하나에 흔들린다. **기술을 쓰거나 대원이 오래 살아 있어야 하는 새 브라우저 검사는 조용한 방에서 돌린다.** 손으로 만든 맵은 브라우저 검사의 임무 봇이 쓴다(봇은 본 칸으로만 길을 내고, 갈 곳을 아직 보지 못했으면 본 곳의 경계 가운데 맵 가운데에 가장 가까운 칸으로 가며 찾는다). 그 밖에는 HTTP 403이다(`EntryFailure.LayoutUnavailable`). 생성기가 만든 배치도 받으므로 배치의 생성자가 검사한다. 모든 자리는 맵 안이어야 하고, 캠프와 탈출 지점은 대원이 설 수 있어야 하며, 시설·보급은 벽 칸이 아니어야 한다. 처음 적 자리는 그 종류의 몸이 벽에 닿지 않고 들어가야 하고, 두 적의 몸이 겹치지 않아야 한다. 그래서 검사를 통과한 배치로는 언제나 방을 만들 수 있다(`Match`가 처음 적을 두지 못하면 생성자가 예외를 낸다). 증원 타원은 반지름이 1 이상이고 맵 안에 들어가야 하며, 가장 큰 적이 설 수 있는 점이 하나는 있어야 한다. 목록은 읽기 전용이다. 맵 크기는 방마다의 값(`BattleMap.Columns`·`Rows`·`Width`·`Height`)이고 칸 크기(`BattleMap.Cell`, 48)와 캠프 시야(`BattleMap.CampVision`)만 상수다.
 
 | 파일 | 담당 |
 | --- | --- |
