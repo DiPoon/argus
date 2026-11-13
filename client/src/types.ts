@@ -59,6 +59,9 @@ export interface Snapshot {
   supplies: (Position & { id: number; kind: 'camp' | 'field' | 'objective'; objective: boolean; collected: boolean; uses: number; cooldown: number })[];
   effects: (Position & { id: number; kind: string; until: number })[];
   sight: number[][]; notices: { id: number; at: number; text: string }[];
+  // 내가 눌렀지만 앞의 기술이 끝나지 않아 아직 시작하지 못한 누름의 슬롯이다. 누른 차례대로이고, 없으면 빠진다(protocol v6).
+  // 기다리는 누름은 그 버튼을 누르고 있는 동안만 남는다. 진행 중인 기술과 달리 다른 곳에 드러나지 않아 서버가 따로 알린다.
+  waiting?: number[];
 }
 // 서버가 보내는 그대로의 스냅샷. 벽은 바뀔 때만, 규칙과 맵은 접속 직후에만 담긴다(protocol v3부터).
 // 벽은 전체(walls)가 오거나, 이미 받은 배열에서 바뀐 칸만(wallChanges: [칸 번호, 값, …], 앞에서부터 적용) 온다(protocol v5).

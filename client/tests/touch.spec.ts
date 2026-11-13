@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { test, expect, type CDPSession, type Page } from '@playwright/test';
-import type { Player, Snapshot } from '../src/types';
+import type { Snapshot } from '../src/types';
 import { quietRoom } from './rooms';
+import { relay } from './wire';
 
 // 휴대폰 가로 화면이다. hasTouch를 켜면 브라우저가 손가락 기기((pointer: coarse))로 알리므로 클라이언트가 터치 화면을 띄운다.
 const phone = { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true };
@@ -43,45 +44,6 @@ class Fingers {
   private send(type: 'touchStart' | 'touchMove') {
     return this.cdp.send('Input.dispatchTouchEvent', { type, touchPoints: [...this.points].map(([id, point]) => ({ id, ...point })) });
   }
-}
-
-// 페이지와 서버 사이의 WebSocket을 가운데서 잇는다. 보낸 입력을 모으고, 서버가 보낸 스냅샷을 바꾸거나 화면에 넘기지 않고 잡아 둔다.
-// 연결을 끊어 재접속 장면도 만든다.
-async function relay(page: Page) {
-  const wire = {
-    inputs: [] as { held: number[]; pressed: number[]; aim: number; moveX: number; moveY: number }[],
-    player: undefined as Player | undefined,
-    change: (data: Snapshot): Snapshot => data,
-    holding: false,
-    held: [] as string[],
-    forward: (_message: string) => { },
-    drop: () => { },
-    release() {
-      wire.holding = false;
-      for (const message of wire.held.splice(0)) wire.forward(message);
-    },
-  };
-  await page.routeWebSocket(/\/ws$/, ws => {
-    const server = ws.connectToServer();
-    wire.drop = () => { void ws.close(); };
-    wire.forward = message => ws.send(message);
-    ws.onMessage(message => {
-      if (typeof message === 'string' && message.includes('"input"')) wire.inputs.push(JSON.parse(message));
-      server.send(message);
-    });
-    server.onMessage(message => {
-      if (typeof message === 'string') {
-        const data = JSON.parse(message);
-        if (data.type === 'snapshot') {
-          wire.player = (data as Snapshot).players.find(p => p.id === data.you);
-          message = JSON.stringify(wire.change(data));
-          if (wire.holding) { wire.held.push(message); return; }
-        }
-      }
-      ws.send(message);
-    });
-  });
-  return wire;
 }
 
 // 터치 화면에서 새 작전 시작을 누르면 전체 화면이 켜진다. 전체 화면에서는 검사 브라우저가 창 크기를 바꾸지 못하므로 끈다.
@@ -471,18 +433,6 @@ test('fingers that stay on the joystick and skill buttons keep working through l
     await expect.poll(() => last()?.moveX).toBe(0);
     await expect(page.locator('#touch-base')).toBeHidden();
 
-    // 한 기술 버튼을 두 손가락으로 누르다 하나를 떼도, 남은 손가락이 쥐고 있으면 기술을 쥐고 있는 것이다.
-    await fingers.down(1, onButton.x, onButton.y);
-    await fingers.down(2, onButton.x + 12, onButton.y);
-    await expect.poll(() => last()?.held).toEqual([1]);
-    await fingers.up(2);
-    await page.waitForTimeout(150);
-    expect(last()?.held).toEqual([1]);
-    await expect(skillButton).toHaveClass(/\bheld\b/);
-    await fingers.up(1);
-    await expect.poll(() => last()?.held).toEqual([]);
-    await expect(skillButton).not.toHaveClass(/\bheld\b/);
-
     // 잡아 둔 포인터를 놓치면 조이스틱을 비운다. 비우지 않으면 다음 손가락의 누름을 받지 못해 걸을 수 없다.
     await page.evaluate(() => {
       const area = document.getElementById('touch-move')!;
@@ -500,6 +450,112 @@ test('fingers that stay on the joystick and skill buttons keep working through l
     await fingers.move(0, center.x - 50, center.y);
     await expect.poll(() => last()?.moveX).toBe(-1);
     await fingers.up(0);
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('a second finger on a skill button joins the first while its aura is held, and is a new press once that skill is over', async ({ browser }) => {
+  // 한 기술 버튼을 두 손가락으로 누르는 두 장면이다.
+  // - 첫 손가락이 잇는 기운 위에 둘째 손가락을 겹쳐 누른다. 새 누름이 아니다. 하나를 떼어도 남은 손가락이 누르고 있으면 누르고 있는 것이다.
+  // - PR #28 재리뷰 다의 장면이다. 첫 손가락으로 쓴 기술이 끝난 뒤에도 그 손가락을 버튼에 그대로 둔다. 누르고 있어도 다시 시전하지
+  //   않으므로 아무 일도 없다. 이때 다른 손가락으로 같은 버튼을 누르면 기술이 나가야 한다.
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const wire = await relay(page);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  // 받은 스냅샷마다 내 마지막 기술의 기운 시간(장판이 나가는 틱 - 시작 틱)을 적어 둔다.
+  const tick = (seconds: number) => Math.round(seconds * 30);
+  const seen: { id: number; phase: string; aura: number }[] = [];
+  wire.change = data => {
+    const action = data.players.find(p => p.id === data.you)?.actions.at(-1);
+    if (action) seen.push({ id: action.id, phase: action.phase, aura: tick(action.contactAt) - tick(action.startedAt) });
+    return data;
+  };
+  const presses = (from: number) => wire.inputs.slice(from).filter(input => input.pressed.length > 0).map(input => input.pressed);
+  try {
+    await page.goto(quietRoom);
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await deployAtCamp(page);
+    const fingers = new Fingers(await context.newCDPSession(page));
+    const stick = (await page.locator('#touch-move').boundingBox())!;
+    const center = { x: stick.x + stick.width * .45, y: stick.y + stick.height * .6 };
+    // 캠프 보급 상자까지 걸어가 마나를 채운다.
+    await fingers.down(0, center.x, center.y);
+    await fingers.move(0, center.x + 44, center.y + 25);
+    await expect.poll(() => wire.player?.mana, { timeout: 10000 }).toBe(24);
+    await fingers.up(0);
+    const skillButton = page.locator('.touch-skill[data-slot="1"]');
+    const button = (await skillButton.boundingBox())!;
+    const onButton = { x: button.x + button.width / 2, y: button.y + button.height / 2 };
+
+    // 첫 손가락으로 누르고, 기운이 이어지는 동안 둘째 손가락을 겹쳐 누른다. 누름은 첫 손가락의 것 하나뿐이다.
+    const overlap = wire.inputs.length;
+    await fingers.down(1, onButton.x, onButton.y);
+    await expect.poll(() => wire.player?.mana).toBe(23);
+    await expect(skillButton.locator('small')).toHaveText('기운');
+    await fingers.down(2, onButton.x + 12, onButton.y);
+    await page.waitForTimeout(150);
+    expect(presses(overlap)).toEqual([[1]]);
+    // 첫 손가락을 떼어도 둘째 손가락이 누르고 있다. 둘 다 떼어야 뗀 것이다.
+    await fingers.up(1);
+    await page.waitForTimeout(150);
+    expect(wire.inputs.at(-1)?.held).toEqual([1]);
+    await expect(skillButton).toHaveClass(/\bheld\b/);
+    await fingers.up(2);
+    await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
+    await expect(skillButton).not.toHaveClass(/\bheld\b/);
+    expect(presses(overlap)).toEqual([[1]]);
+    await expect.poll(() => wire.player?.busy).toBe(0);
+    await expect(skillButton).not.toHaveClass(/\bactive\b/);
+
+    // 첫 손가락으로 누르고 끝까지 그대로 둔다. 최대 기운 시간(1초)에 장판이 나가고 기술이 끝난다.
+    await fingers.down(1, onButton.x, onButton.y);
+    await expect.poll(() => wire.player?.mana).toBe(22);
+    await expect.poll(() => wire.player?.actions.length, { timeout: 4000 }).toBe(0);
+    await expect(skillButton).not.toHaveClass(/\bactive\b/);
+    await expect(skillButton).toHaveClass(/\bheld\b/);
+    // 둘째 손가락으로 같은 버튼을 짧게 누른다. 새 누름으로 한 번 나간다.
+    const mark = wire.inputs.length;
+    await fingers.down(2, onButton.x + 12, onButton.y);
+    await fingers.up(2);
+    await expect.poll(() => wire.player?.mana).toBe(21);
+    expect(presses(mark)).toEqual([[1]]);
+    // 첫 손가락은 앞의 시전에 다 쓴 입력이다. 둘째 손가락을 뗀 뒤로는 버튼을 누르고 있는 것으로 보내지 않고, 버튼의 표시도 꺼진다.
+    // 누르고 있는 것으로 계속 치면, 짧게 누른 기술의 기운을 첫 손가락이 최대 시간까지 잇는다.
+    await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
+    await expect(skillButton).not.toHaveClass(/\bheld\b/);
+    await expect.poll(() => wire.player?.busy).toBe(0);
+    const tap = seen.filter(entry => entry.id === seen.at(-1)!.id);
+    expect(tap.some(entry => entry.phase === 'zone'), '장판이 나간 스냅샷').toBe(true);
+    // 회전 베기의 기운은 가장 짧게 0.18초(6틱)다.
+    expect(Math.max(...tap.map(entry => entry.aura))).toBe(6);
+    // 첫 손가락을 떼었다가 다시 누르면 다시 쓸 수 있다.
+    await fingers.up(1);
+    await fingers.down(1, onButton.x, onButton.y);
+    await expect.poll(() => wire.player?.mana).toBe(20);
+    await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([1]);
+    await expect(skillButton).toHaveClass(/\bheld\b/);
+    await fingers.up(1);
+    await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
+
+    // 다 쓴 입력으로 돌리는 것은 그 버튼의 손가락뿐이다. 다른 버튼을 누르고 있는 손가락은 그대로 누르고 있는 것이다.
+    await expect.poll(() => wire.player?.busy).toBe(0);
+    await fingers.down(1, onButton.x, onButton.y);
+    await expect.poll(() => wire.player?.mana).toBe(19);
+    await expect.poll(() => wire.player?.actions.length, { timeout: 4000 }).toBe(0);
+    await expect(skillButton).not.toHaveClass(/\bactive\b/);
+    const other = (await page.locator('.touch-skill[data-slot="2"]').boundingBox())!;
+    await fingers.down(3, other.x + other.width / 2, other.y + other.height / 2);
+    await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([1, 2]);
+    const third = wire.inputs.length;
+    await fingers.down(2, onButton.x + 12, onButton.y);
+    await fingers.up(2);
+    await expect.poll(() => presses(third)).toEqual([[1]]);
+    await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([2]);
+    await fingers.up(3);
+    await fingers.up(1);
+    await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

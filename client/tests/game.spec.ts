@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import net from 'node:net';
 import crypto from 'node:crypto';
-import type { Snapshot } from '../src/types';
+import type { Player, Snapshot } from '../src/types';
 import { quietRoom } from './rooms';
+import { relay } from './wire';
 
 function observe(page: Page) {
   let snapshot: Snapshot | undefined;
@@ -42,6 +43,23 @@ function seenActions(page: Page) {
     } catch { }
   }));
   return seen;
+}
+
+// 조용한 방을 만들어 캠프에 투입하고, 캠프 옆 보급 상자에서 마나를 가득 채운다. 마우스는 지도 위에 둔다.
+// player는 내 대원의 지금 상태를 돌려주는 함수다. 스냅샷을 어떻게 받는지(observe, relay)는 검사마다 다르다.
+async function landWithMana(page: Page, player: () => Player | undefined) {
+  await page.goto(quietRoom);
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => player()?.state).toBe('waiting');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => player()?.state, { timeout: 8000 }).toBe('alive');
+  await page.keyboard.down('KeyD'); await page.keyboard.down('KeyS');
+  await page.waitForTimeout(470);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
+  await expect.poll(() => player()?.mana).toBe(24);
+  const canvas = (await page.locator('#canvas-host canvas').boundingBox())!;
+  await page.mouse.move(canvas.x + canvas.width * .05, canvas.y + canvas.height / 2);
 }
 
 // 누름과 뗌을 한 작업 안에서 일으켜, 두 입력 사이에 눌렀다 뗀 짧은 누름을 만든다. 입력은 1/30초마다 보낸다.
@@ -412,24 +430,228 @@ test('a press goes out once in pressed, apart from the slots that stay held, and
     }
   });
   await expect.poll(() => inputs.slice(tapped).filter(input => input.pressed.length > 0).map(input => [input.pressed, input.held])).toEqual([[[3, 1], []]]);
+  expect(me.errors).toEqual([]);
+});
 
-  // 같은 슬롯에 묶인 두 입력(1번 키와 좌클릭)을 겹쳐 눌러도 그 슬롯의 누름은 한 번이다. 이미 누르고 있는 슬롯을 다른 입력으로
-  // 또 누른 것은 새 누름이 아니다. 새 누름으로 보내면 서버는 뗐다 다시 누른 것으로 읽어, 누르고 있던 기운을 놓고 기술을 한 번 더 낸다.
-  const canvas = (await page.locator('#canvas-host canvas').boundingBox())!;
-  await page.mouse.move(canvas.x + canvas.width * .05, canvas.y + canvas.height / 2);
-  const overlap = inputs.length;
+test('a second input pressed over a slot whose hold still does something is not a new press', async ({ page }) => {
+  // 같은 슬롯에 묶인 두 입력(1번 키와 좌클릭, 3번 키와 스페이스)을 겹쳐 누른다. 서버에게 슬롯은 버튼 하나라, 같은 슬롯의 새 누름을
+  // "뗐다 다시 눌렀다"로 읽어 누르고 있던 기운을 놓고 기술을 한 번 더 낸다. 그래서 그 슬롯을 누르고 있는 것이 아직 뜻이 있는 동안에는
+  // 겹쳐 누른 것을 새 누름으로 보내지 않는다. 그렇게 치는 때는 넷이다. 둘은 앞의 누름이 어떻게 됐는지 화면이 아직 모르는 때(1·2)이고,
+  // 둘은 서버가 알려 준 때(3·4)다. 화면이 넷을 따로 알아야 하므로 하나씩 본다.
+  const wire = await relay(page);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const presses = (from: number) => wire.inputs.slice(from).filter(input => input.pressed.length > 0).map(input => input.pressed);
+  // 서버가 알린 기다리는 누름과, 잡기(3번 슬롯)가 보인 스냅샷마다 그 기운을 잇는 중이었는지를 적어 둔다.
+  const waited: number[][] = [];
+  const grabHeld: boolean[] = [];
+  wire.change = data => {
+    if (data.waiting) waited.push(data.waiting);
+    const last = data.players.find(p => p.id === data.you)?.actions.at(-1);
+    if (last?.slot === 3) grabHeld.push(last.held === true);
+    return data;
+  };
+  await landWithMana(page, () => wire.player);
+
+  // 1. 앞의 누름을 아직 보내지 않았다. 입력은 1/30초마다 보내므로, 한 작업 안에서 키와 마우스 버튼을 잇달아 누르면 둘 다 보내기 전이다.
+  let mark = wire.inputs.length;
+  await page.evaluate(() => {
+    const canvas = document.querySelector('#canvas-host canvas')!;
+    const area = canvas.getBoundingClientRect();
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit1' }));
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', button: 0, buttons: 1,
+      clientX: area.left + area.width * .05, clientY: area.top + area.height / 2 }));
+  });
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([1]);
+  await page.waitForTimeout(150);
+  expect(presses(mark)).toEqual([[1]]);
+  await page.evaluate(() => {
+    document.querySelector('#canvas-host canvas')!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse', button: 0, buttons: 0 }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Digit1' }));
+  });
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
+  await expect.poll(() => wire.player?.busy).toBe(0);
+
+  // 2. 앞의 누름을 보냈지만 서버가 확인한 스냅샷을 화면이 아직 받지 못했다. 스냅샷을 잡아 두어 그 사이를 길게 만든다.
+  // 서버에서는 타격이 이미 시작해 기운을 잇고 있지만, 화면이 아는 것은 "누름을 보냈다"뿐이다.
+  await expect(page.locator('#skill-bar .skill-slot.active')).toHaveCount(0);
+  wire.holding = true;
+  mark = wire.inputs.length;
   await page.keyboard.down('Digit1');
-  await expect.poll(() => inputs.at(-1)?.held).toEqual([1]);
+  await expect.poll(() => wire.player?.actions.at(-1)?.held).toBe(true);
   await page.mouse.down({ button: 'left' });
   await page.waitForTimeout(150);
-  expect(inputs.slice(overlap).filter(input => input.pressed.length > 0).map(input => input.pressed)).toEqual([[1]]);
+  expect(presses(mark)).toEqual([[1]]);
+  wire.release();
+  await page.mouse.up({ button: 'left' });
+  await page.keyboard.up('Digit1');
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
+  await expect.poll(() => wire.player?.busy).toBe(0);
+
+  // 3. 그 슬롯으로 쓴 기술의 기운을 잇는 중이다. 화면이 기운을 그렸다면 서버가 누름을 확인한 스냅샷을 받은 것이다.
+  await expect(page.locator('#skill-bar .skill-slot.active')).toHaveCount(0);
+  mark = wire.inputs.length;
+  await page.keyboard.down('Digit1');
+  await expect(page.locator('#skill-bar .skill-slot[data-slot="1"].active small')).toHaveText('기운');
+  await page.mouse.down({ button: 'left' });
+  await page.waitForTimeout(150);
+  expect(presses(mark)).toEqual([[1]]);
   // 키를 떼어도 좌클릭이 그 슬롯을 누르고 있다. 좌클릭까지 떼어야 뗀 것이다.
   await page.keyboard.up('Digit1');
   await page.waitForTimeout(150);
-  expect(inputs.at(-1)!.held).toEqual([1]);
+  expect(wire.inputs.at(-1)!.held).toEqual([1]);
   await page.mouse.up({ button: 'left' });
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
+  expect(presses(mark)).toEqual([[1]]);
+  await expect.poll(() => wire.player?.busy).toBe(0);
+
+  // 4. 그 슬롯의 누름이 앞의 기술이 끝나기를 기다리는 중이다. 받아치기(2번 키)와 잡기(3번 키)를 잇달아 눌러 둘 다 누르고 있으면,
+  // 받아치기가 먼저 나가고 잡기는 기다린다. 기다리는 누름은 서버가 스냅샷의 waiting으로 알린다. 이때 스페이스(같은 3번 슬롯)를
+  // 겹쳐 눌렀다 떼어도 3번 키가 누르고 있으므로 잡기는 계속 기다린다. 스페이스를 새 누름으로 치면 3번 키가 다 쓴 입력이 되어,
+  // 스페이스를 떼는 순간 서버가 잡기의 기다림을 버린다.
+  await expect(page.locator('#skill-bar .skill-slot.active')).toHaveCount(0);
+  mark = wire.inputs.length;
+  const before = wire.player!.mana;
+  await page.evaluate(() => { for (const code of ['Digit2', 'Digit3']) window.dispatchEvent(new KeyboardEvent('keydown', { code })); });
+  // 화면이 받아치기를 쓰는 중으로 그렸다면, 두 누름을 확인한 스냅샷을 받은 것이다. 두 누름은 한 입력에 실려 갔다.
+  await expect(page.locator('#skill-bar .skill-slot[data-slot="2"].active')).toHaveCount(1);
+  expect(waited.at(-1)).toEqual([3]);
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(120);
+  expect(presses(mark)).toEqual([[2, 3]]);
+  await page.keyboard.up('Space');
+  await page.waitForTimeout(120);
+  expect(wire.inputs.at(-1)!.held).toEqual([2, 3]);
+  // 받아치기가 끝나면 기다리던 잡기가 나간다. 3번 키를 누르고 있으므로 처음 보인 스냅샷부터 기운을 잇는 중이다.
+  await expect.poll(() => grabHeld.length, { timeout: 4000 }).toBeGreaterThan(0);
+  expect(grabHeld[0]).toBe(true);
+  expect(wire.player!.mana).toBe(before - 2);
+  expect(wire.snapshot?.waiting).toBeUndefined();
+  // 서버가 알린 기다리는 누름은 처음부터 끝까지 잡기 하나였다.
+  expect(waited.every(slots => slots.length === 1 && slots[0] === 3)).toBe(true);
+  await page.keyboard.up('Digit3');
+  await page.keyboard.up('Digit2');
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
+  expect(presses(mark)).toEqual([[2, 3]]);
+  expect(errors).toEqual([]);
+});
+
+test('a key still down after its skill is over neither blocks a click on the same slot nor holds that click\'s aura', async ({ page }) => {
+  // PR #28 재리뷰 다의 장면이다. 1번 키로 타격을 쓰고, 타격이 끝난 뒤에도 그 키를 계속 누르고 있다. 누르고 있어도 다시 시전하지
+  // 않으므로 아무 일도 없다. 이때 좌클릭(같은 1번 슬롯)을 하면 타격이 나가야 한다. 그 슬롯을 이미 누르고 있다는 이유만으로 누름을
+  // 버리면, 키에 손가락을 얹고 있는 동안 좌클릭이 먹지 않는다.
+  const me = observe(page);
+  const inputs = sentInputs(page);
+  const seen = seenActions(page);
+  await landWithMana(page, () => me.player);
+  await page.keyboard.down('Digit1');
+  await expect.poll(() => me.player?.mana).toBe(23);
+  // 끝까지 누르고 있는다. 최대 기운 시간(1초)에 장판이 나가고 기술이 끝난다. 키는 그 뒤에도 누르고 있다.
+  await expect.poll(() => me.player?.actions.length, { timeout: 4000 }).toBe(0);
+  await expect(page.locator('#skill-bar .skill-slot.active')).toHaveCount(0);
+  const mark = inputs.length;
+  // 좌클릭을 짧게 누른다. 새 누름으로 한 번 나간다.
+  await page.mouse.down({ button: 'left' });
+  await page.mouse.up({ button: 'left' });
+  await expect.poll(() => me.player?.mana).toBe(22);
+  expect(inputs.slice(mark).filter(input => input.pressed.length > 0).map(input => input.pressed)).toEqual([[1]]);
+  // 1번 키는 앞의 타격에 다 쓴 입력이다. 좌클릭을 뗀 뒤로는 누르고 있는 슬롯이 없다. 그 키를 누르고 있는 것으로 계속 치면,
+  // 짧게 클릭한 타격의 기운을 그 키가 최대 시간(1초)까지 잇는다(PR #28 리뷰 4번과 같은 결함).
   await expect.poll(() => inputs.at(-1)?.held).toEqual([]);
-  expect(inputs.slice(overlap).filter(input => input.pressed.length > 0)).toHaveLength(1);
+  await expect.poll(() => me.player?.busy).toBe(0);
+  const click = seen.filter(entry => entry.id === seen.at(-1)!.id);
+  expect(click.some(entry => entry.phase === 'zone'), '장판이 나간 스냅샷').toBe(true);
+  expect(Math.max(...click.map(entry => entry.aura))).toBe(6);
+  const settled = inputs.length;
+  await expect.poll(() => inputs.length).toBeGreaterThan(settled + 3);
+  expect(inputs.slice(settled).filter(input => input.held.length > 0 || input.pressed.length > 0)).toEqual([]);
+  // 1번 키를 떼었다가 다시 누르면 다시 쓸 수 있다.
+  await page.keyboard.up('Digit1');
+  await page.keyboard.down('Digit1');
+  await expect.poll(() => me.player?.mana).toBe(21);
+  await expect.poll(() => inputs.at(-1)?.held).toEqual([1]);
+  await page.keyboard.up('Digit1');
+
+  // 거꾸로도 같다. 좌클릭을 타격이 끝난 뒤까지 누르고 있다가 1번 키를 짧게 누른다. 좌클릭이 다 쓴 입력이 된다.
+  await expect.poll(() => me.player?.busy).toBe(0);
+  await page.mouse.down({ button: 'left' });
+  await expect.poll(() => me.player?.mana).toBe(20);
+  await expect.poll(() => me.player?.actions.length, { timeout: 4000 }).toBe(0);
+  await expect(page.locator('#skill-bar .skill-slot.active')).toHaveCount(0);
+  const again = inputs.length;
+  await tapKey(page, 'Digit1');
+  await expect.poll(() => me.player?.mana).toBe(19);
+  expect(inputs.slice(again).filter(input => input.pressed.length > 0).map(input => input.pressed)).toEqual([[1]]);
+  await expect.poll(() => inputs.at(-1)?.held).toEqual([]);
+  await expect.poll(() => me.player?.busy).toBe(0);
+  const tapped = seen.filter(entry => entry.id === seen.at(-1)!.id);
+  expect(tapped.some(entry => entry.phase === 'zone'), '장판이 나간 스냅샷').toBe(true);
+  expect(Math.max(...tapped.map(entry => entry.aura))).toBe(6);
+  await page.mouse.up({ button: 'left' });
+
+  // 다 쓴 입력으로 돌리는 것은 그 슬롯의 입력뿐이다. 1번 키가 다 쓴 입력이 될 때, 다른 슬롯을 누르고 있는 우클릭(2번 슬롯)과
+  // 3번 키는 그대로 누르고 있는 것이다.
+  await expect.poll(() => me.player?.busy).toBe(0);
+  await page.keyboard.down('Digit1');
+  await expect.poll(() => me.player?.mana).toBe(18);
+  await expect.poll(() => me.player?.actions.length, { timeout: 4000 }).toBe(0);
+  await expect(page.locator('#skill-bar .skill-slot.active')).toHaveCount(0);
+  await page.mouse.down({ button: 'right' });
+  await page.keyboard.down('Digit3');
+  await expect.poll(() => inputs.at(-1)?.held).toEqual([1, 2, 3]);
+  const third = inputs.length;
+  await page.mouse.down({ button: 'left' });
+  await page.mouse.up({ button: 'left' });
+  await expect.poll(() => inputs.slice(third).filter(input => input.pressed.length > 0).map(input => input.pressed)).toEqual([[1]]);
+  await expect.poll(() => inputs.at(-1)?.held).toEqual([2, 3]);
+  await page.mouse.up({ button: 'right' });
+  await page.keyboard.up('Digit3');
+  await page.keyboard.up('Digit1');
+  await expect.poll(() => inputs.at(-1)?.held).toEqual([]);
+  expect(me.errors).toEqual([]);
+});
+
+test('a second input pressed after the zone went out is a new press that waits its turn, and that input alone holds its aura', async ({ page }) => {
+  // 3번 키(잡기)를 끝까지 누르고 있으면 최대 기운 시간에 장판이 나간다. 장판이 나간 뒤에는 그 키를 누르고 있어도 아무 일도 없다.
+  // 한 번 나간 장판은 기운으로 돌아가지 않는다. 이때 스페이스(같은 3번 슬롯)를 누르고 있으면 새 누름이다. 한 입력으로 뗐다 다시
+  // 누른 것과 같이, 앞의 잡기가 끝나기를 기다렸다가 나간다. "그 슬롯의 기술이 진행 중이면 버린다"로 하면 이 누름이 사라져,
+  // 같은 조작이 키 하나로 할 때와 두 키로 할 때 달라진다.
+  // 잡기를 쓰는 것은 장판이 나간 뒤 기술이 끝나기까지가 0.73초로 가장 길어서다. 그 사이에 둘째 키를 눌러야 한다.
+  const me = observe(page);
+  const inputs = sentInputs(page);
+  const seen = seenActions(page);
+  await landWithMana(page, () => me.player);
+  const action = () => me.player?.actions.at(-1);
+  // 시간에 매인 확인은 자주 본다. 기본 간격은 점점 늘어 1초까지 벌어진다.
+  const often = { intervals: [50], timeout: 4000 };
+  await page.keyboard.down('Digit3');
+  await expect.poll(() => action()?.phase, often).toBe('aura');
+  const first = action()!.id;
+  // 화면이 장판이나 후딜레이를 그린 순간이다. 화면이 그 스냅샷을 받았으므로, 3번 키를 누르고 있는 것이 더는 뜻이 없음을 안다.
+  await page.waitForFunction(() => {
+    const phase = document.querySelector('#skill-bar .skill-slot[data-slot="3"].active small');
+    return phase !== null && phase.textContent !== '기운';
+  });
+  const mark = inputs.length;
+  await page.keyboard.down('Space');
+  await expect.poll(() => action()?.id ?? first, often).not.toBe(first);
+  const second = action()!.id;
+  expect(action()!.slot).toBe(3);
+  expect(inputs.slice(mark).filter(input => input.pressed.length > 0).map(input => input.pressed)).toEqual([[3]]);
+  expect(me.player!.mana).toBe(22);
+  // 3번 키는 앞의 잡기에 다 쓴 입력이다. 떼어도 달라지는 것이 없고, 스페이스가 새 잡기의 기운을 잇는다.
+  await page.keyboard.up('Digit3');
+  await page.waitForTimeout(150);
+  expect(inputs.at(-1)!.held).toEqual([3]);
+  expect(action()).toMatchObject({ id: second, phase: 'aura', held: true });
+  // 스페이스를 떼면 장판이 나간다. 최대 기운 시간(30틱)까지 가지 않았다.
+  await page.keyboard.up('Space');
+  await expect.poll(() => inputs.at(-1)?.held).toEqual([]);
+  await expect.poll(() => me.player?.busy).toBe(0);
+  const released = seen.filter(entry => entry.id === second && entry.phase === 'zone');
+  expect(released.length, '장판이 나간 스냅샷').toBeGreaterThan(0);
+  expect(released[0].aura).toBeLessThan(30);
+  expect(me.player!.mana).toBe(22);
   expect(me.errors).toEqual([]);
 });
 
