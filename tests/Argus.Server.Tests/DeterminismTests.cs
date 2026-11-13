@@ -186,18 +186,35 @@ internal static class DeterminismTests
                 int round = tick / 16 + i;
                 int chosen = 1 + round % 4;
                 int holdTicks = HoldLengths[(round / 4 + i) % HoldLengths.Length];
-                int slot = 0;
-                int press = 0;
-                if (tick % 16 == 0)
+                // 2틱째에는 다른 버튼을 눌러 5틱까지 누르고 있는다. 앞의 기술을 쓰는 중이면 기다리는 누름이 된다.
+                int other = 1 + chosen % 4;
+                int phase = tick % 16;
+                bool holdsChosen = phase <= holdTicks;
+                bool holdsOther = phase >= 2 && phase <= 5;
+                int[] held = new int[0];
+                if (holdsChosen && holdsOther)
                 {
-                    press = chosen;
+                    held = new int[] { chosen, other };
                 }
-                if (tick % 16 <= holdTicks)
+                else if (holdsChosen)
                 {
-                    slot = chosen;
+                    held = new int[] { chosen };
+                }
+                else if (holdsOther)
+                {
+                    held = new int[] { other };
+                }
+                int[] pressed = new int[0];
+                if (phase == 0)
+                {
+                    pressed = new int[] { chosen };
+                }
+                else if (phase == 2)
+                {
+                    pressed = new int[] { other };
                 }
                 sequence++;
-                match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), aim, slot, press);
+                match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), aim, held, pressed);
             }
             match.Step();
             run.Hashes.Add(match.StateHash());
@@ -286,8 +303,8 @@ internal static class DeterminismTests
             double heading = round * 0.7;
             // 기술을 누른 채 다음 입력까지 둔다. 입력이 0.35초 끊겨 뗀 것이 되기 전까지 기운이 이어진다.
             int slot = 1 + round % 4;
-            single.Match.Input(single.Match.Players[0], sequence, Math.Cos(heading), Math.Sin(heading), heading, slot, slot);
-            batched.Match.Input(batched.Match.Players[0], sequence, Math.Cos(heading), Math.Sin(heading), heading, slot, slot);
+            single.Match.Input(single.Match.Players[0], sequence, Math.Cos(heading), Math.Sin(heading), heading, Slots(slot), Slots(slot));
+            batched.Match.Input(batched.Match.Players[0], sequence, Math.Cos(heading), Math.Sin(heading), heading, Slots(slot), Slots(slot));
             for (int i = 0; i < 12; i++)
             {
                 host.StepRoom(single.Match.Code, single, 1, false);

@@ -236,9 +236,29 @@ internal static class TestTools
     {
         _id++;
         // age초 전에 시작한 기술이다. 틱으로 올려 센다.
-        PlayerAction action = new PlayerAction(_id, skill, 1, fixture.Match.Tick - Rules.ToTicks(age));
+        long maxAuraTicks = Rules.ToTicks(fixture.Match.Rules.MaxAuraSeconds);
+        PlayerAction action = new PlayerAction(_id, skill, 1, fixture.Match.Tick - Rules.ToTicks(age), maxAuraTicks);
+        // 짧게 누른 기술이라 버튼은 이미 놓았다.
+        action.Released = true;
         player.Actions.Add(action);
         return action;
+    }
+
+    // 입력의 슬롯 목록을 만든다. 슬롯 하나만 든 목록이고, 0이면 빈 목록이다.
+    public static int[] Slots(int slot)
+    {
+        if (slot == 0)
+        {
+            return new int[0];
+        }
+        return new int[] { slot };
+    }
+
+    // 기술이 대원의 기술 목록에서 빠졌는지다. 완벽 대응을 냈거나 끊긴 기술은 그 틱의 판정이 끝나면 목록에서 빠진다.
+    // 끝났다는 표시는 기술에 따로 남지 않으므로, 왜 빠졌는지는 그 판정의 결과(적의 체력, 대원의 체력)로 본다.
+    public static bool Gone(Player player, PlayerAction action)
+    {
+        return !player.Actions.Contains(action);
     }
 
     public static Enemy Target(Fixture fixture, EnemyDefinition? definition = null)

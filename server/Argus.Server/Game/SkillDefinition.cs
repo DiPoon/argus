@@ -40,9 +40,14 @@ public sealed class SkillDefinition
         double zoneSeconds, double duration, double range, double halfWidth,
         bool plainZone, bool singleTarget, bool breaksStructures, bool around)
     {
-        if (auraSeconds < 0 || zoneSeconds < 0)
+        // 틀린 값마다 그 값의 이름으로 알린다. 정적 기술 정의에서 나면 형식 초기화 예외 안에 이 이름과 값만 남는다.
+        if (auraSeconds < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(auraSeconds), auraSeconds, "기운과 장판의 시간은 0 이상이어야 합니다");
+            throw new ArgumentOutOfRangeException(nameof(auraSeconds), auraSeconds, "기운의 시간은 0 이상이어야 합니다");
+        }
+        if (zoneSeconds < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(zoneSeconds), zoneSeconds, "장판의 시간은 0 이상이어야 합니다");
         }
         // 기술 전체의 길이는 기운과 장판을 합친 시간보다 짧을 수 없다. 짧으면 장판이 깔려 있는 중에 기술이 끝난다.
         // 판정이 쓰는 틱 수로 비교한다. 초로 비교하면 0.1 + 0.2가 0.3보다 조금 큰 것 같은 실수 오차에 걸린다.

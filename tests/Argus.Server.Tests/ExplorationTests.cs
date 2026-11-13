@@ -359,7 +359,7 @@ internal static class ExplorationTests
         for (int i = 0; i < 8; i++)
         {
             long before = f.Player.ExploreTick;
-            Check(f.Match.Input(f.Player, sequence, 1, 0, 0, 0));
+            Check(f.Match.Input(f.Player, sequence, 1, 0, 0));
             sequence++;
             f.Match.Step();
             if (f.Player.ExploreTick != before)
@@ -375,7 +375,7 @@ internal static class ExplorationTests
         // 마지막으로 둘러본 지 한 틱이라, 0.1초 조건으로는 아직 둘러보지 않는다.
         Equal(f.Match.Tick - f.Player.ExploreTick, 1L);
         Check(f.Player.Position != f.Player.ExploreOrigin);
-        Check(f.Match.Input(f.Player, sequence, 0, 0, 0, 0));
+        Check(f.Match.Input(f.Player, sequence, 0, 0, 0));
         sequence++;
         f.Match.Step();
         Equal(f.Player.ExploreTick, f.Match.Tick);
@@ -387,12 +387,12 @@ internal static class ExplorationTests
 
         // 0.1초가 지나지 않았어도 반 칸 넘게 움직였으면 둘러본다. 한 틱에 많이 움직일 때다. 먼저 걷기 시작해 한 번 둘러보게 한 뒤,
         // 다음 틱에 반 칸 넘게 옮긴다.
-        Check(f.Match.Input(f.Player, sequence, 1, 0, 0, 0));
+        Check(f.Match.Input(f.Player, sequence, 1, 0, 0));
         sequence++;
         f.Match.Step();
         Equal(f.Player.ExploreTick, f.Match.Tick);
         f.Player.Position = f.Player.Position + FixedVector.FromInt(0, 25);
-        Check(f.Match.Input(f.Player, sequence, 1, 0, 0, 0));
+        Check(f.Match.Input(f.Player, sequence, 1, 0, 0));
         sequence++;
         f.Match.Step();
         Equal(f.Player.ExploreTick, f.Match.Tick);

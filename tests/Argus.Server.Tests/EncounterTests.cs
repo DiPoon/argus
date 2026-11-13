@@ -347,7 +347,7 @@ internal static class EncounterTests
         double x = offset.X.ToDouble();
         double y = offset.Y.ToDouble();
         double length = Math.Sqrt(x * x + y * y);
-        Check(f.Match.Input(f.Player, sequence, -y / length, x / length, 0, 0));
+        Check(f.Match.Input(f.Player, sequence, -y / length, x / length, 0));
         f.Match.Step();
     }
 

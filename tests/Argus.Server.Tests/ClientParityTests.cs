@@ -621,7 +621,7 @@ internal static class ClientParityTests
             }
             else
             {
-                Check(match.Input(player, sequence, input[0], input[1], 0, 0), $"{name}: {i}번째 틱의 입력을 받지 않았습니다");
+                Check(match.Input(player, sequence, input[0], input[1], 0), $"{name}: {i}번째 틱의 입력을 받지 않았습니다");
                 sequence++;
                 text.Append(Number(input[0])).Append(", ").Append(Number(input[1])).Append(", ");
             }

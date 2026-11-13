@@ -27,12 +27,14 @@ internal static class CombatTests
         tests.Add(new TestCase("Reduced HP leaves skill tiers unchanged; a weak skill can still be fully broken", WeakPhase));
         tests.Add(new TestCase("Each elite's tier-two action matches its body color; one block breaks a warden's strike", WardenStrike));
         tests.Add(new TestCase("Wall cover prevents melee hits between otherwise clear endpoints", Cover));
+        tests.Add(new TestCase("Wall cover is judged for each player apart, whatever the player order", SightPerPlayer));
         tests.Add(new TestCase("The wall ray finds exact corners, edges, starting walls and both directions without rounding", RayWallEdges));
         tests.Add(new TestCase("Melee destroys walls and mission facilities through normal inputs", Structures));
         tests.Add(new TestCase("Every hit on a breakable wall shows a visible hit effect in front of the wall", WallHitEffect));
         tests.Add(new TestCase("Player-enemy and enemy-enemy bodies block movement while skills allow walking", Bodies));
         tests.Add(new TestCase("Catching up after a stall runs whole ticks, preserving short active windows and preventing body tunneling", LongStep));
         tests.Add(new TestCase("Skills behave by their flags, not their ids: plain zone, single target, structure breaking", SkillFlags));
+        tests.Add(new TestCase("A skill definition with a time out of range names that time and its value", SkillTimeErrors));
         tests.Add(new TestCase("Skills around the player hit everyone around without aiming and differ only in affinity", AroundSkills));
         tests.Add(new TestCase("An aura answers a zone covering the player from where the skill faces, beyond the skill's own reach", AuraReach));
         tests.Add(new TestCase("A grab aura answers the block zone covering the player before a nearer idle enemy, whatever the enemy order", GrabTargetOrder));
@@ -71,7 +73,7 @@ internal static class CombatTests
                 {
                     Near(enemy.Hp, 1);
                     Near(f.Player.Hp, 5);
-                    Check(action.Cancelled);
+                    Check(Gone(f.Player, action), "진 기술이 끊기지 않았습니다");
                 }
             }
         }
@@ -121,7 +123,7 @@ internal static class CombatTests
         Advance(f.Match, 0.8);
         Near(f.Player.Hp, 5);
         Near(enemy.Hp, 1);
-        Check(action.Cancelled);
+        Check(Gone(f.Player, action), "잡기에 진 받아치기가 끊기지 않았습니다");
     }
 
     private static void BlockOrdinaryFollowup()
@@ -132,7 +134,7 @@ internal static class CombatTests
         Advance(front.Match, 0.6);
         Near(guarding.Hp, 2);
         Near(front.Player.Hp, 6);
-        Check(!parry.Cancelled);
+        Check(!Gone(front.Player, parry), "막힌 반격의 받아치기가 끊겼습니다");
         // 막힌 반격 한 번이 방어 종료 뒤 같은 동작에서 다시 피해를 주지 않는다.
         guarding.Action = null;
         Advance(front.Match, 0.1);
@@ -237,7 +239,7 @@ internal static class CombatTests
         // 틱마다 타격을 짧게 누르며 동료를 지나간다. 기술은 누를 때만 시작한다.
         for (int i = 0; i < 80; i++)
         {
-            f.Match.Input(f.Player, i, 1, 0, 0, 0, 1);
+            f.Match.Input(f.Player, i, 1, 0, 0, Slots(0), Slots(1));
             f.Match.Step();
         }
         Check(f.Player.Mana < 12, "타격을 쓰지 않았습니다");
@@ -323,7 +325,7 @@ internal static class CombatTests
             Advance(f.Match, 0.8);
             Near(enemy.Hp, 2 - partial);
             Near(f.Player.Hp, 5);
-            Check(parry.Cancelled);
+            Check(Gone(f.Player, parry), "부분 대응한 받아치기가 끊기지 않았습니다");
             // 체력 1인 적에게 다시 부분 대응한다. 부분 대응 피해가 있으면 그 피해로 쓰러지고, 처치는 부분 대응한 대원이 가져간다.
             enemy.Hp = 1;
             enemy.Action = new EnemyAction(999, new EnemySkill("strike", 2, partial, 0.05, 85, 25), Angle.FromRadians(Math.PI), f.Match.Tick);
@@ -609,6 +611,45 @@ internal static class CombatTests
         Near(busy.Player.Hp, busy.Player.MaxHp);
     }
 
+    private static void SightPerPlayer()
+    {
+        // 서 있는 분쇄자(체력 2)를 두 대원이 같은 순간에 회전 베기로 친다. 한 대원은 벽 모서리에 가려 있고 다른 대원은 트인 곳에 있다.
+        // 트인 곳의 대원만 친다. 판정은 대원과 적 사이의 사선을 한 번만 따라가 기억하는데(PR #28 리뷰 7번), 대원이 바뀔 때
+        // 그 기억을 버리지 않으면 앞 대원의 사선으로 뒤 대원을 판정한다. 그래서 대원 순서를 바꿔도 결과가 같은지 본다.
+        SkillDefinition spin = Rules.FindSkill("spin")!;
+        for (int reversed = 0; reversed < 2; reversed++)
+        {
+            Fixture f = new Fixture();
+            Enemy enemy = Target(f, EnemyDefinition.Breaker);
+            enemy.Position = FixedVector.FromInt(495, 465);
+            f.Player.Position = FixedVector.FromInt(464, 498);
+            Check(!f.Match.Map.LineOfSight(f.Player.Position, enemy.Position), "벽에 가린 자리가 아닙니다");
+            // 적에게서 40 떨어진 자리 가운데 대원이 설 수 있고 사선이 열린 곳을 찾아 동료를 둔다.
+            Player ally = Ally(f, "ally");
+            bool placed = false;
+            for (int i = 0; i < 16; i++)
+            {
+                FixedVector spot = enemy.Position + Angle.FromFraction(i, 16).Direction() * 40;
+                if (f.Match.Map.CanStand(spot, Rules.PlayerRadius) && f.Match.Map.LineOfSight(spot, enemy.Position))
+                {
+                    ally.Position = spot;
+                    placed = true;
+                    break;
+                }
+            }
+            Check(placed, "사선이 열린 자리를 찾지 못했습니다");
+            if (reversed == 1)
+            {
+                f.Match.Players.Reverse();
+            }
+            Prepare(f, f.Player, spin, spin.AuraSeconds);
+            Prepare(f, ally, spin, spin.AuraSeconds);
+            Advance(f.Match, Rules.Step);
+            Near(enemy.Hp, 1);
+            Equal(ally.Kills + f.Player.Kills, 0);
+        }
+    }
+
     private static void Structures()
     {
         Fixture f = new Fixture();
@@ -617,7 +658,7 @@ internal static class CombatTests
         // 틱마다 타격을 짧게 누른다. 앞의 타격이 끝난 틱의 누름으로 다음 타격이 시작된다.
         for (int i = 0; i < 70; i++)
         {
-            f.Match.Input(f.Player, i, 0, 0, 0, 0, 1);
+            f.Match.Input(f.Player, i, 0, 0, 0, Slots(0), Slots(1));
             f.Match.Step();
         }
         Check(!f.Match.Map.Solid(15, 10));
@@ -625,7 +666,7 @@ internal static class CombatTests
         f.Player.Position = f.Match.Facilities[0].Position - FixedVector.FromInt(55, 0);
         for (int i = 70; i < 170; i++)
         {
-            f.Match.Input(f.Player, i, 0, 0, 0, 0, 1);
+            f.Match.Input(f.Player, i, 0, 0, 0, Slots(0), Slots(1));
             f.Match.Step();
         }
         Near(f.Match.Facilities[0].Hp, 0);
@@ -638,7 +679,7 @@ internal static class CombatTests
         f.Player.Position = FixedVector.FromInt(680, 500);
         f.Player.Aim = Angle.Zero;
         f.Player.Mana = 1;
-        f.Match.Input(f.Player, 1, 0, 0, 0, 0, 1);
+        f.Match.Input(f.Player, 1, 0, 0, 0, Slots(0), Slots(1));
         Advance(f.Match, 0.3);
         Check(f.Match.Map.Solid(15, 10), "한 번에 벽이 부서졌습니다");
         // 시설을 칠 때처럼 벽을 칠 때도 효과가 보여야 한다. 스냅샷에는 시야 안의 효과만 담긴다.
@@ -662,7 +703,7 @@ internal static class CombatTests
         f.Player.Mana = 5;
         for (int i = 0; i < 20; i++)
         {
-            f.Match.Input(f.Player, i, 1, 0, Math.PI, 0, 2);
+            f.Match.Input(f.Player, i, 1, 0, Math.PI, Slots(0), Slots(2));
             f.Match.Step();
         }
         Check(f.Player.Position.X > Fixed.FromInt(300));
@@ -681,6 +722,39 @@ internal static class CombatTests
         }
     }
 
+    private static void SkillTimeErrors()
+    {
+        // 틀린 시간마다 그 값의 이름과 값으로 알린다(PR #28 리뷰 6번). 두 조건을 한 번에 보던 때에는 장판 시간이 음수여도
+        // 예외가 기운 시간의 이름과 정상 값(0.2)을 가리켰다. 정적 기술 정의에서 나면 형식 초기화 예외 안에 그 이름과 값만 남는다.
+        ArgumentOutOfRangeException zone = SkillError(0.2, -0.1, 1);
+        Equal(zone.ParamName, "zoneSeconds");
+        Equal(zone.ActualValue, (object)(-0.1));
+        ArgumentOutOfRangeException aura = SkillError(-0.3, 0.2, 1);
+        Equal(aura.ParamName, "auraSeconds");
+        Equal(aura.ActualValue, (object)(-0.3));
+        // 기술 전체의 길이가 기운과 장판을 합친 시간보다 짧으면 길이를 가리킨다.
+        ArgumentOutOfRangeException duration = SkillError(0.2, 0.3, 0.4);
+        Equal(duration.ParamName, "duration");
+        Equal(duration.ActualValue, (object)0.4);
+        // 맞는 값은 받는다. 0.1 + 0.2는 실수로는 0.3보다 조금 크지만 틱으로는 같은 9틱이다.
+        SkillDefinition valid = new SkillDefinition("test", "strike", 1, 0.1, 0.2, 0.3, 50, 20, false, false, false, false);
+        Equal(valid.Duration, 0.3);
+    }
+
+    // 주어진 시간으로 기술 정의를 만들 때 나는 예외를 돌려준다. 예외가 나지 않으면 검사가 실패한다.
+    private static ArgumentOutOfRangeException SkillError(double auraSeconds, double zoneSeconds, double duration)
+    {
+        try
+        {
+            SkillDefinition unused = new SkillDefinition("test", "strike", 1, auraSeconds, zoneSeconds, duration, 50, 20, false, false, false, false);
+        }
+        catch (ArgumentOutOfRangeException error)
+        {
+            return error;
+        }
+        throw new Exception("범위를 벗어난 시간인데 예외가 나지 않았습니다");
+    }
+
     // 같은 수치와 속성에 id만 바꾼 새 기술을 만든다.
     private static SkillDefinition Renamed(SkillDefinition skill, string id)
     {
@@ -691,7 +765,9 @@ internal static class CombatTests
 
     private static PlayerAction Use(Fixture f, SkillDefinition skill, int id)
     {
-        PlayerAction action = new PlayerAction(id, skill, 1, f.Match.Tick);
+        PlayerAction action = new PlayerAction(id, skill, 1, f.Match.Tick, Rules.ToTicks(f.Match.Rules.MaxAuraSeconds));
+        // 입력 없이 만든 기술이라 버튼은 누르고 있지 않다.
+        action.Released = true;
         f.Player.Actions.Add(action);
         return action;
     }
@@ -740,7 +816,7 @@ internal static class CombatTests
         Advance(affine.Match, Rules.Step);
         Near(winner.Hp, 2);
         Near(affine.Player.Hp, 4);
-        Check(lost.Cancelled, "잡기의 기운에 진 방어 장판이 끊기지 않았습니다");
+        Check(Gone(affine.Player, lost), "잡기의 기운에 진 방어 장판이 끊기지 않았습니다");
 
         // 단일 대상: 범위 안에 둘이 있어도 가까운 한 명만 판정한다.
         Fixture held = new Fixture();
@@ -914,7 +990,7 @@ internal static class CombatTests
         Advance(ahead.Match, Rules.Step);
         Near(grabber.Hp, 0);
         Near(ahead.Player.Hp, ahead.Player.MaxHp);
-        Check(won.Countered, "완벽 대응을 낸 근접 타격이 끝나지 않았습니다");
+        Check(Gone(ahead.Player, won), "완벽 대응을 낸 근접 타격이 끝나지 않았습니다");
         Equal(ahead.Player.Actions.Count, 0);
 
         // 같은 잡기가 등 뒤에서 오면 근접 타격의 기운은 대응하지 못한다. 장판이 나가 닿을 때 대원이 맞고 기술이 끊긴다.
@@ -926,7 +1002,7 @@ internal static class CombatTests
         Advance(behind.Match, 0.1);
         Near(rear.Hp, 1);
         Near(behind.Player.Hp, behind.Player.MaxHp - 1);
-        Check(swing.Cancelled, "등 뒤에서 잡힌 근접 타격이 끊기지 않았습니다");
+        Check(Gone(behind.Player, swing), "등 뒤에서 잡힌 근접 타격이 끊기지 않았습니다");
 
         // 둘레 기술의 기운은 모든 방향이다. 등 뒤 65에서 잡는 병사를 회전 베기가 이긴다(2026-10-31 KYWN3F 방에서 제보한 장면).
         Fixture spun = new Fixture();
@@ -947,7 +1023,7 @@ internal static class CombatTests
         Advance(outside.Match, 0.4);
         Near(distant.Hp, 1);
         Near(outside.Player.Hp, outside.Player.MaxHp);
-        Check(!missed.Countered && !missed.Cancelled, "장판 밖의 기운이 판정받았습니다");
+        Check(!Gone(outside.Player, missed), "장판 밖의 기운이 판정받았습니다");
 
         // 앞에서 70 떨어진 병사의 밀어치기를 잡기의 기운이 이긴다. 잡기는 그 병사를 대상으로 정한다.
         Fixture held = new Fixture();
@@ -995,7 +1071,7 @@ internal static class CombatTests
         Advance(busy.Match, 0.1);
         Near(second.Hp, 1);
         Near(busy.Player.Hp, busy.Player.MaxHp - 1);
-        Check(taken.Cancelled, "다른 병사를 잡은 잡기가 밀어치기에 끊기지 않았습니다");
+        Check(Gone(busy.Player, taken), "다른 병사를 잡은 잡기가 밀어치기에 끊기지 않았습니다");
 
         // 같은 종류면 비긴다. 앞에서 72 떨어진 병사의 타격 장판이 나가 닿을 때 근접 타격의 기운을 두르고 있으면 서로 1씩 잃는다.
         Fixture even = new Fixture();
@@ -1054,7 +1130,7 @@ internal static class CombatTests
         Advance(f.Match, Rules.Step);
         Near(shover.Hp, 0);
         Equal(partner.Kills, 1);
-        Check(!grab.Countered, "측면 공격으로 쓰러진 적에게 잡기가 완벽 대응을 냈습니다");
+        Check(!Gone(f.Player, grab), "측면 공격으로 쓰러진 적에게 잡기가 완벽 대응을 냈습니다");
         Advance(f.Match, 0.3);
         Near(f.Player.Hp, f.Player.MaxHp);
         Near(near.Hp, 0);
@@ -1095,8 +1171,8 @@ internal static class CombatTests
                 Near(f.Player.Hp, startHps[h] - 1);
                 if (startHps[h] > 1)
                 {
-                    Check(spin.Cancelled, "밀어치기에 진 회전 베기가 끊기지 않았습니다");
-                    Check(spin.Countered, "잡기를 이긴 회전 베기의 완벽 대응이 남지 않았습니다");
+                    // 이긴 판정(잡는 병사 처치)과 진 판정(대원 -1)은 위에서 봤다. 기술은 그 순간 목록에서 빠진다.
+                    Check(Gone(f.Player, spin), "밀어치기에 진 회전 베기가 끊기지 않았습니다");
                     Equal(f.Player.Actions.Count, 0);
                     Equal(f.Player.State, "alive");
                 }
@@ -1151,7 +1227,7 @@ internal static class CombatTests
         Advance(shielded.Match, Rules.Step);
         Near(blocker.Hp, 0);
         Near(shielded.Player.Hp, 6);
-        Check(!behind.Cancelled, "측면 공격이 패배로 취소되었습니다");
+        Check(!Gone(shielded.Player, behind), "측면 공격이 패배로 취소되었습니다");
 
         // B를 향한 타격이 닿는 같은 틱에 A가 측면에서 쓰러뜨리면 그 공격은 무효가 되어 B도 다치지 않는다.
         Fixture flanked = new Fixture();
@@ -1200,7 +1276,7 @@ internal static class CombatTests
         Advance(striking.Match, Rules.Step);
         Near(guard.Hp, 1);
         Near(striking.Player.Hp, 5);
-        Check(strike.Cancelled, "방어에 진 타격이 취소되지 않았습니다");
+        Check(Gone(striking.Player, strike), "방어에 진 타격이 취소되지 않았습니다");
 
         // 공격 창이 열려 장판이 나간 적에게는 기운이 없다. 같은 자리에서 같은 타격 장판이 닿으면 상성 없이 일반 피해를 주고,
         // 그 피해로 쓰러지면 그 순간 나간 밀어치기는 무효다.
@@ -1321,7 +1397,7 @@ internal static class CombatTests
         Fixture walker = new Fixture();
         Room walkerRoom = new Room(walker.Match, null);
         walker.Player.Position = FixedVector.FromInt(680, 500);
-        walker.Match.Input(walker.Player, 1, 1, 0, 0, 0);
+        walker.Match.Input(walker.Player, 1, 1, 0, 0);
         host.StepRoom(walker.Match.Code, walkerRoom, TickClock.MaxTicksPerWake, false);
         Check(walker.Player.Position.X < Fixed.FromInt(720), "밀린 틱을 진행하다 벽을 통과했습니다");
         Check(walker.Player.Position.X > Fixed.FromInt(700), "벽까지 이동하지 않았습니다");

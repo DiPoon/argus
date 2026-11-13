@@ -357,6 +357,43 @@ internal static class Program
         }
     }
 
+    private static readonly int[] NoSlots = new int[0];
+
+    // 입력의 슬롯 목록(held·pressed)을 읽는다. 없으면 빈 목록이다. 배열이 아니거나, 정수가 아닌 값이 들어 있거나,
+    // 가장 긴 목록(Match.MaxPressesPerInput)보다 길면 null이다. 숫자가 아닌 값에 TryGetInt32를 부르면 예외가 나므로 종류부터 확인한다.
+    private static int[]? SlotList(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out JsonElement list))
+        {
+            return NoSlots;
+        }
+        if (list.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+        int length = list.GetArrayLength();
+        if (length == 0)
+        {
+            return NoSlots;
+        }
+        if (length > Match.MaxPressesPerInput)
+        {
+            return null;
+        }
+        int[] slots = new int[length];
+        int index = 0;
+        foreach (JsonElement item in list.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Number || !item.TryGetInt32(out int slot))
+            {
+                return null;
+            }
+            slots[index] = slot;
+            index++;
+        }
+        return slots;
+    }
+
     private static async Task Receive(WebSocket socket, Room room, Player player, Peer peer, RoomHost host, CancellationToken token)
     {
         DateTime window = DateTime.UtcNow;
@@ -394,22 +431,17 @@ internal static class Program
                     if (root.TryGetProperty("seq", out JsonElement sequence) && sequence.ValueKind == JsonValueKind.Number &&
                         sequence.TryGetInt64(out long seq))
                     {
-                        int slot = 0;
-                        if (root.TryGetProperty("slot", out JsonElement requestedSlot) &&
-                            (requestedSlot.ValueKind != JsonValueKind.Number || !requestedSlot.TryGetInt32(out slot)))
-                        {
-                            continue;
-                        }
-                        // press는 없어도 된다. 없으면 이 입력에 새로 누른 슬롯이 없는 것이다. 기술은 press로만 시작하고,
-                        // slot은 누르고 있는 슬롯이라 그 기술의 기운을 잇는 데만 쓰인다.
-                        int press = 0;
-                        if (root.TryGetProperty("press", out JsonElement pressedSlot) &&
-                            (pressedSlot.ValueKind != JsonValueKind.Number || !pressedSlot.TryGetInt32(out press)))
+                        // held는 지금 누르고 있는 슬롯 전부, pressed는 지난 입력 뒤에 누른 슬롯을 누른 차례대로 적은 배열이다.
+                        // 둘 다 없어도 되고 없으면 빈 것이다. 기술은 pressed로만 시작하고, held는 기운을 잇고 기다리는 누름을 남기는 데 쓰인다.
+                        // 배열이 아니거나 정수가 아닌 값이 들어 있거나 너무 길면 그 입력을 무시한다. 슬롯의 범위와 겹침은 Match.Input이 본다.
+                        int[]? held = SlotList(root, "held");
+                        int[]? pressed = SlotList(root, "pressed");
+                        if (held == null || pressed == null)
                         {
                             continue;
                         }
                         room.Match.Input(player, seq, Number(root, "moveX"), Number(root, "moveY"),
-                            Number(root, "aim"), slot, press);
+                            Number(root, "aim"), held, pressed);
                     }
                 }
                 else if (type == "deploy")

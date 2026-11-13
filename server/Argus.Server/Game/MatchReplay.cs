@@ -181,17 +181,18 @@ public static class MatchReplay
             {
                 sequence = record.Sequence.Value;
             }
-            int slot = -1;
-            if (record.Slot.HasValue)
+            // 누르고 있는 슬롯도 누른 슬롯도 없는 입력에는 적지 않았다.
+            int[] held = NoSlots;
+            if (record.Held != null)
             {
-                slot = record.Slot.Value;
+                held = record.Held;
             }
-            int press = 0;
-            if (record.Press.HasValue)
+            int[] pressed = NoSlots;
+            if (record.Pressed != null)
             {
-                press = record.Press.Value;
+                pressed = record.Pressed;
             }
-            match.Input(player, sequence, Value(record.MoveX), Value(record.MoveY), Value(record.Aim), slot, press);
+            match.Input(player, sequence, Value(record.MoveX), Value(record.MoveY), Value(record.Aim), held, pressed);
         }
         else if (record.Type == "disconnect")
         {
@@ -210,6 +211,8 @@ public static class MatchReplay
             result.Problems.Add($"{record.Tick}틱: 모르는 종류 {record.Type}");
         }
     }
+
+    private static readonly int[] NoSlots = new int[0];
 
     // 값이 빠진 줄은 서버에서도 거절될 값(NaN)으로 넘긴다.
     private static double Value(double? value)

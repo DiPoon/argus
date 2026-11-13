@@ -127,9 +127,12 @@ public sealed class Rules
 
     // 앞의 세 칸은 그 칸 종류의 기술 가운데 하나이고, 네 번째 자유 칸은 아무 기술이나 된다(2026-10-31 합의).
     // 그래서 어떤 장비든 세 상성을 모두 하나씩은 든다.
+    // 장비 칸의 수다. 입력의 슬롯 번호는 1부터 이 수까지다.
+    public const int SlotCount = 4;
+
     public static bool ValidSlots(string[]? slots)
     {
-        if (slots == null || slots.Length != 4)
+        if (slots == null || slots.Length != SlotCount)
         {
             return false;
         }

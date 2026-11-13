@@ -91,12 +91,21 @@ public sealed class ActionSnapshot
     public string Phase { get; set; } = "";
     public double Aim { get; set; }
     public double StartedAt { get; set; }
-    // 장판이 나가는 시각이다. 이때부터 몸의 기운은 없다. 대원이 버튼을 누르고 있어 기운이 이어지는 중이면,
-    // 계속 누른다고 보고 최대 기운 시간에 나가는 것으로 보낸다. 떼면 그 틱으로 당겨진다. 뒤의 두 시각도 함께 움직인다.
+    // 장판이 나가는 시각이다. 이때부터 몸의 기운은 없다. 서버가 지금 정해 둔 틱 그대로다(추측을 섞지 않는다).
+    // 대원이 버튼을 누르고 있어 기운이 이어지는 중(Held)이면 지금 놓았을 때 나가는 시각이고, 누르고 있는 동안 한 틱씩 뒤로 밀린다.
+    // 뒤의 두 시각도 함께 밀린다.
     public double ContactAt { get; set; }
     // 장판이 걷히는 시각이다.
     public double ActiveUntil { get; set; }
     public double EndsAt { get; set; }
+    // 대원이 버튼을 누르고 있어 기운이 이어지는 중인지다. 이어지는 동안에는 ContactAt이 되어도 장판이 나가지 않고 한 틱씩 미뤄진다.
+    // 버튼을 놓았거나 최대 기운 시간에 닿았으면 false다. 적의 행동에는 빠진다.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Held { get; set; }
+    // 대원이 버튼을 계속 누르고 있을 때 장판이 나가는 시각이다(시작 + 최대 기운 시간을 틱으로 올린 값). 장판은 이보다 늦게 나가지 않는다.
+    // 적의 행동에는 빠진다.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? HoldUntil { get; set; }
     public double Range { get; set; }
     public double HalfWidth { get; set; }
     // 적의 행동이 노린 대원의 id다. 화면이 나를 노린 예고를 내 예측 위치 쪽으로 그리는 데 쓴다.

@@ -272,14 +272,16 @@ public static class Snapshot
             // 대원의 기술 방향은 사용 중에도 조준을 따라 바뀐다.
             ActionSnapshot display = CreateAction(action.Id, action.Skill.Id, action.Skill.Kind, player.Aim,
                 action.Skill.Range, action.Skill.HalfWidth);
-            // 버튼을 누르고 있으면 기운이 이어져 장판이 나가는 틱이 뒤로 밀린다. 계속 누른다고 보고 최대 기운 시간에 나가는 것으로
-            // 보낸다. 그러지 않으면 화면이 스냅샷 사이에서 장판이 나간 것으로 그렸다가 다음 스냅샷에서 기운으로 되돌린다.
-            // 뒤의 단계도 같은 틱 수만큼 밀린다. 누르고 있지 않으면 미룸은 0이라 실제 틱 그대로다.
-            long wait = match.ExpectedZoneTick(player, action) - action.ZoneTick;
+            // 시각은 서버가 지금 정해 둔 틱 그대로 보낸다. 버튼을 누르고 있으면 장판이 나갈 틱이 한 틱씩 뒤로 밀리는데,
+            // "계속 누를 것"이라고 미리 짐작한 시각을 보내지 않는다. 짧게 누른 기술도 뗀 입력이 닿기 전에는 누르고 있는 것으로 보이므로,
+            // 짐작한 시각은 긴 값(최대 기운 시간)이었다가 짧은 값으로 바뀐다. 대신 기운을 잇는 중인지(Held)와 늦어도 장판이 나가는
+            // 시각(HoldUntil)을 따로 알린다. 화면은 Held인 기운을 ContactAt이 지나도 다음 스냅샷까지 기운으로 그린다.
             display.StartedAt = Seconds(action.StartedTick);
-            display.ContactAt = Seconds(action.ZoneTick + wait);
-            display.ActiveUntil = Seconds(action.ZoneUntilTick + wait);
-            display.EndsAt = Seconds(action.EndsTick + wait);
+            display.ContactAt = Seconds(action.ZoneTick);
+            display.ActiveUntil = Seconds(action.ZoneUntilTick);
+            display.EndsAt = Seconds(action.EndsTick);
+            display.Held = action.HasAura(match.Tick) && action.Holding;
+            display.HoldUntil = Seconds(action.HoldUntilTick);
             display.Slot = action.Slot;
             display.Phase = "recovery";
             if (action.HasAura(match.Tick))
@@ -296,9 +298,9 @@ public static class Snapshot
                 }
             }
             entry.Actions.Add(display);
-            if (action.EndsTick + wait > busyUntil)
+            if (action.EndsTick > busyUntil)
             {
-                busyUntil = action.EndsTick + wait;
+                busyUntil = action.EndsTick;
             }
         }
         entry.Busy = Seconds(busyUntil - match.Tick);

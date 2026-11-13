@@ -70,7 +70,7 @@ internal static class LayoutTests
         for (long tick = 0; tick < ticks; tick++)
         {
             double heading = tick * 0.03;
-            match.Input(player, tick, Math.Cos(heading), Math.Sin(heading), 0, 0);
+            match.Input(player, tick, Math.Cos(heading), Math.Sin(heading), 0);
             match.Step();
         }
     }

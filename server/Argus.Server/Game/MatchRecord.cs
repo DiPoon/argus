@@ -18,9 +18,10 @@ public sealed class MatchRecord
     public double? MoveX { get; set; }
     public double? MoveY { get; set; }
     public double? Aim { get; set; }
-    public int? Slot { get; set; }
-    // 입력의 누름이다. 누른 슬롯이 없는 입력에는 적지 않는다.
-    public int? Press { get; set; }
+    // 입력을 보낸 순간에 누르고 있던 슬롯들이다. 누르고 있는 슬롯이 없는 입력에는 적지 않는다.
+    public int[]? Held { get; set; }
+    // 지난 입력 뒤에 누른 슬롯을 누른 차례대로 적은 것이다. 누른 슬롯이 없는 입력에는 적지 않는다.
+    public int[]? Pressed { get; set; }
     public string? Hash { get; set; }
     // 제보 내용, 또는 기록이 끝난 이유다.
     public string? Text { get; set; }
@@ -39,8 +40,9 @@ public sealed class MatchRecord
 public sealed class RecordingHeader
 {
     // 기록 형식의 판 번호다. 줄의 모양을 바꾸면 올린다. 2부터 머리에 작전 배치(Layout)를 적고, 3부터 보급마다 종류를 적고,
-    // 4부터 입력 줄에 누름(Press)을 적는다.
-    public int Format { get; set; } = 4;
+    // 4부터 입력 줄에 누름(Press)을 적는다. 5부터 입력 줄의 슬롯 하나(Slot)와 누름 하나(Press) 대신 누르고 있는 슬롯들(Held)과
+    // 누른 슬롯들(Pressed)을 적는다.
+    public int Format { get; set; } = 5;
     // 기록한 서버의 코드 버전(어셈블리 버전과 커밋)이다. 다른 코드로 재생하면 같은 결과가 나오지 않을 수 있다.
     public string Version { get; set; } = "";
     public string Room { get; set; } = "";
