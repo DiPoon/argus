@@ -211,6 +211,16 @@ public static class Snapshot
             entry.Cooldown = Seconds(Math.Max(0, supply.ReadyTick(recipient) - match.Tick));
             personal.Supplies.Add(entry);
         }
+        // 기다리는 누름은 누른 차례대로 슬롯만 담는다. 없는 때가 대부분이라 그때는 담지 않는다.
+        if (recipient.Waiting.Count > 0)
+        {
+            int[] waiting = new int[recipient.Waiting.Count];
+            for (int i = 0; i < waiting.Length; i++)
+            {
+                waiting[i] = recipient.Waiting[i].Slot;
+            }
+            personal.Waiting = waiting;
+        }
         // 분대가 보지 못한 칸은 모름(3)으로 가린 배열이다.
         int revision = match.WallsRevision;
         if (knownWalls != revision)

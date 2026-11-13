@@ -426,7 +426,7 @@ public sealed partial class Match
         return true;
     }
 
-    // 누르고 있는 슬롯 묶음(Player.HeldSlots)에서 슬롯 하나의 자리다. 슬롯 n은 비트 n-1이다.
+    // 입력이 알린 누르고 있는 슬롯 묶음에서 슬롯 하나의 자리다. 슬롯 n은 비트 n-1이다.
     private static int SlotBit(int slot)
     {
         return 1 << (slot - 1);
@@ -461,7 +461,6 @@ public sealed partial class Match
             int slot = pressed[i];
             Press(player, slot, (held & SlotBit(slot)) != 0);
         }
-        player.HeldSlots = held;
     }
 
     // 버튼 하나를 새로 눌렀다. held는 이 입력을 보낸 순간에도 그 버튼을 누르고 있었는지다(아니면 짧게 눌렀다 뗀 것이다).
@@ -494,7 +493,6 @@ public sealed partial class Match
     // 누르고 있던 버튼을 모두 뗀 것으로 본다. 입력이 끊겼거나 연결이 끊겼을 때다.
     private static void ReleaseButtons(Player player)
     {
-        player.HeldSlots = 0;
         for (int i = 0; i < player.Actions.Count; i++)
         {
             player.Actions[i].Released = true;
@@ -673,7 +671,6 @@ public sealed partial class Match
             player.Hp = player.MaxHp;
             player.Mana = 0;
             player.Actions.Clear();
-            player.HeldSlots = 0;
             player.Waiting.Clear();
             player.State = "alive";
             player.HasDeployed = true;
@@ -797,7 +794,9 @@ public sealed partial class Match
             _nextId++;
             PlayerAction started = new PlayerAction(_nextId, skill, press.Slot, Tick, _maxAuraTicks);
             // 이미 뗀 누름이거나 뒤에 누른 버튼이 기다리고 있으면 기운을 잇지 않는다. 뒤의 버튼을 누른 것은 앞의 버튼을 놓은 것이다.
-            if (!press.Held || player.Waiting.Count > 0)
+            // 뒤의 누름 가운데 뗀 지 한 틱이 지나 이 틱에 버려질 것은 기다리는 버튼이 아니므로 세지 않는다. 그것까지 세면
+            // 기다리는 버튼을 누른 채 다른 버튼을 짧게 눌렀을 때, 누른 때가 한 틱 다를 뿐인데 기운이 이어지기도 하고 끊기기도 한다.
+            if (!press.Held || HasLivePress(player))
             {
                 started.Released = true;
             }
@@ -813,6 +812,21 @@ public sealed partial class Match
             }
             press.Fresh = false;
         }
+    }
+
+    // 아직 살아 있는 기다리는 누름이 있는지다. 그 버튼을 누르고 있거나 방금 들어온 누름이다.
+    // 뗀 지 한 틱이 지난 누름은 이 틱에 버려진다(StartWaitingSkill의 끝).
+    private static bool HasLivePress(Player player)
+    {
+        for (int i = 0; i < player.Waiting.Count; i++)
+        {
+            WaitingPress waiting = player.Waiting[i];
+            if (waiting.Held || waiting.Fresh)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void UpdateSupplies(Player player)
@@ -923,7 +937,6 @@ public sealed partial class Match
     {
         player.State = "waiting";
         player.Deaths++;
-        player.HeldSlots = 0;
         player.Waiting.Clear();
         player.Actions.Clear();
         player.Move = FixedVector.Zero;

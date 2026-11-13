@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace Argus.Server.Game;
 
 // 모든 위치·피해·기술 시간은 서버가 계산한 값이다. JSON 속성명은 camelCase다.
-// 팀 전체가 똑같이 받는 부분만 담는다. 수신자별 값(you, 보급, 벽·규칙·맵)은 PersonalSnapshot에 있고
+// 팀 전체가 똑같이 받는 부분만 담는다. 수신자별 값(you, 보급, 기다리는 누름, 벽·규칙·맵)은 PersonalSnapshot에 있고
 // 직렬화한 뒤 이어 붙이므로, 이 클래스에는 수신자별 속성을 두지 않는다.
 public sealed class SnapshotMessage
 {
@@ -33,6 +33,12 @@ public sealed class PersonalSnapshot
     public string You { get; set; } = "";
     // 보급 대기 시간이 대원마다 달라 보급 목록 전체를 수신자별 값으로 다룬다.
     public List<SupplySnapshot> Supplies { get; set; } = new List<SupplySnapshot>();
+    // 수신자가 눌렀지만 아직 시작하지 못해 기다리는 누름의 슬롯이다(Player.Waiting). 누른 차례대로이고, 없으면 빠진다.
+    // 기다리는 누름은 그 버튼을 누르고 있는 동안만 남는다. 그래서 클라이언트는 이 값으로, 그 슬롯을 누르고 있는 것이 서버에서
+    // 아직 뜻이 있는지를 안다. 한 슬롯에 묶인 입력이 여럿일 때(1번 키와 좌클릭, 한 버튼의 두 손가락) 겹쳐 누른 입력이
+    // 새 누름인지 가리는 데 쓴다. 진행 중인 기술은 대원의 actions에 있지만, 기다리는 누름은 다른 곳에 드러나지 않는다.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int[]? Waiting { get; set; }
     // 벽은 수신자가 아직 받지 못한 판일 때만, 맵과 규칙은 아직 받지 못했을 때만 담는다.
     // 벽은 받은 판이 있으면 그 뒤로 바뀐 칸만(WallChanges), 처음이거나 바뀐 칸이 많으면 배열 전체(Walls)를 담는다. 둘은 함께 오지 않는다.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

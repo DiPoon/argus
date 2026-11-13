@@ -31,11 +31,10 @@ public sealed class Player
     public double MaxHp;
     public int Mana;
     public int MaxMana;
-    // 마지막으로 받은 입력이 지금 누르고 있다고 알린 슬롯들(held)이다. 슬롯 n은 비트 n-1이다. 0이면 누르고 있는 버튼이 없다.
-    // 새 입력이 오면 고쳐 쓴다. 이 값은 지금의 모습일 뿐이다. 두 틱 사이에 떼었다 다시 누르면 이 값은 그대로이므로,
-    // 뗀 것은 입력이 도착할 때 기술(PlayerAction.Released)과 기다리는 누름(WaitingPress.Held)에 따로 적는다.
-    public int HeldSlots;
     // 눌렀지만 아직 기술을 시작하지 못한 누름이다. 누른 차례대로다. 기술은 누름으로만 시작하고, 틱마다 맨 앞의 누름부터 본다.
+    // 입력이 알린 "지금 누르고 있는 슬롯들"(held)은 따로 들고 있지 않는다. 도착할 때 한 번 쓰고 버린다(Match.ApplyButtons).
+    // 두 틱 사이에 떼었다 다시 누르면 지금의 모습은 그대로이므로, 뗀 것은 도착할 때 기술(PlayerAction.Released)과
+    // 기다리는 누름(WaitingPress.Held)에 적어 두고 진행은 그 둘만 읽는다.
     // 누름은 입력이 도착할 때 여기에 넣는다(Match.Input). 한 자리에 적으면 거의 함께 누른 두 버튼 가운데 앞의 것이 덮인다.
     // 슬롯마다 많아야 하나라 넷을 넘지 않는다.
     public List<WaitingPress> Waiting { get; } = new List<WaitingPress>();

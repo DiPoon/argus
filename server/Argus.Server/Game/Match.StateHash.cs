@@ -99,7 +99,6 @@ public sealed partial class Match
         hasher.AddDouble(player.MaxHp);
         hasher.AddInt(player.Mana);
         hasher.AddInt(player.MaxMana);
-        hasher.AddInt(player.HeldSlots);
         // 기다리는 누름은 누른 차례대로 시작하므로 차례 그대로 적는다.
         hasher.AddInt(player.Waiting.Count);
         for (int i = 0; i < player.Waiting.Count; i++)

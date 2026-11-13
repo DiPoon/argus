@@ -32,6 +32,7 @@ internal static class LifecycleTests
         tests.Add(new TestCase("A broadcast serializes the shared part once and matches a snapshot built for one recipient", SharedSnapshot));
         tests.Add(new TestCase("Effects, notices and actions keep their wire shape and send tick times as seconds rounded like now", TimedWireShape));
         tests.Add(new TestCase("A skill's wire phases change on the ticks its contactAt and activeUntil name, and its wire times are the scheduled ticks, never a guess that the button stays held", SkillWireTimes));
+        tests.Add(new TestCase("Presses that wait behind a running skill go out to their own player only, in the order pressed, from the input that brought them", WaitingWire));
         tests.Add(new TestCase("Extraction progress times sixty rounds back to the exact half-tick count, odd counts included", ExtractionProgressWire));
         tests.Add(new TestCase("Coordinates go out rounded to hundredths for drawing and as exact raw values for prediction", CoordinateWireRounding));
         tests.Add(new TestCase("Two identical notices on the same tick keep distinct ids that keep growing", NoticeIds));
@@ -708,6 +709,76 @@ internal static class LifecycleTests
         return (long)Math.Round(value * Rules.TicksPerSecond);
     }
 
+    private static void WaitingWire()
+    {
+        // 기다리는 누름(눌렀지만 앞의 기술이 끝나지 않아 아직 시작하지 못한 누름)은 그 대원이 받는 스냅샷에만, 누른 차례대로 실린다.
+        // 클라이언트는 한 슬롯에 묶인 입력이 여럿일 때(1번 키와 좌클릭, 한 버튼의 두 손가락) 겹쳐 누른 입력이 새 누름인지를
+        // 이것으로 가린다. 기다리는 버튼을 누르고 있는 것은 아직 뜻이 있으므로, 그 위에 겹쳐 누른 것은 새 누름이 아니다.
+        Pad pad = new Pad();
+        Player player = pad.F.Player;
+        Player ally = Ally(pad.F, "scout");
+        Equal(WaitingSlots(pad.F.Match, player), "없음");
+        // 근접 타격을 쓰는 중에 잡기, 받아치기 버튼을 차례로 눌러 둘 다 누르고 있다.
+        pad.Tap(1);
+        PlayerAction strike = player.Actions[0];
+        int[] both = new int[] { 2, 3 };
+        pad.Send(both, new int[] { 3, 2 });
+        // 입력이 도착하면 틱이 진행되기 전에도 실린다. 스냅샷이 그 입력을 확인했다면(ack) 그 입력의 누름은 이미 담겨 있다.
+        // 클라이언트는 확인받은 뒤에 진행 중인 기술에도 기다리는 누름에도 없는 슬롯을 다 끝난 것으로 본다.
+        Equal(WaitingSlots(pad.F.Match, player), "3,2");
+        Equal(player.LastSequence, 1L);
+        pad.F.Match.Step();
+        Equal(WaitingSlots(pad.F.Match, player), "3,2");
+        // 다른 대원이 받는 스냅샷과 공통 부분에는 없다.
+        Equal(WaitingSlots(pad.F.Match, ally), "없음");
+        JsonObject shared = JsonNode.Parse(Snapshot.SerializeShared(Snapshot.CreateShared(pad.F.Match), RoomHost.Json))!.AsObject();
+        Check(!shared.ContainsKey("waiting"), "공통 부분에 기다리는 누름이 섞였습니다");
+        // 타격이 끝나 잡기가 시작하면 받아치기만 남고, 받아치기까지 시작하면 빠진다.
+        while (player.Actions.Count > 0 && player.Actions[0] == strike)
+        {
+            pad.Send(both, new int[0]);
+            pad.F.Match.Step();
+        }
+        PlayerAction grab = player.Actions[0];
+        Equal(grab.Slot, 3);
+        Equal(WaitingSlots(pad.F.Match, player), "2");
+        while (player.Actions.Count > 0 && player.Actions[0] == grab)
+        {
+            pad.Send(both, new int[0]);
+            pad.F.Match.Step();
+        }
+        Equal(player.Actions[0].Slot, 2);
+        Equal(WaitingSlots(pad.F.Match, player), "없음");
+
+        // 짧게 눌렀다 뗀 누름도 서버가 들고 있는 동안에는 실린다. 한 틱 뒤 버려지면 빠진다.
+        Pad tap = new Pad();
+        tap.Tap(1);
+        tap.Send(0, 2);
+        Equal(WaitingSlots(tap.F.Match, tap.F.Player), "2");
+        tap.F.Match.Step();
+        Equal(WaitingSlots(tap.F.Match, tap.F.Player), "2");
+        tap.Run(0, 1);
+        Equal(WaitingSlots(tap.F.Match, tap.F.Player), "없음");
+    }
+
+    // 그 대원이 받는 스냅샷의 waiting을 "3,2"처럼 적는다. 필드가 없으면 "없음"이다. 빈 배열은 보내지 않으므로 오류다.
+    private static string WaitingSlots(Match match, Player recipient)
+    {
+        JsonObject root = JsonNode.Parse(Snapshot.Create(match, recipient, RoomHost.Json))!.AsObject();
+        if (!root.ContainsKey("waiting"))
+        {
+            return "없음";
+        }
+        JsonArray slots = root["waiting"]!.AsArray();
+        Check(slots.Count > 0, "기다리는 누름이 없는데 빈 배열을 보냈습니다");
+        List<string> parts = new List<string>();
+        for (int i = 0; i < slots.Count; i++)
+        {
+            parts.Add(((int)slots[i]!).ToString());
+        }
+        return string.Join(",", parts);
+    }
+
     private static void ExtractionProgressWire()
     {
         // 탈출 진행도는 반 틱 단위로 센 값을 초로 바꿔 소수 둘째 자리로 반올림해 보낸다.
@@ -908,7 +979,7 @@ internal static class LifecycleTests
         byte[] body = Snapshot.SerializeShared(Snapshot.CreateShared(f.Match), RoomHost.Json);
         JsonObject shared = JsonNode.Parse(body)!.AsObject();
         // 공통 몸통에는 수신자별 값이 들어가지 않는다. SnapshotMessage에 그런 속성이 없다.
-        string[] personalKeys = new string[] { "you", "supplies", "walls", "wallChanges", "map", "rules" };
+        string[] personalKeys = new string[] { "you", "supplies", "waiting", "walls", "wallChanges", "map", "rules" };
         for (int i = 0; i < personalKeys.Length; i++)
         {
             Check(!shared.ContainsKey(personalKeys[i]), $"공통 부분에 수신자별 값 {personalKeys[i]}이 섞였습니다");

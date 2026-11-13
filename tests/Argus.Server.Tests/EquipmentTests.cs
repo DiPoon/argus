@@ -14,6 +14,7 @@ internal static class EquipmentTests
         tests.Add(new TestCase("A skill pressed and released before the next tick still starts once, and of several presses the first one starts", PressBetweenTicks));
         tests.Add(new TestCase("A press that arrives while a skill is running waits only while its button stays held, plus one tick after a quick tap", PressWhileBusy));
         tests.Add(new TestCase("Buttons pressed while a skill runs cast in the order pressed, each only while it stays held", PressesWaitInOrder));
+        tests.Add(new TestCase("A quick tap beside a waiting button lets go of that button's aura only when the tap is still alive as the skill starts", TapBesideWaitingButton));
         tests.Add(new TestCase("A held button keeps the aura going and the zone goes out on release, with every later stage pushed back", HoldSustainsAura));
         tests.Add(new TestCase("A held aura lasts at most the maximum aura time, then the zone goes out anyway", HoldHasLimit));
         tests.Add(new TestCase("A button held through its whole skill does not cast again; each cast needs a new press", HeldDoesNotRepeat));
@@ -262,6 +263,101 @@ internal static class EquipmentTests
         Equal(fifth.Waiting.Count, 0);
     }
 
+    private static void TapBesideWaitingButton()
+    {
+        // PR #28 재리뷰 가의 장면이다. 근접 타격을 쓰는 중에 잡기 버튼(3번)을 눌러 계속 누르고 있다. 그 사이 받아치기 버튼(2번)을
+        // 짧게 눌렀다 뗀다. 타격이 끝나면 잡기가 나가고, 잡기 버튼은 계속 누르고 있다. 짧게 누른 받아치기는 기술을 쓰는 중에
+        // 눌렀다 뗀 것이라 나가지 않는다.
+        // 잡기의 기운이 이어지는지는 짧은 누름이 타격이 끝나는 틱에 아직 살아 있는지로 갈린다. 타격이 끝나는 틱을 T라고 하면:
+        //   - T-1틱보다 앞에 도착: 그 누름은 T틱 전에 버려졌거나 T틱에 버려진다. 기다리는 버튼이 아니므로 잡기의 기운은 이어진다.
+        //   - T-1틱과 T틱 사이에 도착: 방금 들어온 누름이라 T틱에는 한 틱 더 남는다. 뒤에 누른 버튼이 있으므로 잡기는 놓은 것으로 시작한다.
+        // 뒤에 남은 누름을 살아 있는지 가리지 않고 세던 때에는 T-2틱과 T-1틱 사이에 도착한 누름도 잡기의 기운을 끊었다.
+        // 그 누름은 T틱에 버려질 죽은 누름인데도 세어, 누른 때가 한 틱 다를 뿐인데 결과가 두 번 갈렸다.
+        for (int ticksBefore = 4; ticksBefore >= 1; ticksBefore--)
+        {
+            Pad pad = new Pad();
+            Player player = pad.F.Player;
+            pad.Tap(1);
+            PlayerAction strike = player.Actions[0];
+            pad.Press(3);
+            Equal(player.Waiting.Count, 1);
+            // 타격이 끝나기 ticksBefore틱 전까지 잡기 버튼만 누르고 있다. 그때 받아치기 버튼을 짧게 눌렀다 뗀 입력이 도착한다.
+            // 누르고 있는 버튼은 잡기뿐이다.
+            pad.RunUntilBusyLeft(3, ticksBefore);
+            Equal(strike.EndsTick - pad.F.Match.Tick, (long)ticksBefore);
+            pad.Send(new int[] { 3 }, new int[] { 2 });
+            pad.F.Match.Step();
+            while (pad.F.Match.Tick < strike.EndsTick)
+            {
+                pad.Run(3, 1);
+            }
+            Check(Gone(player, strike), "타격이 끝나지 않았습니다");
+            Equal(player.Actions.Count, 1);
+            PlayerAction grab = player.Actions[0];
+            Equal(grab.Slot, 3);
+            Equal(grab.StartedTick, strike.EndsTick);
+            long shortest = grab.ZoneTick - grab.StartedTick;
+            bool alive = ticksBefore == 1;
+            if (alive)
+            {
+                Check(grab.Released, "방금 들어온 누름이 뒤에 있는데 앞 기술의 기운을 잇습니다");
+                // 방금 들어온 누름은 이 틱까지 남고 다음 틱에 버려진다.
+                Equal(player.Waiting.Count, 1);
+            }
+            else
+            {
+                Check(!grab.Released, $"타격이 끝나기 {ticksBefore}틱 전에 짧게 누른 버튼 때문에, 누르고 있는 잡기가 놓은 것으로 시작했습니다");
+                Equal(player.Waiting.Count, 0);
+            }
+            // 잡기 버튼을 계속 누른 채 10틱이 지난다.
+            pad.Run(3, 10);
+            Equal(player.Actions[0], grab);
+            if (alive)
+            {
+                Equal(grab.HeldTicks, 0L);
+                Equal(grab.ZoneTick, grab.StartedTick + shortest);
+                Check(grab.ZoneOut(pad.F.Match.Tick), "놓은 것으로 시작한 잡기의 장판이 가장 짧은 기운 시간에 나가지 않았습니다");
+            }
+            else
+            {
+                Equal(grab.HeldTicks, 10 - shortest + 1);
+                Check(grab.HasAura(pad.F.Match.Tick), "누르고 있는 잡기의 기운이 이어지지 않았습니다");
+            }
+            // 짧게 누른 받아치기는 어느 때에도 나가지 않는다. 타격과 잡기에만 마나를 썼다.
+            Equal(player.Waiting.Count, 0);
+            pad.Run(3, 90);
+            Equal(player.Actions.Count, 0);
+            Equal(player.Mana, 22);
+        }
+
+        // 뒤의 버튼(받아치기)을 누르고 있다가 타격이 끝나기 바로 전에 뗀 장면이다. 뗀 입력이 타격이 끝나는 틱 직전에 도착한다.
+        // 누르고 있던 누름은 방금 들어온 것이 아니므로, 떼면 그 틱에 버려진다. 기다리는 버튼이 아니므로 잡기의 기운은 이어진다.
+        // 끝까지 누르고 있었다면 잡기는 놓은 것으로 시작하고, 잡기가 끝난 뒤 받아치기가 나간다(PressesWaitInOrder).
+        int[] none = new int[0];
+        Pad later = new Pad();
+        Player other = later.F.Player;
+        later.Tap(1);
+        PlayerAction running = other.Actions[0];
+        later.Press(3);
+        later.Send(new int[] { 3, 2 }, new int[] { 2 });
+        later.F.Match.Step();
+        while (running.EndsTick - later.F.Match.Tick > 1)
+        {
+            later.Send(new int[] { 3, 2 }, none);
+            later.F.Match.Step();
+        }
+        Equal(other.Waiting.Count, 2);
+        later.Run(3, 1);
+        Check(Gone(other, running), "타격이 끝나지 않았습니다");
+        Equal(other.Actions.Count, 1);
+        Equal(other.Actions[0].Slot, 3);
+        Check(!other.Actions[0].Released, "뒤의 버튼을 뗐는데 누르고 있는 잡기가 놓은 것으로 시작했습니다");
+        Equal(other.Waiting.Count, 0);
+        later.Run(3, 120);
+        Equal(other.Actions.Count, 0);
+        Equal(other.Mana, 22);
+    }
+
     private static void HoldSustainsAura()
     {
         // 타격의 기운은 가장 짧게 0.18초(6틱) 돈다. 짧게 누르면 시작 6틱 뒤에 장판이 나간다.
@@ -498,7 +594,6 @@ internal static class EquipmentTests
         Equal(other.Waiting.Count, 1);
         waiting.F.Match.Disconnect(other);
         Equal(other.Waiting.Count, 0);
-        Equal(other.HeldSlots, 0);
         Check(held.Released, "연결이 끊겼는데 기운을 누르고 있는 것으로 남았습니다");
         Advance(waiting.F.Match, 2);
         Equal(other.Mana, 23);
@@ -538,14 +633,14 @@ internal static class EquipmentTests
 
     private static void InputStateHash()
     {
-        // 기다리는 누름, 누르고 있는 버튼, 놓았다는 표시, 누르고 있어 밀린 틱 수도 상태 필드이므로
+        // 기다리는 누름, 놓았다는 표시, 누르고 있어 밀린 틱 수도 상태 필드이므로
         // "상태 필드는 모두 StateHash에 넣는다"는 규칙대로 요약에 든다.
+        // 입력이 알린 "지금 누르고 있는 버튼"은 상태로 들고 있지 않는다. 도착할 때 위의 값들에 적고 버린다(Match.ApplyButtons).
         Pad pressed = new Pad();
         Pad released = new Pad();
         pressed.Send(0, 2);
         released.Send(0, 0);
         Equal(pressed.F.Player.LastSequence, released.F.Player.LastSequence);
-        Equal(pressed.F.Player.HeldSlots, released.F.Player.HeldSlots);
         Check(pressed.F.Match.StateHash() != released.F.Match.StateHash(), "기다리는 누름만 다른데 상태 요약이 같습니다");
 
         // 기술을 쓰는 중에 누르고 있는 버튼이 기다리는 누름인지 아닌지만 다른 두 방이다. 한쪽은 눌렀고, 한쪽은 누르고 있다고만 알렸다.
@@ -558,7 +653,6 @@ internal static class EquipmentTests
         Equal(armed.F.Player.Waiting.Count, 1);
         Equal(plain.F.Player.Waiting.Count, 0);
         Equal(armed.F.Player.LastSequence, plain.F.Player.LastSequence);
-        Equal(armed.F.Player.HeldSlots, plain.F.Player.HeldSlots);
         Check(armed.F.Match.StateHash() != plain.F.Match.StateHash(), "기다리는 누름만 다른데 상태 요약이 같습니다");
 
         // 기다리는 두 누름의 차례만 다르다.
@@ -590,7 +684,6 @@ internal static class EquipmentTests
         dropped.Send(0, 0);
         dropped.Send(2, 0);
         Equal(kept.F.Player.LastSequence, dropped.F.Player.LastSequence);
-        Equal(kept.F.Player.HeldSlots, dropped.F.Player.HeldSlots);
         Check(kept.F.Player.Waiting[0].Held, "누르고 있는 누름이 뗀 것으로 적혔습니다");
         Check(!dropped.F.Player.Waiting[0].Held, "뗀 누름이 누르고 있는 것으로 남았습니다");
         Check(kept.F.Match.StateHash() != dropped.F.Match.StateHash(), "기다리는 누름을 뗐는지만 다른데 상태 요약이 같습니다");
@@ -607,7 +700,6 @@ internal static class EquipmentTests
         Equal(older.F.Player.Waiting.Count, 1);
         Equal(newer.F.Player.Waiting.Count, 1);
         Equal(older.F.Player.LastSequence, newer.F.Player.LastSequence);
-        Equal(older.F.Player.HeldSlots, newer.F.Player.HeldSlots);
         Check(!older.F.Player.Waiting[0].Fresh, "한 틱이 지난 누름이 방금 들어온 것으로 남았습니다");
         Check(newer.F.Player.Waiting[0].Fresh, "방금 들어온 누름이 지난 것으로 적혔습니다");
         Check(older.F.Match.StateHash() != newer.F.Match.StateHash(), "방금 들어온 누름인지만 다른데 상태 요약이 같습니다");
@@ -623,7 +715,6 @@ internal static class EquipmentTests
         letGo.Send(0, 0);
         letGo.Send(1, 0);
         Equal(holding.F.Player.LastSequence, letGo.F.Player.LastSequence);
-        Equal(holding.F.Player.HeldSlots, letGo.F.Player.HeldSlots);
         Equal(holding.F.Player.Actions[0].HeldTicks, letGo.F.Player.Actions[0].HeldTicks);
         Check(!holding.F.Player.Actions[0].Released, "누르고 있는 기술이 놓은 것으로 적혔습니다");
         Check(letGo.F.Player.Actions[0].Released, "뗀 기술이 누르고 있는 것으로 남았습니다");
@@ -638,21 +729,12 @@ internal static class EquipmentTests
         tapped.Run(0, 8);
         Check(held.F.Player.Actions[0].HeldTicks > 0, "누르고 있는데 기운이 이어지지 않았습니다");
         Equal(tapped.F.Player.Actions[0].HeldTicks, 0L);
-        // 누르고 있는 버튼, 놓았다는 표시, 받은 입력 수까지 같게 맞춘 뒤에도 달라야 한다.
+        // 놓았다는 표시와 받은 입력 수까지 같게 맞춘 뒤에도 달라야 한다.
         held.Send(0, 0);
         tapped.Send(0, 0);
         Equal(held.F.Player.LastSequence, tapped.F.Player.LastSequence);
-        Equal(held.F.Player.HeldSlots, tapped.F.Player.HeldSlots);
         Equal(held.F.Player.Actions[0].Released, tapped.F.Player.Actions[0].Released);
         Check(held.F.Match.StateHash() != tapped.F.Match.StateHash(), "누르고 있던 틱 수만 다른데 상태 요약이 같습니다");
-
-        // 누르고 있는 버튼만 다르다. 기술도 기다리는 누름도 없는 두 방이다.
-        Pad one = new Pad();
-        Pad two = new Pad();
-        one.Send(1, 0);
-        two.Send(2, 0);
-        Equal(one.F.Player.LastSequence, two.F.Player.LastSequence);
-        Check(one.F.Match.StateHash() != two.F.Match.StateHash(), "누르고 있는 버튼만 다른데 상태 요약이 같습니다");
     }
 
     private static void LoadoutSlots()
