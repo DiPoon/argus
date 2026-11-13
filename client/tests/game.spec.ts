@@ -674,16 +674,20 @@ test('a held skill key keeps the aura going, the zone goes out on release, and h
   // 타격 키를 누르고 있는다. 타격의 기운은 짧게 누르면 0.18초지만, 누르고 있는 동안에는 이어진다.
   // 서버는 기운을 잇는 중(held)이라고 알리고, 늦어도 장판이 나가는 시각(holdUntil)을 시작 1초 뒤로 알린다.
   // 장판이 나가는 시각(contactAt)은 "계속 누를 것"이라는 짐작이 아니라 지금 정해 둔 틱이라, 누르고 있는 동안 조금씩 늘어난다.
+  // 여기서부터 자동 반복까지는 기운이 최대 시간(1초)에 닿기 전에 마쳐야 한다. 마지막 틱(0.97초)에는 더 이어지지 않으므로
+  // held가 꺼진다. 기운이 보이는지를 자주 확인한다. 기본 간격(0.1초 뒤, 그다음은 0.35초 뒤)으로는 첫 스냅샷을 놓쳤을 때
+  // 0.27초 늦게 알아채, 마지막 확인이 0.97초에 걸리는 일이 열 번에 한 번쯤 있었다.
   await page.keyboard.down('Digit1');
-  await expect.poll(() => action()?.phase).toBe('aura');
+  await expect.poll(() => action()?.phase, { intervals: [50] }).toBe('aura');
   const first = action()!.id;
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
   expect(action()!.id).toBe(first);
   expect(action()!.phase).toBe('aura');
   expect(action()!.held).toBe(true);
   expect(action()!.holdUntil! - action()!.startedAt).toBeCloseTo(maxAura, 1);
+  // 가장 짧은 기운 시간(0.2초)보다 길고 최대 기운 시간(1초)보다 짧다.
   const during = action()!.contactAt - action()!.startedAt;
-  expect(during).toBeGreaterThan(.35);
+  expect(during).toBeGreaterThan(.25);
   expect(during).toBeLessThan(.9);
   // 남은 시간(busy)은 지금 놓았을 때 기술이 끝나기까지다. 누르고 있는 동안에는 줄지 않는다.
   expect(me.player!.busy).toBeGreaterThan(.4);
@@ -702,7 +706,7 @@ test('a held skill key keeps the aura going, the zone goes out on release, and h
   await expect.poll(() => me.player?.busy).toBe(0);
   const released = seen.filter(entry => entry.id === first && entry.phase === 'zone');
   expect(released.length, '장판이 나간 스냅샷').toBeGreaterThan(0);
-  expect(released[0].aura).toBeGreaterThan(13);
+  expect(released[0].aura).toBeGreaterThan(10);
   expect(released[0].aura).toBeLessThan(29);
   expect(released[0].held).toBe(false);
   // 기운이 도는 시간은 스냅샷마다 늘기만 했다. 긴 값에서 짧은 값으로 바뀐 적이 없다.
