@@ -146,6 +146,52 @@ public sealed class BattleMap
         return true;
     }
 
+    // position에 선 몸과 가장 깊이 겹치는 벽 칸을 찾는다. 겹치는 벽이 없으면 false다.
+    // depth는 겹친 깊이(반지름 - 그 칸까지의 거리)이고, away는 그 칸에서 from 쪽으로 향하는 벡터(길이는 맞추지 않음)다.
+    // from은 몸이 지금 서 있는 자리다. 가려는 자리가 아니라 지금 자리에서 본 방향을 쓰는 것은, 가려는 자리가 칸 안으로
+    // 들어가 있으면 방향을 정할 수 없기 때문이다. 벽 면에 닿아 있으면 면에 수직이고, 모서리에 닿아 있으면 모서리에서 몸 쪽이다.
+    public bool DeepestWall(FixedVector position, Fixed radius, FixedVector from, out FixedVector away, out Fixed depth)
+    {
+        away = FixedVector.Zero;
+        depth = Fixed.Zero;
+        bool found = false;
+        int minX = (position.X - radius).FloorDivide(Cell);
+        int maxX = (position.X + radius).FloorDivide(Cell);
+        int minY = (position.Y - radius).FloorDivide(Cell);
+        int maxY = (position.Y + radius).FloorDivide(Cell);
+        Fixed radiusSquared = radius * radius;
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                if (!Solid(x, y))
+                {
+                    continue;
+                }
+                Fixed left = Fixed.FromInt(x * Cell);
+                Fixed right = Fixed.FromInt((x + 1) * Cell);
+                Fixed top = Fixed.FromInt(y * Cell);
+                Fixed bottom = Fixed.FromInt((y + 1) * Cell);
+                FixedVector nearest = new FixedVector(Fixed.Clamp(position.X, left, right), Fixed.Clamp(position.Y, top, bottom));
+                Fixed distanceSquared = FixedVector.DistanceSquared(nearest, position);
+                if (distanceSquared >= radiusSquared)
+                {
+                    continue;
+                }
+                Fixed overlap = radius - Fixed.Sqrt(distanceSquared);
+                if (found && overlap <= depth)
+                {
+                    continue;
+                }
+                FixedVector nearestNow = new FixedVector(Fixed.Clamp(from.X, left, right), Fixed.Clamp(from.Y, top, bottom));
+                found = true;
+                depth = overlap;
+                away = from - nearestNow;
+            }
+        }
+        return found;
+    }
+
     // from에서 to까지의 선분이 처음 닿는 벽을 찾는다. 타일 경계를 지나는 순서대로 한 칸씩 나아간다.
     // 일정 간격으로 점을 찍어 보는 방식은 모서리를 조금 스친 벽을 놓칠 수 있다.
     // 경계마다 지나는 비율은 (경계까지 남은 거리) / (선분의 길이)다. 두 축 중 어느 경계를 먼저 지나는지는 나누지 않고

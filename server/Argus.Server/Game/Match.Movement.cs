@@ -67,6 +67,155 @@ public sealed partial class Match
         return from;
     }
 
+    // 적의 몸을 delta만큼 움직인다. 먼저 MoveBody로 가로와 세로를 따로 움직여 본다. 벽 면에 막히면 그 면을 따라 미끄러진다.
+    // 그것으로 다 가지 못했으면 막은 것을 끼고 도는 길(Slide)도 구해, 가려던 쪽으로 더 나아간 것을 쓴다.
+    // 가로와 세로를 따로 움직이는 것만으로는 벽 모서리와 다른 몸에 함께 막혔을 때 빠져나오지 못한다. 모서리에 걸린 적은
+    // 가로로 조금 비켜야 모서리를 돌 수 있는데, 그 가로를 옆에 붙은 적이 막고 세로는 모서리가 막는다. 비스듬히 모서리를
+    // 끼고 도는 길은 열려 있어도 가로와 세로 어느 하나로는 가지 못한다.
+    private FixedVector MoveEnemy(Enemy enemy, FixedVector delta, FixedVector toward)
+    {
+        FixedVector from = enemy.Position;
+        FixedVector stepped = MoveBody(from, delta, enemy.Definition.Radius, enemy);
+        if (stepped == from + delta)
+        {
+            return stepped;
+        }
+        FixedVector slid = Slide(enemy, delta, toward);
+        // 가로와 세로로는 조금도 가지 못했으면 끼고 도는 길로 간다. 다른 적의 몸에 딱 정면으로 막혀 옆으로 도는 걸음은
+        // 가려던 쪽으로는 조금도 나아가지 않으므로, 나아간 양만 견주면 고르지 못한다.
+        if (stepped == from)
+        {
+            return slid;
+        }
+        // 조금이라도 갔으면, 가려던 쪽으로 더 나아간 것을 쓴다.
+        Fixed steppedGain = (stepped - from).Dot(delta);
+        Fixed slidGain = (slid - from).Dot(delta);
+        if (slidGain > steppedGain)
+        {
+            return slid;
+        }
+        return stepped;
+    }
+
+    // 막은 것을 끼고 도는 이동이다. 가려던 자리를 막은 것 가운데 가장 깊이 겹치는 것을 골라, 그것 쪽으로 파고드는 성분을 빼고
+    // 남은 방향(그것의 겉을 따라가는 방향)으로 간다. 그 길도 다른 것이 막으면 움직이지 않는다.
+    private FixedVector Slide(Enemy enemy, FixedVector delta, FixedVector toward)
+    {
+        FixedVector from = enemy.Position;
+        Fixed radius = enemy.Definition.Radius;
+        // 설 수 있는 자리인지는 늘 CanOccupy로 정한다. Blocker는 막은 것의 방향을 알아내는 데만 쓴다.
+        // 가로와 세로를 따로 움직여서는 못 갔어도, 두 몸 사이를 비스듬히 지나는 자리가 비어 있으면 그대로 간다.
+        if (CanOccupy(from + delta, radius, enemy))
+        {
+            return from + delta;
+        }
+        FixedVector normal;
+        bool body;
+        if (!Blocker(enemy, from + delta, out normal, out body))
+        {
+            return from;
+        }
+        // 막은 것에서 멀어지는 쪽인데도 막혔다면(방향을 정할 수 없었거나 반올림) 끼고 돌 방향이 없다.
+        Fixed into = delta.Dot(normal);
+        if (into >= Fixed.Zero)
+        {
+            return from;
+        }
+        FixedVector along = delta - normal * into;
+        // 다른 적의 몸을 거의 정면으로 밀고 있으면 겉을 따라가는 성분이 거의 없어 그 뒤에 그대로 선다. 한 칸 틈에서 줄지어
+        // 나온 적들이 대원과 한 줄에 서면, 맨 앞의 적 뒤에 모두 멈춰 대원을 둘러싸지 못한다. 그때는 옆으로 돌아간다.
+        // 벽과 대원의 몸은 돌아가지 않는다. 대원에게 닿은 적은 다 온 것이라 대원 둘레를 돌 까닭이 없다.
+        // 도는 쪽은 쫓는 대원 쪽(toward)에서 보아 이미 치우쳐 있는 쪽이고, 딱 정면이면 늘 같은 쪽이다.
+        // 가려는 방향이나 이번 틱의 이동(delta)으로 고르지 않는다. 가려는 방향은 직진과 흐름장 사이를 오갈 수 있고(몸 통과 판단이
+        // 한 걸음 차이로 갈리는 자리), 이동에는 길을 내주는 방향이 섞여 틱마다 조금씩 달라진다. 그런 것으로 고르면 도는 쪽이
+        // 틱마다 뒤집혀, 앞줄 뒤에서 기다리는 적이 제자리에서 떤다.
+        // 옆으로 도는 걸음은 제 빠르기다. 절반 빠르기로도 재 봤는데 제자리에서 떠는 틱이 더 많았다(2026-11-14). 장면 하나로 가를 수는
+        // 없어 검사로 묶지 않았다.
+        if (body && along.LengthSquared() * 4 < delta.LengthSquared())
+        {
+            FixedVector side = new FixedVector(-normal.Y, normal.X);
+            if (side.Dot(toward) < Fixed.Zero)
+            {
+                side = -side;
+            }
+            along = side * delta.Length();
+        }
+        if (along.LengthSquared() < TinyLengthSquared)
+        {
+            return from;
+        }
+        if (CanOccupy(from + along, radius, enemy))
+        {
+            return from + along;
+        }
+        return from;
+    }
+
+    // position으로 가려는 적을 막는 것을 찾는다. 막는 것이 없으면 false다. 여럿이면 가장 깊이 겹치는 것을 고른다.
+    // normal은 그것에서 적의 지금 자리 쪽을 향하는 길이 1의 방향이다. 방향을 정할 수 없으면 0 벡터다.
+    // body는 그것이 다른 적의 몸인지다(벽이나 대원의 몸이면 false).
+    private bool Blocker(Enemy enemy, FixedVector position, out FixedVector normal, out bool body)
+    {
+        FixedVector from = enemy.Position;
+        Fixed radius = enemy.Definition.Radius;
+        FixedVector away;
+        Fixed depth;
+        bool blocked = Map.DeepestWall(position, radius, from, out away, out depth);
+        body = false;
+        for (int i = 0; i < Enemies.Count; i++)
+        {
+            Enemy other = Enemies[i];
+            if (other == enemy || other.Hp <= 0)
+            {
+                continue;
+            }
+            Fixed minimum = radius + other.Definition.Radius;
+            Fixed distanceSquared = FixedVector.DistanceSquared(position, other.Position);
+            if (distanceSquared >= minimum * minimum - TouchTolerance)
+            {
+                continue;
+            }
+            Fixed overlap = minimum - Fixed.Sqrt(distanceSquared);
+            if (blocked && overlap <= depth)
+            {
+                continue;
+            }
+            blocked = true;
+            body = true;
+            depth = overlap;
+            away = from - other.Position;
+        }
+        for (int i = 0; i < Players.Count; i++)
+        {
+            Player player = Players[i];
+            if (player.State != "alive")
+            {
+                continue;
+            }
+            Fixed minimum = radius + Rules.PlayerRadius;
+            Fixed distanceSquared = FixedVector.DistanceSquared(position, player.Position);
+            if (distanceSquared >= minimum * minimum - TouchTolerance)
+            {
+                continue;
+            }
+            Fixed overlap = minimum - Fixed.Sqrt(distanceSquared);
+            if (blocked && overlap <= depth)
+            {
+                continue;
+            }
+            blocked = true;
+            body = false;
+            depth = overlap;
+            away = from - player.Position;
+        }
+        normal = FixedVector.Zero;
+        if (blocked && away.LengthSquared() >= TinyLengthSquared)
+        {
+            normal = away.Normalize();
+        }
+        return blocked;
+    }
+
     // 적 id는 무작위로 정한다. 효과·행동과 같은 순번을 쓰면 보이는 id 사이의 빈 번호로
     // 안개 속에서 생성된 적의 수를 셀 수 있다. 살아 있는 적끼리는 겹치지 않게 한다.
     // 방의 시드에서 뽑으므로 같은 시드면 같은 id가 나온다. 출력으로 다음 값을 알 수 없는 생성기라
@@ -253,29 +402,16 @@ public sealed partial class Match
         return Map.LineOfSight(enemy.Position - normal, target - normal);
     }
 
-    // 가까운 적끼리 서로 밀어내는 방향을 구한다. 몸이 닿기 조금 전부터, 가까울수록 세게 민다.
-    private FixedVector Separation(Enemy enemy)
+    // 그 자리에서 대원까지 가는 길의 칸 수다(흐름장). 벽 안이거나 길이 없으면 가장 큰 수다.
+    private int FlowCost(FixedVector position)
     {
-        FixedVector push = FixedVector.Zero;
-        for (int i = 0; i < Enemies.Count; i++)
+        int x = position.X.FloorDivide(BattleMap.Cell);
+        int y = position.Y.FloorDivide(BattleMap.Cell);
+        if (Map.Solid(x, y))
         {
-            Enemy other = Enemies[i];
-            if (other == enemy || other.Hp <= 0)
-            {
-                continue;
-            }
-            FixedVector away = enemy.Position - other.Position;
-            Fixed reach = enemy.Definition.Radius + other.Definition.Radius + Fixed.FromInt(12);
-            Fixed distance = away.Length();
-            // 아주 가까우면 길이의 반올림 오차 때문에 밀어낼 방향의 길이가 1에서 벗어나므로 넘어간다(SeparationMinimum).
-            if (distance >= reach || distance < SeparationMinimum)
-            {
-                continue;
-            }
-            // 상대에게서 멀어지는 방향(길이 1)에, 가까울수록 커지는 세기(0~1)를 곱해 더한다.
-            push += away / distance * ((reach - distance) / reach);
+            return int.MaxValue;
         }
-        return push;
+        return _flow[y * Map.Columns + x];
     }
 
     // 예고하는 적이 행동을 시작할 때 노린 대원 쪽으로 돈다. 도는 빠르기에 한도는 없다(docs/combat.md 시험 설정).
@@ -298,8 +434,22 @@ public sealed partial class Match
         action.Turn(Angle.Of(offset));
     }
 
+    // 적을 한 틱 진행한다. 세 단계다.
+    // 1. 행동(ActEnemies): 끝난 행동을 치우고, 공격 거리 안이면 새 행동을 고르고, 아니면 가려는 방향을 정한다. 적 목록 차례대로다.
+    // 2. 계획(PlanMoves): 움직일 적의 이번 틱 이동을 앞선 적부터 정한다. 뒤선 적은 가까이에서 움직이는 앞선 적에게 길을 내준다.
+    // 3. 이동(MoveEnemies): 정한 대로 몸을 움직인다. 막히면 막은 것을 끼고 돈다(MoveEnemy).
     private void UpdateEnemies()
     {
+        ActEnemies();
+        PlanMoves();
+        MoveEnemies();
+    }
+
+    // 적마다 행동을 처리하고, 움직일 적은 쫓을 대원과 가려는 방향을 정해 이동 계획(_moving)에 넣는다.
+    // 새 행동을 고를 때 난수를 뽑으므로 적 목록 차례대로 한다. 가려는 방향은 그 적의 자리와 대원, 맵에만 달려 있다.
+    private void ActEnemies()
+    {
+        _moving.Clear();
         for (int i = 0; i < Enemies.Count; i++)
         {
             Enemy enemy = Enemies[i];
@@ -355,61 +505,187 @@ public sealed partial class Match
                 enemy.NextActionTick = enemy.Action.EndsTick + Rules.ToTicks(0.25);
                 continue;
             }
-
-            // 조향: 움직이기 전에 방향을 정하고 움직인다. 막혔다고 여러 방향을 거듭 시도하지 않는다.
-            // 몸이 직선으로 지나갈 수 있으면 직진하고, 사선이 가려졌거나 몸이 모서리에 걸리면 흐름장 경로를 따른다.
+            // 조향: 몸이 직선으로 지나갈 수 있으면 직진하고, 사선이 가려졌거나 몸이 모서리에 걸리면 흐름장 경로를 따른다.
             FixedVector heading = direct;
-            bool straight = true;
             if (!sight || !BodyCanPass(enemy, target.Position))
             {
                 FixedVector flow = FlowHeading(enemy.Position);
                 if (flow.LengthSquared() > TinyLengthSquared)
                 {
                     heading = flow;
-                    straight = false;
                 }
             }
             if (heading.LengthSquared() < TinyLengthSquared)
             {
                 continue;
             }
-            FixedVector movement = Steer(enemy, heading);
-            if (movement.IsZero())
-            {
-                continue;
-            }
-            FixedVector moved = MoveBody(enemy.Position, movement, enemy.Definition.Radius, enemy);
-            // 몸 통과 판단은 옆선을 반지름보다 0.5 좁게 그으므로, 모서리를 반지름보다 0.5 미만으로 가깝게 스치는 직선도 지나갈 수
-            // 있다고 본다. 몸은 그 모서리에 걸리고, 대원과 같은 줄이면 방향의 옆 성분이 0이라 벽을 따라 미끄러지지도 못한다.
-            // 그래서 직진으로 이번 틱에 한 걸음의 절반도 가지 못하면 흐름장 방향으로 바꿔 움직인다. 흐름장은 칸 가운데를 이으므로
-            // 몸 지름이 한 칸보다 작은 적은 그 모서리를 비켜 간다. 조금이라도 갔으면 된다고 보면, 대원의 줄 쪽으로 아주 조금씩
-            // 미끄러지는 것도 간 것이 되어 모서리 앞에서 벗어나지 못한다. 벽에 45도로 부딪혀 미끄러지면 한 걸음의 0.7배쯤 가므로
-            // 그대로 직진한다. 몸 이동은 상태를 바꾸지 않는 계산이라 다시 구해도 된다.
-            if (straight && FixedVector.DistanceSquared(moved, enemy.Position) * 4 < movement.LengthSquared())
-            {
-                FixedVector flow = FlowHeading(enemy.Position);
-                if (flow.LengthSquared() > TinyLengthSquared)
-                {
-                    FixedVector detour = Steer(enemy, flow);
-                    if (!detour.IsZero())
-                    {
-                        moved = MoveBody(enemy.Position, detour, enemy.Definition.Radius, enemy);
-                    }
-                }
-            }
-            enemy.Position = moved;
+            EnemyPlan plan = new EnemyPlan(enemy, heading.Normalize(), direct, FlowCost(enemy.Position), closest);
+            Enlist(plan);
         }
     }
 
-    // 정한 방향에 이웃 적과의 분리 방향을 더해 이번 틱의 이동을 구한다. 둘이 맞서 방향이 없어지면 0 벡터다.
-    private FixedVector Steer(Enemy enemy, FixedVector heading)
+    // 이동 계획을 앞선 차례의 제자리에 끼워 넣는다. 적이 많아야 수십이라 뒤에서부터 자리를 찾는다.
+    private void Enlist(EnemyPlan plan)
     {
-        // 가까운 적끼리 밀어내는 방향을 0.8배(4/5)로 더해, 줄지어 막히지 않고 옆으로 비켜 가게 한다.
-        FixedVector steer = heading.Normalize() + Separation(enemy) * 4 / 5;
-        if (steer.LengthSquared() < TinyLengthSquared)
+        int at = _moving.Count;
+        while (at > 0 && Ahead(plan, _moving[at - 1]))
+        {
+            at--;
+        }
+        _moving.Insert(at, plan);
+    }
+
+    // first가 second보다 앞선 적인지다. 대원까지 가는 길이 더 짧은 적이 앞선다. 길의 칸 수가 같으면 쫓는 대원에게 더 가까운 적,
+    // 그것도 같으면 id가 작은 적이다. 어느 두 적 사이에서도 한쪽이 앞서므로, 서로 길을 내주려다 둘 다 멈추는 일이 없다.
+    private bool Ahead(EnemyPlan first, EnemyPlan second)
+    {
+        if (first.Cost != second.Cost)
+        {
+            return first.Cost < second.Cost;
+        }
+        if (first.Closest != second.Closest)
+        {
+            return first.Closest < second.Closest;
+        }
+        return first.Enemy.Id < second.Enemy.Id;
+    }
+
+    // 앞선 적부터 이번 틱의 이동을 정한다. 뒤선 적의 이동은 앞선 적이 움직이는지 기다리는지에 달려 있으므로 앞선 적부터 정해야 한다.
+    private void PlanMoves()
+    {
+        for (int rank = 0; rank < _moving.Count; rank++)
+        {
+            EnemyPlan plan = _moving[rank];
+            Enemy enemy = plan.Enemy;
+            plan.Step = Steer(plan, rank);
+            // 더 갈 수 없어 기다리는 적에게는 뒤선 적이 길을 내주지 않는다(Yield). 이번 틱에 서 있는 적과, 다음 걸음이 막힌 적이다.
+            // 서 있는 적을 빼도 행동 없는 장면은 같지만, 적이 행동하는 장면에서 제자리에서 떠는 틱이 는다(2026-11-14에 잰 것.
+            // 장면 하나로 가를 수는 없어 검사로 묶지 않았다).
+            plan.Waiting = plan.Step.IsZero() || Stuck(enemy, enemy.Position + plan.Step, rank);
+        }
+    }
+
+    // position으로 가려는 적이 더 갈 수 없어 기다리게 되는지다. 그 자리의 몸이 아래 셋 가운데 하나와 겹치면 그렇다.
+    // - 살아 있는 대원의 몸: 대원에게 다 온 적이다.
+    // - 행동 중인 적의 몸: 예고하고 공격하는 적은 그 자리에 서 있다. 그 뒤에 선 적이다.
+    // - 기다리는 앞선 적의 몸: rank는 이 적의 앞선 차례다. 앞선 적들이 기다리는지는 이미 정해져 있으므로,
+    //   다 온 적 뒤에 선 적, 그 뒤에 선 적으로 차례로 이어진다.
+    private bool Stuck(Enemy enemy, FixedVector position, int rank)
+    {
+        for (int i = 0; i < Players.Count; i++)
+        {
+            Player player = Players[i];
+            if (player.State != "alive")
+            {
+                continue;
+            }
+            Fixed minimum = enemy.Definition.Radius + Rules.PlayerRadius;
+            if (FixedVector.DistanceSquared(position, player.Position) < minimum * minimum - TouchTolerance)
+            {
+                return true;
+            }
+        }
+        for (int i = 0; i < Enemies.Count; i++)
+        {
+            Enemy acting = Enemies[i];
+            if (acting == enemy || acting.Hp <= 0 || acting.Action == null)
+            {
+                continue;
+            }
+            Fixed minimum = enemy.Definition.Radius + acting.Definition.Radius;
+            if (FixedVector.DistanceSquared(position, acting.Position) < minimum * minimum - TouchTolerance)
+            {
+                return true;
+            }
+        }
+        for (int ahead = 0; ahead < rank; ahead++)
+        {
+            EnemyPlan other = _moving[ahead];
+            if (!other.Waiting)
+            {
+                continue;
+            }
+            Fixed minimum = enemy.Definition.Radius + other.Enemy.Definition.Radius;
+            if (FixedVector.DistanceSquared(position, other.Enemy.Position) < minimum * minimum - TouchTolerance)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 뒤선 적부터 움직인다. 길을 내주는 적이 먼저 자리를 비워야 앞선 적이 같은 틱에 그 자리로 간다.
+    // 차례를 뒤집어(앞선 적부터) 재 보면 멈춤과 도착 수는 같고, 적이 행동하는 장면에서 제자리에서 떠는 틱이 조금 는다(2026-11-14).
+    // 장면 하나로 가를 수는 없어 검사로 묶지 않았다.
+    private void MoveEnemies()
+    {
+        for (int rank = _moving.Count - 1; rank >= 0; rank--)
+        {
+            EnemyPlan plan = _moving[rank];
+            if (plan.Step.IsZero())
+            {
+                continue;
+            }
+            plan.Enemy.Position = MoveEnemy(plan.Enemy, plan.Step, plan.Toward);
+        }
+    }
+
+    // 가려는 방향(길이 1)에 앞선 적에게 길을 내주는 방향을 더해 이번 틱의 이동을 구한다. 둘이 맞서 방향이 없어지면 0 벡터다.
+    // rank는 이 적의 앞선 차례(_moving 안의 자리)다.
+    private FixedVector Steer(EnemyPlan plan, int rank)
+    {
+        // 움직이는 앞선 적이 가까울수록 제 갈 길을 덜 가고 그 적에게서 멀어진다. 몸이 닿았으면 제 갈 길을 멈추고 비켜나기만 한다.
+        Fixed strongest;
+        FixedVector push = Yield(plan, rank, out strongest);
+        FixedVector steer = plan.Heading * (Fixed.One - strongest) + push;
+        // 두 방향이 거의 맞서 합이 짧으면(1/4 미만) 그 틱에는 서 있는다. 그런 때 제 빠르기로 움직이면, 비켜 줬다가 다음 틱에
+        // 다시 다가가기를 되풀이하며 제자리에서 떤다. 움직이는 앞선 적을 바로 뒤에서 따라가는 적이 그렇다.
+        if (steer.LengthSquared() < StillSteerSquared)
         {
             return FixedVector.Zero;
         }
-        return steer.Normalize() * enemy.Definition.StepPerTick;
+        return steer.Normalize() * plan.Enemy.Definition.StepPerTick;
+    }
+
+    // 가까이에서 움직이는 앞선 적에게 비켜 주는 방향을 구한다. 몸이 닿기 조금 전(YieldMargin)부터, 가까울수록 세게 그 적에게서
+    // 멀어진다. strongest는 그 가운데 가장 센 세기(0~1)다. 부르는 쪽이 그만큼 제 갈 길을 덜 간다.
+    // - 한쪽만 비켜 준다. 서로 똑같이 밀어내면 한 칸 틈 앞에서 두 적이 마주 버티다 함께 멈춘다.
+    // - 더 갈 수 없어 기다리는 적에게는 비켜 주지 않는다(EnemyPlan.Waiting, Stuck). 대원에게 다 온 적에게 비켜 주면 대원 둘레의
+    //   적들이 서로 밀려나 자리를 잡지 못하고 계속 움직인다. 그 뒤에 선 적이나 행동 중인 적 뒤에 선 적에게 비켜 주면, 그 적들
+    //   사이로 들어서던 적이 한 틱은 다가가고 다음 틱은 물러나기를 되풀이한다.
+    // - 비켜 주려고 물러나는 적도 움직이는 적이다. 그 뒤에 붙은 적이 또 비켜 주므로, 길을 내주는 일이 뒤로 이어진다.
+    private FixedVector Yield(EnemyPlan plan, int rank, out Fixed strongest)
+    {
+        Enemy enemy = plan.Enemy;
+        FixedVector push = FixedVector.Zero;
+        strongest = Fixed.Zero;
+        // 나보다 앞선 적만 본다. 그 적들의 이동은 이미 정해져 있다.
+        for (int ahead = 0; ahead < rank; ahead++)
+        {
+            EnemyPlan other = _moving[ahead];
+            if (other.Waiting)
+            {
+                continue;
+            }
+            FixedVector away = enemy.Position - other.Enemy.Position;
+            Fixed contact = enemy.Definition.Radius + other.Enemy.Definition.Radius;
+            Fixed reach = contact + YieldMargin;
+            // 거리의 제곱으로 먼저 거른다. 대부분의 적은 멀리 있다.
+            if (away.LengthSquared() >= reach * reach)
+            {
+                continue;
+            }
+            Fixed distance = away.Length();
+            // 아주 가까우면 길이의 반올림 오차 때문에 멀어지는 방향의 길이가 1에서 벗어나므로 넘어간다(YieldMinimum).
+            if (distance >= reach || distance < YieldMinimum)
+            {
+                continue;
+            }
+            // 세기는 닿기 직전 거리(reach)에서 0, 몸이 닿았을 때 1이다.
+            Fixed strength = Fixed.Min(Fixed.One, (reach - distance) / YieldMargin);
+            push += away / distance * strength;
+            strongest = Fixed.Max(strongest, strength);
+        }
+        return push;
     }
 }
