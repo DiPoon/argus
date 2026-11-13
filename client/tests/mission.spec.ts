@@ -89,15 +89,16 @@ function clear(snapshot: Snapshot, from: Position, to: Position) {
   return true;
 }
 
+// 이 적에게 누를 슬롯이다. 0이면 누르지 않는다. 기술은 누를 때 한 번 나가므로, 기술을 쓰는 중이 아닐 때만 누른다.
 function counterSlot(enemy: Enemy, snapshot: Snapshot, player: Player) {
   if (player.busy > 0 || player.mana === 0) return 0;
   const action = enemy.action;
-  if (!action || snapshot.now >= action.activeUntil) return 1;
+  // 기운이 없는 적(서 있거나, 장판이 나갔거나, 회복 중)은 타격 장판으로 친다.
+  if (!action || snapshot.now >= action.contactAt) return 1;
+  // 예고하는 적에게는 그 장판을 이기는 기술을 누른다. 장판 안이면 누른 순간 판정이 나므로 때를 맞추지 않는다.
   if (action.kind === 'block') return 3;
   if (action.kind === 'channel') return 1;
-  // 받아치기를 너무 일찍 쓰면 적 공격이 도달하기 전에 방어가 끝난다.
-  if (action.contactAt - snapshot.now < .38) return 2;
-  return 0;
+  return 2;
 }
 
 test('a squad counters enemies and completes the mission using only public gameplay commands', async ({ request }, testInfo) => {
@@ -192,8 +193,9 @@ test('a squad counters enemies and completes the mission using only public gamep
         const next = route(snapshot, player, destination);
         const dx = next.x - player.x, dy = next.y - player.y, length = Math.hypot(dx, dy);
         const move = distance > stop && length > 2;
+        // 기술은 누름(pressed)으로만 시작한다(protocol v6). 봇은 버튼을 누르고 있지 않으므로(held가 빔) 기운은 가장 짧게 돌고 장판이 나간다.
         client.ws.send(JSON.stringify({ type: 'input', seq: client.seq++, moveX: move ? dx / length : 0,
-          moveY: move ? dy / length : 0, aim: Math.atan2(target.y - player.y, target.x - player.x), slot }));
+          moveY: move ? dy / length : 0, aim: Math.atan2(target.y - player.y, target.x - player.x), held: [], pressed: slot > 0 ? [slot] : [] }));
       }
       if (shared.now - lastRecord > 1) {
         lastRecord = shared.now;

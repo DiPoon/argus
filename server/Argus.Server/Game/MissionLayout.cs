@@ -243,6 +243,27 @@ public sealed class MissionLayout
     // 맵 가운데의 시설 구역을 부술 수 있는 벽이 둘러싸고, 네 방향에 출입구가 있다. 캠프는 왼쪽, 탈출 지점은 아래쪽이다.
     public static MissionLayout CreateHandmade()
     {
+        // 셋 모두 가장 가까운 벽에서 60 넘게 떨어진 빈 땅이라, 가장 큰 적(철위병, 반지름 23)도 넉넉히 들어간다.
+        // (970, 640)은 시설 1 아래 장애물의 남쪽이다. 엘리트를 켠 작전에서는 뒤의 둘이 분쇄자와 철위병이다.
+        EnemySpot[] initialEnemySpots = new EnemySpot[]
+        {
+            new EnemySpot(FixedVector.FromInt(610, 730), EnemyDefinition.Grunt),
+            new EnemySpot(FixedVector.FromInt(970, 640), EnemyDefinition.Breaker),
+            new EnemySpot(FixedVector.FromInt(1260, 770), EnemyDefinition.Warden)
+        };
+        return Handmade(initialEnemySpots);
+    }
+
+    // 손으로 만든 맵에서 처음 적만 뺀 조용한 맵이다. 적이 없어야 하는 브라우저 검사가 쓴다. 조작과 화면을 보는 검사는
+    // 적이 다가와 대원을 치면 결과가 흔들린다. 증원도 오지 않게 하려면 규칙의 적 상한을 0으로 함께 둔다(RoomHost).
+    public static MissionLayout CreateQuiet()
+    {
+        return Handmade(new EnemySpot[0]);
+    }
+
+    // 손으로 만든 맵의 지형과 임무 배치에 처음 적 자리 initialEnemySpots를 넣어 만든다.
+    private static MissionLayout Handmade(EnemySpot[] initialEnemySpots)
+    {
         int columns = 40;
         int rows = 30;
         byte[] tiles = new byte[columns * rows];
@@ -308,14 +329,6 @@ public sealed class MissionLayout
             new SupplySpot(FixedVector.FromInt(1150, 835), SupplyKind.Objective),
             new SupplySpot(FixedVector.FromInt(815, 985), SupplyKind.Field),
             new SupplySpot(FixedVector.FromInt(1080, 740), SupplyKind.Field)
-        };
-        // 셋 모두 가장 가까운 벽에서 60 넘게 떨어진 빈 땅이라, 가장 큰 적(철위병, 반지름 23)도 넉넉히 들어간다.
-        // (970, 640)은 시설 1 아래 장애물의 남쪽이다. 엘리트를 켠 작전에서는 뒤의 둘이 분쇄자와 철위병이다.
-        EnemySpot[] initialEnemySpots = new EnemySpot[]
-        {
-            new EnemySpot(FixedVector.FromInt(610, 730), EnemyDefinition.Grunt),
-            new EnemySpot(FixedVector.FromInt(970, 640), EnemyDefinition.Breaker),
-            new EnemySpot(FixedVector.FromInt(1260, 770), EnemyDefinition.Warden)
         };
         // 맵 가운데(1080, 710)를 둘러싼 타원(가로 650, 세로 540)이다.
         SpawnRing reinforcements = new SpawnRing(FixedVector.FromInt(1080, 710), 650, 540);

@@ -293,7 +293,24 @@ internal static class Program
             for (int j = 0; j < player.Actions.Count; j++)
             {
                 PlayerAction action = player.Actions[j];
-                line.Append($" · 기술 {action.Skill.Id}(시작 {action.StartedTick}, 접촉 {action.ContactTick}, 유효 {action.ActiveUntilTick}까지)");
+                // 기운이 도는 동안은 장판이 나갈 틱이 아직 정해지지 않았을 수 있다. 버튼을 누르고 있으면 뒤로 밀린다.
+                string button = "누르는 중";
+                if (action.Released)
+                {
+                    button = "놓음";
+                }
+                line.Append($" · 기술 {action.Skill.Id}(슬롯 {action.Slot}, 시작 {action.StartedTick}, 장판 {action.ZoneTick}~{action.ZoneUntilTick}, 끝 {action.EndsTick}, 누르고 있던 틱 {action.HeldTicks}, 버튼 {button})");
+            }
+            // 눌렀지만 아직 시작하지 못한 누름이다. 누른 차례대로다.
+            for (int j = 0; j < player.Waiting.Count; j++)
+            {
+                WaitingPress waiting = player.Waiting[j];
+                string held = "누르는 중";
+                if (!waiting.Held)
+                {
+                    held = "뗌";
+                }
+                line.Append($" · 기다리는 누름 슬롯 {waiting.Slot}({held})");
             }
             Console.WriteLine(line.ToString());
         }
@@ -305,7 +322,7 @@ internal static class Program
             line.Append($"    {enemy.Id} {enemy.Definition.Id} · 체력 {enemy.Hp:0.#} · 위치 ({enemy.Position.X.ToDouble():0.0}, {enemy.Position.Y.ToDouble():0.0})");
             if (enemy.Action != null)
             {
-                line.Append($" · 행동 {enemy.Action.Skill.Kind}(시작 {enemy.Action.StartedTick}, 접촉 {enemy.Action.ContactTick}, 끝 {enemy.Action.EndsTick})");
+                line.Append($" · 행동 {enemy.Action.Skill.Kind}(시작 {enemy.Action.StartedTick}, 장판 {enemy.Action.ContactTick}~{enemy.Action.ActiveUntilTick}, 끝 {enemy.Action.EndsTick})");
             }
             line.Append($" · 보임 {match.Visible(enemy.Position)}");
             Console.WriteLine(line.ToString());

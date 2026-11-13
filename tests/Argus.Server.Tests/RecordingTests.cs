@@ -110,19 +110,37 @@ internal static class RecordingTests
                 }
                 double heading = tick * 0.05;
                 double aim = tick * 0.1 + i;
-                int slot = 0;
-                if (tick % 8 == 0)
+                // 16틱마다 기술 하나를 눌러 9틱 동안 누르고 있는다. 누르고 있는 동안 기운이 이어진다.
+                // 3틱째에는 그 버튼을 누른 채 다른 버튼을 눌러 6틱까지 둘 다 누르고 있는다(기다리는 누름).
+                // 12틱째에는 두 버튼을 한 입력에 짧게 누른다(누르고 있는 슬롯 없이 누름만 둘).
+                // 다시 돌릴 때 누름이나 누르고 있음, 누른 차례가 빠지면 갈라진다.
+                int chosen = 1 + (tick / 16 + i) % 4;
+                int other = 1 + chosen % 4;
+                int phase = tick % 16;
+                int[] held = new int[0];
+                int[] pressed = new int[0];
+                if (phase >= 3 && phase <= 6)
                 {
-                    slot = 1 + (tick / 8 + i) % 4;
+                    held = new int[] { chosen, other };
                 }
-                // 쥐고 있는 슬롯과 다른 틱에 짧게 누른 슬롯도 보낸다. 다시 돌릴 때 빠지면 기술이 나가지 않아 갈라진다.
-                int press = 0;
-                if (tick % 8 == 4)
+                else if (phase <= 9)
                 {
-                    press = 1 + (tick / 8 + i) % 4;
+                    held = new int[] { chosen };
+                }
+                if (phase == 0)
+                {
+                    pressed = new int[] { chosen };
+                }
+                else if (phase == 3)
+                {
+                    pressed = new int[] { other };
+                }
+                else if (phase == 12)
+                {
+                    pressed = new int[] { other, chosen };
                 }
                 sequence++;
-                bool accepted = match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), aim, slot, press);
+                bool accepted = match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), aim, held, pressed);
                 if (accepted && i == 0 && tick >= 600 && session.TamperIndex < 0)
                 {
                     session.TamperIndex = recorder.Records.Count - 1;
@@ -131,7 +149,7 @@ internal static class RecordingTests
             if (tick == 300)
             {
                 // 이동 값이 범위를 넘어 거절되는 입력이다. 거절되어도 기록하고, 다시 돌릴 때도 거절된다.
-                Check(!match.Input(squad[0], sequence + 1000, 5, 0, 0, 0), "범위를 넘는 입력을 받아들였습니다");
+                Check(!match.Input(squad[0], sequence + 1000, 5, 0, 0), "범위를 넘는 입력을 받아들였습니다");
             }
             if (tick == 450)
             {
@@ -178,8 +196,8 @@ internal static class RecordingTests
         changed.MoveX = -original.MoveX;
         changed.MoveY = -original.MoveY;
         changed.Aim = original.Aim;
-        changed.Slot = original.Slot;
-        changed.Press = original.Press;
+        changed.Held = original.Held;
+        changed.Pressed = original.Pressed;
         List<MatchRecord> tampered = new List<MatchRecord>(session.Records);
         tampered[session.TamperIndex] = changed;
 
@@ -252,7 +270,7 @@ internal static class RecordingTests
                         {
                             slot = 1 + tick / 10 % 4;
                         }
-                        room.Match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), heading, slot);
+                        room.Match.Input(player, sequence, Math.Cos(heading), Math.Sin(heading), heading, Slots(slot), Slots(slot));
                     }
                     if (tick == 400)
                     {
@@ -476,7 +494,7 @@ internal static class RecordingTests
         for (long tick = 0; tick < ticks; tick++)
         {
             double heading = tick * 0.04;
-            match.Input(player, tick, Math.Cos(heading), Math.Sin(heading), 0, 0);
+            match.Input(player, tick, Math.Cos(heading), Math.Sin(heading), 0);
             match.Step();
         }
 
@@ -528,7 +546,8 @@ internal static class RecordingTests
             changed.MoveX = -original.MoveX;
             changed.MoveY = -original.MoveY;
             changed.Aim = original.Aim;
-            changed.Slot = original.Slot;
+            changed.Held = original.Held;
+            changed.Pressed = original.Pressed;
             diverged[session.TamperIndex] = changed;
 
             string complete = Path.Combine(folder, "complete" + RecordingFormat.Extension);

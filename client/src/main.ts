@@ -55,7 +55,7 @@ const desktopLobby = `  <main id="lobby" class="lobby">
     <section class="briefing">
       <div class="eyebrow"><span class="dash"></span> OPERATION 001</div>
       <h1>침묵의<br><span>전초기지.</span></h1>
-      <p class="lead">적의 예고를 읽고, 동료와 함께 파훼하세요.<br>타격 · 받아치기 · 잡기. 거리를 맞추는 근접 전투.</p>
+      <p class="lead">적의 예고를 읽고, 이기는 기술로 받아치세요.<br>타격 · 방어 · 잡기. 예고 안에서 누르면 그 순간 이깁니다.</p>
       <div class="brief-map" aria-hidden="true">
         <svg viewBox="0 0 540 240"><defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#2a3738" stroke-width="1"/></pattern></defs>
           <rect width="540" height="240" fill="url(#grid)"/><path d="M210 40h235v55m0 45v60H210v-70m0-45V40 M290 90h45v30 M355 150h40" stroke="#75827a" stroke-width="10" fill="none"/>
@@ -123,7 +123,7 @@ ${touchMode ? touchLobby : desktopLobby}
         <div class="progress"><i id="extract-progress"></i></div>
       </div>
       <div class="side-section"><div class="section-label">SQUAD <span id="team-count">1 / 4</span></div><div id="roster"></div></div>
-      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>Ⅱ(대응 2)로 표시된 엘리트 행동은 이기는 기술이 둘 겹쳐야 파훼됩니다. 혼자 이기는 기술을 맞히면 나와 엘리트가 1씩 잃고, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다. 동료와 맞추세요. 타격 예고가 끝날 무렵 받아치세요. 너무 일찍 쓰면 방어가 먼저 끝납니다.</p><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
+      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>적의 예고 안에서 이기는 기술을 누르면 그 순간 처치합니다. 누르고 있으면 기운이 이어지고, 떼면 장판이 나갑니다. Ⅱ(대응 2)는 이기는 기운이 둘 겹쳐야 합니다. 동료와 함께 누르고 있으세요. 혼자 받아치면 나와 엘리트가 1씩, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다.</p><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
     </aside>
     <section id="battlefield" class="battlefield" aria-label="작전 지도">
       <div id="canvas-host" class="canvas-host"></div>
@@ -182,22 +182,25 @@ const toastLines: { text: string; until: number }[] = [];
 let deployRequested = false;
 const keys = new Set<string>();
 let mouse = { x: 0, y: 0, known: false };
-// 동시에 눌린 슬롯 중 가장 나중에 누른 것이 나가도록 누름 순서를 유지한다.
-const slotOrder: number[] = [];
-// 다시 눌러야 하는 키(staleKeys)는 쥐고 있어도 누른 것으로 치지 않는다. 같은 슬롯의 다른 입력을
-// 새로 눌렀다 떼었을 때 쥐고 있던 키로 기술이 이어지지 않게 한다.
+// 다시 눌러야 하는 키(staleKeys)는 누르고 있어도 누르고 있는 것으로 치지 않는다. 같은 슬롯의 다른 입력을
+// 새로 눌렀다 떼었을 때 누르고 있던 키로 기운이 이어지지 않게 한다.
 const keyHeld = (code: string) => keys.has(code) && !staleKeys.has(code);
+// 슬롯에 묶인 마우스 버튼이다. 1번 슬롯은 좌클릭(0), 2번 슬롯은 우클릭(2)이다.
+const slotButtons = [[1, 0], [2, 2]] as const;
 // 터치 조작의 상태다. x·y는 조이스틱이 가리키는 이동 방향(길이 1), aim은 마지막으로 움직인 방향,
 // pointers는 기술 버튼을 누르고 있는 손가락(포인터 id → 슬롯)이다. 한 버튼을 두 손가락으로 누르면 둘 다 떼어야 뗀 것이다.
 const touch = { x: 0, y: 0, aim: 0, aimKnown: false, pointers: new Map<number, number>() };
 const touchedSlots = () => new Set(touch.pointers.values());
 function slotHeld(slot: number) {
   if (touchedSlots().has(slot)) return true;
-  if (slot === 1) return mouseButtons.has(0) || keyHeld('Digit1');
-  if (slot === 2) return mouseButtons.has(2) || keyHeld('Digit2');
+  if (slotButtons.some(([bound, button]) => bound === slot && mouseButtons.has(button))) return true;
+  if (slot === 1) return keyHeld('Digit1');
+  if (slot === 2) return keyHeld('Digit2');
   if (slot === 3) return keyHeld('Space') || keyHeld('Digit3');
   return keyHeld('KeyQ') || keyHeld('Digit4');
 }
+// 지금 누르고 있는 슬롯 전부다. 입력의 held로 그대로 보낸다. 어느 버튼의 기운을 잇고 어느 누름을 기다리게 할지는 서버가 정한다.
+const heldSlots = () => [1, 2, 3, 4].filter(slotHeld);
 function slotFromCode(code: string) {
   if (code === 'Digit1') return 1;
   if (code === 'Digit2') return 2;
@@ -205,21 +208,54 @@ function slotFromCode(code: string) {
   if (code === 'KeyQ' || code === 'Digit4') return 4;
   return 0;
 }
-// 마지막으로 입력을 보낸 뒤에 누른 슬롯이다(가장 나중에 누른 것). 다음 입력을 보내기 전에 떼었어도 그 입력의 press로 한 번은 보낸다.
+// 마지막으로 입력을 보낸 뒤에 누른 슬롯들이다. 누른 차례대로 모아, 다음 입력의 pressed로 한 번 보낸다. 보내기 전에 떼었어도 보낸다.
 // 입력은 1/30초마다 보내므로, 그 사이에 눌렀다 뗀 짧은 누름이나 브라우저가 잠깐 멈춘 사이의 누름이 빠지지 않게 한다(2026-11-05 휴대폰 시험).
-let pressedSinceSend = 0;
+// 한 자리에 적으면 그 사이에 거의 함께 누른 두 버튼 가운데 앞의 것이 덮여 사라진다(PR #28 리뷰 2번). 서버는 누른 차례대로 기술을 시작한다.
+// 서버는 입력 하나에 누름을 여덟(Match.MaxPressesPerInput)까지 받는다. 넘치면 가장 오래된 것을 버린다.
+const maxPressesPerInput = 8;
+let pressedSinceSend: number[] = [];
+// 슬롯마다, 그 슬롯의 누름을 마지막으로 실어 보낸 입력의 순번이다(슬롯 n은 n번째 자리). 보낸 적이 없으면 -1이다.
+// 서버가 그 입력을 확인하기 전(내 ack가 이 순번보다 작을 때)의 스냅샷에는 그 누름이 어떻게 됐는지가 아직 없다.
+const pressSequence = [-1, -1, -1, -1, -1];
+// 그 슬롯을 누르고 있는 것이 서버에서 아직 뜻이 있는지다. 뜻이 있는 때는 둘이다. 그 슬롯으로 쓴 기술의 기운을 잇는 중이거나
+// (떼면 장판이 나간다), 그 슬롯의 누름이 앞의 기술이 끝나기를 기다리는 중이다(떼면 누름이 버려진다). 둘 다 서버가 알려 준다
+// (내 기술의 held, 스냅샷의 waiting). 아직 보내지 않았거나 서버가 확인하지 않은 누름은 어떻게 될지 모르므로 뜻이 있다고 본다.
+// 장판이 나간 뒤에는 그 버튼을 계속 누르고 있어도 아무 일도 없다. 한 번 나간 장판은 기운으로 돌아가지 않고, 누르고 있다고
+// 기술이 다시 나가지도 않는다.
+function holdMatters(slot: number) {
+  const player = me();
+  if (pressedSinceSend.includes(slot) || pressSequence[slot] > (player?.ack ?? -1)) return true;
+  return (player?.actions.some(action => action.slot === slot && action.held === true) ?? false) || (snapshot?.waiting?.includes(slot) ?? false);
+}
+// 그 슬롯을 누르고 있던 입력을 모두 다 쓴 입력으로 돌린다. 떼었다 다시 눌러야 그 슬롯을 누른 것이 된다.
+function spendSlot(slot: number) {
+  for (const code of keys) if (slotFromCode(code) === slot) staleKeys.add(code);
+  for (const [bound, button] of slotButtons) if (bound === slot) mouseButtons.delete(button);
+  for (const [pointer, bound] of touch.pointers) if (bound === slot) touch.pointers.delete(pointer);
+}
+// 슬롯에 묶인 입력 하나(키·마우스 버튼·손가락)를 새로 눌렀다. 그 입력을 누르고 있는 것으로 적기 전에 부른다.
+// 그 슬롯을 이미 다른 입력으로 누르고 있을 때가 문제다. 서버에게 슬롯은 버튼 하나라, 같은 슬롯의 새 누름을 "뗐다 다시 눌렀다"로 읽는다.
+// - 누르고 있는 것이 아직 뜻이 있으면(holdMatters) 겹쳐 누른 것이다. 새 누름으로 보내지 않고, 이 입력도 그 슬롯을 함께 누르고
+//   있는 것이 된다. 새 누름으로 보내면 서버가 누르고 있던 기운을 놓고 기술을 한 번 더 낸다. 1번 키를 누른 채 좌클릭을 겹쳐
+//   눌렀다고 타격의 기운이 끊기면 안 된다. 하나를 떼어도 남은 입력이 누르고 있으면 누르고 있는 것이다.
+// - 뜻이 없으면 누르고 있던 입력은 앞의 시전에 다 쓴 입력이다. 새 누름으로 보내고, 다 쓴 입력은 떼었다 다시 눌러야 하는 입력으로
+//   돌린다. 타격이 끝난 뒤에도 1번 키를 누르고 있다가 좌클릭하면 타격이 나가야 한다(PR #28 재리뷰 다). 그 타격의 기운은 좌클릭을
+//   누르고 있는 동안만 이어진다. 1번 키를 누르고 있는 것으로 계속 치면, 짧게 클릭한 타격의 기운을 그 키가 최대 시간까지 잇는다.
 function pressSlot(slot: number) {
-  const index = slotOrder.indexOf(slot);
-  if (index >= 0) slotOrder.splice(index, 1);
-  slotOrder.push(slot);
-  pressedSinceSend = slot;
+  if (slotHeld(slot)) {
+    if (holdMatters(slot)) return;
+    spendSlot(slot);
+  }
+  pressedSinceSend.push(slot);
+  if (pressedSinceSend.length > maxPressesPerInput) pressedSinceSend.shift();
 }
 // 살아 있지 않을 때 누른 기술 키와, 살아 있는 상태를 벗어날 때 눌려 있던 기술 키다. 떼었다 다시 눌러야 기술이 나간다.
 // 그대로 두면 투입을 기다리며 쥔 키가 착지 뒤 마나가 차는 순간부터 기술을 계속 낸다.
+// 앞의 시전에 다 쓴 키도 여기에 든다(spendSlot). 같은 슬롯을 다른 입력으로 새로 눌렀을 때, 시전이 끝난 뒤에도 누르고 있던 키다.
 const staleKeys = new Set<string>();
 // 사망 등으로 살아 있는 상태를 벗어날 때 부른다. 마우스는 syncButtons가 새로 눌린 버튼만 받으므로 비우기만 하면 된다.
 function releaseSkills() {
-  mouseButtons.clear(); slotOrder.length = 0; pressedSinceSend = 0; releaseTouchSkills();
+  mouseButtons.clear(); pressedSinceSend = []; releaseTouchSkills();
   for (const code of keys) if (slotFromCode(code) > 0) staleKeys.add(code);
 }
 // 버튼을 겹쳐 누르거나 뗄 때 브라우저는 pointerdown·pointerup 대신 pointermove로만 알린다.
@@ -236,9 +272,11 @@ function syncButtons(buttons: number, allowPress: boolean, fresh = false) {
     if (!fresh) { pointerButtons = buttons; return; }
     pointerButtons = 0;
   }
-  for (const [button, bit, slot] of [[0, 1, 1], [2, 2, 2]] as const) {
+  for (const [slot, button] of slotButtons) {
+    // event.buttons의 비트는 좌클릭이 1, 우클릭이 2다.
+    const bit = button === 0 ? 1 : 2;
     const pressed = (buttons & bit) !== 0 && (pointerButtons & bit) === 0;
-    if (pressed && allowPress && !mouseButtons.has(button)) { mouseButtons.add(button); pressSlot(slot); }
+    if (pressed && allowPress && !mouseButtons.has(button)) { pressSlot(slot); mouseButtons.add(button); }
     if ((buttons & bit) === 0) mouseButtons.delete(button);
   }
   pointerButtons = buttons;
@@ -251,9 +289,12 @@ function send(value: object) {
   return true;
 }
 // 입력을 보내고, 서버가 확인할 때까지 화면 예측에 쓰도록 기록한다. 실제로 보낸 입력만 기록한다.
-function sendInput(x: number, y: number, aim: number, slot: number, press = 0) {
+// held는 지금 누르고 있는 슬롯 전부, pressed는 지난 입력 뒤에 누른 슬롯을 누른 차례대로 적은 것이다(protocol v6).
+function sendInput(x: number, y: number, aim: number, held: number[], pressed: number[] = []) {
   const seq = sequence++;
-  if (send({ type: 'input', seq, moveX: x, moveY: y, aim, slot, press })) world?.recordInput(seq, x, y);
+  if (!send({ type: 'input', seq, moveX: x, moveY: y, aim, held, pressed })) return;
+  world?.recordInput(seq, x, y);
+  for (const slot of pressed) pressSequence[slot] = seq;
 }
 function status(text: string, connected = false) { $('connection').innerHTML = `<i class="${connected ? 'online' : ''}"></i> ${escape(text)}`; }
 function toast(text: string, merge = true) {
@@ -275,14 +316,19 @@ function renderToast() {
   if (toastLines.length > 0) toastTimer = window.setTimeout(renderToast, Math.min(...toastLines.map(line => line.until)) - now);
 }
 function clearInput() {
-  keys.clear(); mouseButtons.clear(); pressedSinceSend = 0; pointerBaseline = true;
+  keys.clear(); mouseButtons.clear(); pressedSinceSend = []; pointerBaseline = true;
   // 조이스틱과 기술 버튼을 쥔 손가락은 비우지 않는다. 포인터를 잡아 두므로 뗀 것은 늘 알 수 있다.
-  // 비우면 움직이지 않는 손가락은 새 이벤트가 오지 않아 되살릴 길이 없다. 쥐고 있던 키는 자동 반복으로 되살아난다.
-  slotOrder.splice(0, slotOrder.length, ...touchedSlots());
-  if (world) world.control = { x: 0, y: 0, aim: world.control.aim, slot: 0 };
+  // 비우면 움직이지 않는 손가락은 새 이벤트가 오지 않아 되살릴 길이 없다. 누르고 있던 이동 키는 자동 반복으로 되살아난다.
+  // 누르고 있던 기술 키도 자동 반복으로 keys에 되살아나지만, 그런 키는 떼었다 다시 눌러야 하는 키로 둔다(keydown의 revived).
+  if (world) world.control = { x: 0, y: 0, aim: world.control.aim };
   // 서버는 작전 중 살아 있는 대원의 입력만 받는다. 30Hz 입력과 같은 조건일 때만 멈춤 입력을 보낸다.
-  if (me()?.state === 'alive' && snapshot?.phase === 'active') sendInput(0, 0, world?.control.aim ?? 0, 0);
+  // 누르고 있는 버튼은 그대로 알린다. 키와 마우스는 방금 비웠으므로 기술 버튼을 쥔 손가락만 남는다. 빈 것으로 보내면
+  // 서버가 그 버튼을 뗀 것으로 적어, 손가락으로 잇던 기운이 이 입력 하나에 끝난다.
+  if (me()?.state === 'alive' && snapshot?.phase === 'active') sendInput(0, 0, world?.control.aim ?? 0, heldSlots());
 }
+
+// 방을 만들 때 고를 검사용 맵이다. 주소의 ?layout=… 값이고, 없으면 서버가 생성 작전을 만든다.
+const testLayout = new URLSearchParams(location.search).get('layout');
 
 async function enter(code?: string) {
   if (connecting) return;
@@ -299,6 +345,9 @@ async function enter(code?: string) {
       body: JSON.stringify({
         name: $<HTMLInputElement>('callsign').value || '대원',
         slots: [chosenSkill('slot-1'), chosenSkill('slot-2'), chosenSkill('slot-3'), chosenSkill('free-slot')],
+        // 주소에 ?layout=…이 있으면 방을 만들 때 그 맵을 고른다. 서버가 설정으로 허락한 검사용 맵(handmade, quiet)만 받고,
+        // 운영 서버는 거절한다(HTTP 403). 조작을 보는 브라우저 검사가 적이 없는 방(quiet)을 이렇게 만든다.
+        ...(!inputCode && testLayout ? { layout: testLayout } : {}),
       }),
     });
     if (!response.ok) {
@@ -374,7 +423,7 @@ function connect() {
     }
     if (message.type === 'reportNoted') { toast('제보에 내용을 덧붙였습니다.', false); return; }
     if (message.type !== 'snapshot') return;
-    if (message.version !== 5) { leave(); $('lobby-error').textContent = '서버와 클라이언트 버전이 다릅니다. 새로고침 후 다시 접속하세요.'; return; }
+    if (message.version !== 6) { leave(); $('lobby-error').textContent = '서버와 클라이언트 버전이 다릅니다. 새로고침 후 다시 접속하세요.'; return; }
     // 벽은 바뀔 때만, 규칙과 맵은 접속 직후에만 온다. 빠진 값은 같은 방의 이전 스냅샷에서 이어 쓴다.
     const wire = message as SnapshotWire;
     const previous = snapshot?.room === wire.room ? snapshot : undefined;
@@ -444,7 +493,7 @@ function setMarkup(id: string, html: string) {
 }
 
 function leave() {
-  guest = undefined; snapshot = undefined; lastNotice = 0; sequence = 0;
+  guest = undefined; snapshot = undefined; lastNotice = 0; sequence = 0; pressSequence.fill(-1);
   // 투입 답을 기다리던 표시도 되돌린다. 옛 연결의 처리기는 나간 뒤에는 돌지 않으므로, 여기서 되돌리지 않으면 다음 작전의 투입 버튼이 잠긴다.
   deployRequested = false;
   closeReportNote();
@@ -530,7 +579,8 @@ function updateUi() {
     $('max-mana').textContent = `/ ${p.maxMana}`;
     $('mana-fill').style.width = `${100 * p.mana / p.maxMana}%`;
     const current = p.actions.at(-1);
-    const phaseText = current?.phase === 'interrupted' ? '중단됨' : current?.phase === 'followup' ? '일반 반격' : current?.phase === 'recovery' ? '후딜레이' : current ? skillNames[current.skill as Skill] : '준비';
+    // 기술 칸에 적는 지금 단계다. 기운이 도는 동안, 장판이 깔린 동안(받아치기의 반격은 상성이 없어 따로 적는다), 그 뒤의 회복이다.
+    const phaseText = !current ? '준비' : current.phase === 'aura' ? '기운' : current.phase === 'recovery' ? '후딜레이' : current.kind === 'none' ? '일반 반격' : '장판';
     // 기술 칸 하나의 표시다. 기술 막대와 터치 기술 버튼이 같은 규칙을 쓴다.
     const slotView = (slot: number) => {
       const skill = p.slots[slot - 1];
@@ -560,7 +610,10 @@ function updateUi() {
         showHand(element.querySelector<HTMLElement>('.hand')!, view.kind);
       }
     }
-    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고를 읽고 대응하세요 · 기술 사용 중에도 이동 가능';
+    // 터치 화면의 체력·마나 상자는 내용만큼 넓고, 그 폭은 이 글자가 정한다. 대기 문구가 마나가 없을 때의 문구보다 넓으면
+    // 마나가 생기는 순간 상자가 넓어져, 좁은 가로 화면에서 위쪽 줄이 꺾이고 세로 화면에서 한 줄 더 높아진다. 화면 배치는 마나가 없는
+    // 상태로 재므로 그보다 넓지 않게 쓴다(touch.spec.ts가 두 문구의 폭을 비교한다).
+    $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고 안에서 이기는 기술 · 누른 채로 기운 유지';
     $('combat-status').classList.toggle('empty', p.mana === 0);
   }
   $('touch-controls').hidden = !touchMode || !alive || ended;
@@ -628,14 +681,20 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) clear
 window.addEventListener('keydown', event => {
   if (!guest || event.target instanceof HTMLInputElement) return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyM', 'Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(event.code)) event.preventDefault();
-  keys.add(event.code);
   const pressed = slotFromCode(event.code);
+  // 자동 반복으로 처음 보는 키다. 입력을 비우기 전(창을 떠나기 전)부터, 또는 창 밖에서부터 누르고 있던 키다.
+  const revived = !keys.has(event.code) && event.repeat;
+  // 살아 있을 때 새로 누른 기술 키만 누름이다. 자동 반복은 새로 누른 것이 아니다. 기술은 누를 때 한 번 시작하므로, 자동 반복으로
+  // 들어온 기술 키는 누름으로 치지 않는다. 창이 포커스를 잃어 입력이 비워진 뒤에도 계속 누르고 있던 키는 자동 반복으로만 들어온다.
+  // 그 키는 떼었다 다시 눌러야 기술이 나간다. 마우스 버튼도 같다(pointerBaseline). 누름으로 치면 창으로 돌아온 순간 기술이 한 번 나간다.
+  // 이 키를 keys에 넣기 전에 부른다. 그 슬롯을 이미 누르고 있던 다른 입력과 겹쳐 누른 것인지를 pressSlot이 가린다.
+  if (pressed > 0 && !event.repeat && me()?.state === 'alive') pressSlot(pressed);
+  keys.add(event.code);
   // 살아 있지 않을 때 누른 기술 키는 다시 눌러야 한다. 살아 있을 때 새로 누르면(자동 반복이 아니면) 다시 쓸 수 있다.
-  if (pressed > 0 && me()?.state !== 'alive') staleKeys.add(event.code);
+  // 자동 반복으로 되살아난 기술 키도 다시 눌러야 한다. 누르고 있는 것으로 치면, 같은 슬롯의 다른 입력(마우스)으로 짧게 낸
+  // 기술의 기운을 그 키가 최대 시간까지 이어 준다(PR #28 리뷰 4번).
+  if (pressed > 0 && (me()?.state !== 'alive' || revived)) staleKeys.add(event.code);
   else if (pressed > 0 && !event.repeat) staleKeys.delete(event.code);
-  // 자동 반복은 누름 순서를 바꾸지 않는다. 다만 창이 포커스를 잃어 순서가 비워진 뒤에도
-  // 계속 누르고 있던 키는 자동 반복으로만 들어오므로, 순서에 없을 때는 다시 넣는다.
-  if (pressed > 0 && !staleKeys.has(event.code) && (!event.repeat || !slotOrder.includes(pressed))) pressSlot(pressed);
   if (event.repeat) return;
   if (event.code === 'KeyM' && world) world.overview = !world.overview;
 });
@@ -690,7 +749,7 @@ $('touch-move').addEventListener('pointermove', event => { if (event.pointerId =
 for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
   $('touch-move').addEventListener(type, event => { if (event.pointerId === stickPointer) releaseStick(); });
 }
-// 기술 버튼: 누르고 있는 동안 그 슬롯을 쓴다. 키보드처럼 나중에 누른 버튼이 먼저다.
+// 기술 버튼: 누를 때 그 슬롯의 기술을 한 번 쓰고, 누르고 있는 동안 기운이 이어진다. 키보드처럼 나중에 누른 버튼이 먼저다.
 for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill')) {
   const slot = Number(button.dataset.slot);
   button.addEventListener('pointerdown', event => {
@@ -698,7 +757,8 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('.touch-skill'
     // 키보드·마우스처럼 살아 있을 때의 누름만 받는다. 살아 있지 않을 때의 누름이 착지 뒤 첫 입력에 실려 나가지 않게 한다.
     if (me()?.state !== 'alive') return;
     button.setPointerCapture(event.pointerId);
-    touch.pointers.set(event.pointerId, slot); pressSlot(slot);
+    // 누르고 있는 손가락으로 적기 전에 부른다. 이미 이 버튼을 누르고 있던 손가락과 겹쳐 누른 것인지를 pressSlot이 가린다.
+    pressSlot(slot); touch.pointers.set(event.pointerId, slot);
     button.classList.add('held');
   });
   const release = (event: PointerEvent) => {
@@ -739,14 +799,14 @@ function sendControl() {
   const aimAt = mouse.known ? world.screenToWorld(mouse.x, mouse.y) : { x: p.x + 1, y: p.y };
   // 터치로만 조작하면 마우스 위치가 없으므로 마지막으로 움직인 방향을 조준으로 쓴다. 둘레 기술은 조준이 필요 없다.
   const aim = !mouse.known && touch.aimKnown ? touch.aim : Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
-  let slot = 0;
-  for (const candidate of slotOrder) { if (slotHeld(candidate)) slot = candidate; }
-  // slot은 지금 쥐고 있는 슬롯만 뜻한다. 지난 입력 뒤에 누른 슬롯은 이미 떼었어도 press로 한 번 따로 보낸다.
-  // 서버는 입력이 몰려 와도 틱마다 누름을 쥐고 있음보다 먼저 쓰고, 그 틱에만 쓴다(Player.PressedSlot).
-  const press = pressedSinceSend;
-  pressedSinceSend = 0;
-  world.control = { x, y, aim, slot };
-  sendInput(x, y, aim, slot, press);
+  // 기술은 누름(pressed)으로만, 누를 때 한 번 시작한다(protocol v6). 지난 입력 뒤에 누른 슬롯은 이미 떼었어도 누른 차례대로 한 번 보낸다.
+  // held는 지금 누르고 있는 슬롯 전부다. 누르고 있는 동안 그 슬롯으로 쓴 기술의 기운이 이어지고, 떼면 장판이 나간다.
+  // 다른 기술을 쓰는 중에 누른 버튼은 누르고 있는 동안 기다렸다가, 앞의 기술이 끝나면 누른 차례대로 나간다.
+  // 누르고 있다고 기술이 다시 나가지는 않는다. 클라이언트는 사실(무엇을 눌렀고 무엇을 누르고 있는지)만 보내고 나머지는 서버가 정한다.
+  const pressed = pressedSinceSend;
+  pressedSinceSend = [];
+  world.control = { x, y, aim };
+  sendInput(x, y, aim, heldSlots(), pressed);
 }
 // 입력은 서버의 틱과 같은 빠르기(초당 30번)로 보낸다. 클라이언트 예측이 보낸 입력 하나를 한 틱으로 치기 때문이다.
 // setInterval(…, 1000 / 30)은 브라우저가 33ms로 내려 초당 30.3번이 되고 예측이 조금씩 앞서므로, 보낼 시각을 1/30초씩 더해 정한다.

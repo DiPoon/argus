@@ -21,6 +21,7 @@ internal static class Program
             LifecycleTests.Register(tests);
             EquipmentTests.Register(tests);
             CombatTests.Register(tests);
+            AuraTests.Register(tests);
             EncounterTests.Register(tests);
             DeterminismTests.Register(tests);
             RecordingTests.Register(tests);
@@ -223,6 +224,8 @@ internal static class TestTools
         return ally;
     }
 
+    // player가 skill을 방금(age초 전에) 짧게 눌러 시작한 것으로 둔다. 입력을 거치지 않으므로 버튼은 누르고 있지 않다.
+    // 그래서 기운은 가장 짧은 시간만 돌고 장판이 나간다. 버튼을 누르고 있는 장면은 입력(Match.Input)으로 만든다.
     public static PlayerAction Prepare(Fixture fixture, Player player, string skill, double age = 0)
     {
         return Prepare(fixture, player, fixture.Match.Rules.Skill(skill), age);
@@ -233,10 +236,29 @@ internal static class TestTools
     {
         _id++;
         // age초 전에 시작한 기술이다. 틱으로 올려 센다.
-        PlayerAction action = new PlayerAction(_id, skill, 1, fixture.Match.Tick - Rules.ToTicks(age));
+        long maxAuraTicks = Rules.ToTicks(fixture.Match.Rules.MaxAuraSeconds);
+        PlayerAction action = new PlayerAction(_id, skill, 1, fixture.Match.Tick - Rules.ToTicks(age), maxAuraTicks);
+        // 짧게 누른 기술이라 버튼은 이미 놓았다.
+        action.Released = true;
         player.Actions.Add(action);
-        player.BusyUntilTick = action.EndsTick;
         return action;
+    }
+
+    // 입력의 슬롯 목록을 만든다. 슬롯 하나만 든 목록이고, 0이면 빈 목록이다.
+    public static int[] Slots(int slot)
+    {
+        if (slot == 0)
+        {
+            return new int[0];
+        }
+        return new int[] { slot };
+    }
+
+    // 기술이 대원의 기술 목록에서 빠졌는지다. 완벽 대응을 냈거나 끊긴 기술은 그 틱의 판정이 끝나면 목록에서 빠진다.
+    // 끝났다는 표시는 기술에 따로 남지 않으므로, 왜 빠졌는지는 그 판정의 결과(적의 체력, 대원의 체력)로 본다.
+    public static bool Gone(Player player, PlayerAction action)
+    {
+        return !player.Actions.Contains(action);
     }
 
     public static Enemy Target(Fixture fixture, EnemyDefinition? definition = null)

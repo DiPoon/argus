@@ -256,7 +256,7 @@ internal static class GeneratorTests
             FixedVector start = player.Position;
             for (long tick = 0; tick < Rules.TicksPerSecond; tick++)
             {
-                match.Input(player, tick, 1, 0, 0, 0);
+                match.Input(player, tick, 1, 0, 0);
                 match.Step();
             }
             Near(Distance(start, player.Position), 180, 0.1);
@@ -265,7 +265,7 @@ internal static class GeneratorTests
             for (long tick = 0; tick < ticks; tick++)
             {
                 double heading = tick * 0.03;
-                match.Input(player, Rules.TicksPerSecond + tick, Math.Cos(heading), Math.Sin(heading), 0, 0);
+                match.Input(player, Rules.TicksPerSecond + tick, Math.Cos(heading), Math.Sin(heading), 0);
                 match.Step();
             }
             Check(match.Enemies.Count > 3, $"시드 {seed}: 증원이 생기지 않았습니다");

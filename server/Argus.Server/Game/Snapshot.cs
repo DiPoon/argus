@@ -91,8 +91,12 @@ public static class Snapshot
             {
                 EnemyAction action = enemy.Action;
                 // 적 기술은 이름이 따로 없어 상성 종류를 이름으로도 보낸다.
-                ActionSnapshot display = CreateAction(action, action.Skill.Kind, action.Skill.Kind, action.Aim,
+                ActionSnapshot display = CreateAction(action.Id, action.Skill.Kind, action.Skill.Kind, action.Aim,
                     action.Skill.Range, action.Skill.HalfWidth);
+                display.StartedAt = Seconds(action.StartedTick);
+                display.ContactAt = Seconds(action.ContactTick);
+                display.ActiveUntil = Seconds(action.ActiveUntilTick);
+                display.EndsAt = Seconds(action.EndsTick);
                 display.Tier = action.Skill.Tier;
                 display.Target = action.TargetId;
                 display.Phase = "recovery";
@@ -166,7 +170,7 @@ public static class Snapshot
         rules.Speed = match.Rules.PlayerSpeed;
         rules.PlayerRadius = Round(Rules.PlayerRadius);
         rules.GuardHalfAngle = match.Rules.GuardHalfAngle;
-        rules.ParryFollowupSeconds = match.Rules.ParryFollowupSeconds;
+        rules.MaxAuraSeconds = match.Rules.MaxAuraSeconds;
         for (int i = 0; i < Rules.AllSkills.Count; i++)
         {
             rules.Skills.Add(Rules.AllSkills[i]);
@@ -206,6 +210,16 @@ public static class Snapshot
             // 보급 대기 시간은 대원마다 다르다.
             entry.Cooldown = Seconds(Math.Max(0, supply.ReadyTick(recipient) - match.Tick));
             personal.Supplies.Add(entry);
+        }
+        // 기다리는 누름은 누른 차례대로 슬롯만 담는다. 없는 때가 대부분이라 그때는 담지 않는다.
+        if (recipient.Waiting.Count > 0)
+        {
+            int[] waiting = new int[recipient.Waiting.Count];
+            for (int i = 0; i < waiting.Length; i++)
+            {
+                waiting[i] = recipient.Waiting[i].Slot;
+            }
+            personal.Waiting = waiting;
         }
         // 분대가 보지 못한 칸은 모름(3)으로 가린 배열이다.
         int revision = match.WallsRevision;
@@ -261,32 +275,45 @@ public static class Snapshot
         entry.MaxHp = player.MaxHp;
         entry.Mana = player.Mana;
         entry.MaxMana = player.MaxMana;
-        entry.Busy = Seconds(Math.Max(0, player.BusyUntilTick - match.Tick));
+        long busyUntil = match.Tick;
         for (int i = 0; i < player.Actions.Count; i++)
         {
             PlayerAction action = player.Actions[i];
             // 대원의 기술 방향은 사용 중에도 조준을 따라 바뀐다.
-            ActionSnapshot display = CreateAction(action, action.Skill.Id, action.Skill.Kind, player.Aim,
+            ActionSnapshot display = CreateAction(action.Id, action.Skill.Id, action.Skill.Kind, player.Aim,
                 action.Skill.Range, action.Skill.HalfWidth);
-            // 반격 끝은 규칙 값으로 다시 계산하면 올림 방식에 따라 한 틱 어긋날 수 있으므로 서버가 정한 틱을 보낸다.
-            display.FollowupUntil = Seconds(action.FollowupUntilTick(match.Rules.ParryFollowupSeconds));
+            // 시각은 서버가 지금 정해 둔 틱 그대로 보낸다. 버튼을 누르고 있으면 장판이 나갈 틱이 한 틱씩 뒤로 밀리는데,
+            // "계속 누를 것"이라고 미리 짐작한 시각을 보내지 않는다. 짧게 누른 기술도 뗀 입력이 닿기 전에는 누르고 있는 것으로 보이므로,
+            // 짐작한 시각은 긴 값(최대 기운 시간)이었다가 짧은 값으로 바뀐다. 대신 기운을 잇는 중인지(Held)와 늦어도 장판이 나가는
+            // 시각(HoldUntil)을 따로 알린다. 화면은 Held인 기운을 ContactAt이 지나도 다음 스냅샷까지 기운으로 그린다.
+            display.StartedAt = Seconds(action.StartedTick);
+            display.ContactAt = Seconds(action.ZoneTick);
+            display.ActiveUntil = Seconds(action.ZoneUntilTick);
+            display.EndsAt = Seconds(action.EndsTick);
+            display.Held = action.HasAura(match.Tick) && action.Holding;
+            display.HoldUntil = Seconds(action.HoldUntilTick);
             display.Slot = action.Slot;
             display.Phase = "recovery";
-            if (action.Cancelled)
+            if (action.HasAura(match.Tick))
             {
-                display.Phase = "interrupted";
+                display.Phase = "aura";
             }
-            else if (action.IsActive(match.Tick))
+            else if (action.ZoneOut(match.Tick))
             {
-                display.Phase = "active";
-            }
-            else if (action.IsFollowup(match.Tick, match.Rules.ParryFollowupSeconds))
-            {
-                display.Phase = "followup";
-                display.Kind = "none";
+                display.Phase = "zone";
+                // 상성 없는 장판(받아치기의 반격)이다.
+                if (action.Skill.PlainZone)
+                {
+                    display.Kind = "none";
+                }
             }
             entry.Actions.Add(display);
+            if (action.EndsTick > busyUntil)
+            {
+                busyUntil = action.EndsTick;
+            }
         }
+        entry.Busy = Seconds(busyUntil - match.Tick);
         if (player.State == "deploying")
         {
             entry.Deploy = Seconds(Math.Max(0, player.DeployTick - match.Tick));
@@ -299,22 +326,15 @@ public static class Snapshot
         return entry;
     }
 
-    // 적과 대원의 행동에 공통인 값(id, 기술, 상성, 방향, 시각, 범위)을 담는다. 단계·티어·슬롯은 부르는 쪽이 채운다.
-    private static ActionSnapshot CreateAction(ITimedAction action, string skill, string kind, Angle aim,
-        double range, double halfWidth)
+    // 적과 대원의 행동에 공통인 값(id, 기술, 상성, 방향, 범위)을 담는다. 시각·단계·티어·슬롯은 부르는 쪽이 채운다.
+    // 시각은 틱으로 다루지만 통신 형식은 초다.
+    private static ActionSnapshot CreateAction(int id, string skill, string kind, Angle aim, double range, double halfWidth)
     {
         ActionSnapshot display = new ActionSnapshot();
-        display.Id = action.Id;
+        display.Id = id;
         display.Skill = skill;
         display.Kind = kind;
         display.Aim = aim.ToRadians();
-        // 시각은 틱으로 다루지만 통신 형식은 초다.
-        display.StartedAt = Seconds(action.StartedTick);
-        display.ContactAt = Seconds(action.ContactTick);
-        display.ActiveUntil = Seconds(action.ActiveUntilTick);
-        // 적의 행동에는 반격이 없어 유효 시간 끝과 같다. 대원의 기술은 부르는 쪽이 반격 끝으로 바꾼다.
-        display.FollowupUntil = display.ActiveUntil;
-        display.EndsAt = Seconds(action.EndsTick);
         display.Range = range;
         display.HalfWidth = halfWidth;
         return display;

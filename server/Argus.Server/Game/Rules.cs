@@ -56,38 +56,34 @@ public sealed class Rules
 
     // 대원 기술이다. 기술은 규칙마다 바꾸지 않으므로 모든 규칙이 같은 정의를 쓴다.
     // 그래서 참가 요청의 장비 검사(ValidSlots)도 규칙 없이 기술을 찾을 수 있다.
-    // 근접 타격: 범위에 닿은 적을 한 번씩 치고 시설과 벽을 부순다.
+    // 시간은 차례로 기운(가장 짧게), 장판, 짧게 눌렀을 때의 전체 길이다.
+    // 근접 타격: 타격의 기운 0.18초 뒤 조준 방향의 좁은 장판이 0.24초 깔린다. 장판은 닿은 적을 한 번씩 치고 시설과 벽을 부순다.
     private static readonly SkillDefinition StrikeSkill =
-        new SkillDefinition("strike", "strike", 1, 0.18, 0.42, 0.66, 54, 10,
-            guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true,
-            followupBreaksStructures: false, around: false);
-    // 받아치기: 전방 방어 뒤 일반 반격. 반격은 시설과 벽도 부순다.
+        new SkillDefinition("strike", "strike", 1, 0.18, 0.24, 0.66, 54, 10,
+            plainZone: false, singleTarget: false, breaksStructures: true, around: false);
+    // 받아치기: 방어의 기운 0.55초 뒤 상성 없는 일반 반격이 장판으로 0.18초 나간다. 반격은 시설과 벽도 부순다.
     private static readonly SkillDefinition ParrySkill =
-        new SkillDefinition("parry", "block", 1, 0, 0.55, 0.98, 54, 10,
-            guardsFront: true, hasFollowup: true, singleTarget: false, breaksStructures: false,
-            followupBreaksStructures: true, around: false);
-    // 잡기: 가장 가까운 한 명을 붙잡고 동작 내내 그 대상만 판정한다.
+        new SkillDefinition("parry", "block", 1, 0.55, 0.18, 0.98, 54, 10,
+            plainZone: true, singleTarget: false, breaksStructures: true, around: false);
+    // 잡기: 잡기의 기운 0.12초 뒤 장판이 0.53초 깔린다. 한 시전에 적 하나만 판정한다.
     private static readonly SkillDefinition GrabSkill =
-        new SkillDefinition("grab", "channel", 1, 0.12, 0.65, 0.85, 48, 8,
-            guardsFront: false, hasFollowup: false, singleTarget: true, breaksStructures: false,
-            followupBreaksStructures: false, around: false);
+        new SkillDefinition("grab", "channel", 1, 0.12, 0.53, 0.85, 48, 8,
+            plainZone: false, singleTarget: true, breaksStructures: false, around: false);
     // 아래 셋은 조준하지 않는 둘레 기술이다. 버튼만 눌러 쓸 수 있다. 셋은 상성 종류만 다르고 나머지는 같다.
-    // 둘레(반지름 48)에 닿은 적을 한 번씩 치고, 둘레의 시설도 부순다. 벽은 치지 않는다. 시간과 마나는 근접 타격과 같다.
+    // 기운은 모든 방향으로 돈다. 장판은 둘레(반지름 48)에 닿은 적을 한 번씩 치고, 둘레의 시설도 부순다. 벽은 치지 않는다.
+    // 시간과 마나는 근접 타격과 같다.
     // 회전 베기는 타격이다.
     private static readonly SkillDefinition SpinSkill =
-        new SkillDefinition("spin", "strike", 1, 0.18, 0.42, 0.66, 48, 0,
-            guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true,
-            followupBreaksStructures: false, around: true);
-    // 회전 방어는 방어다. 받아치기와 달리 공격을 기다리지 않고 먼저 친다.
+        new SkillDefinition("spin", "strike", 1, 0.18, 0.24, 0.66, 48, 0,
+            plainZone: false, singleTarget: false, breaksStructures: true, around: true);
+    // 회전 방어는 방어다. 받아치기의 반격과 달리 장판에도 방어 상성이 있다.
     private static readonly SkillDefinition SpinBlockSkill =
-        new SkillDefinition("spinblock", "block", 1, 0.18, 0.42, 0.66, 48, 0,
-            guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true,
-            followupBreaksStructures: false, around: true);
-    // 회전 잡기는 잡기다. 잡기와 달리 한 명이 아니라 둘레의 적을 모두 친다.
+        new SkillDefinition("spinblock", "block", 1, 0.18, 0.24, 0.66, 48, 0,
+            plainZone: false, singleTarget: false, breaksStructures: true, around: true);
+    // 회전 잡기는 잡기다. 잡기와 달리 한 명이 아니라 둘레의 적을 모두 판정한다.
     private static readonly SkillDefinition SpinGrabSkill =
-        new SkillDefinition("spingrab", "channel", 1, 0.18, 0.42, 0.66, 48, 0,
-            guardsFront: false, hasFollowup: false, singleTarget: false, breaksStructures: true,
-            followupBreaksStructures: false, around: true);
+        new SkillDefinition("spingrab", "channel", 1, 0.18, 0.24, 0.66, 48, 0,
+            plainZone: false, singleTarget: false, breaksStructures: true, around: true);
 
     // 모든 대원 기술이다. 규칙을 보낼 때 이 순서로 보낸다. 새 기술을 만들면 여기에 넣는다.
     // 정적 필드는 적힌 순서대로 만들어지므로 위의 정의들보다 뒤에 둔다.
@@ -99,7 +95,9 @@ public sealed class Rules
     public SkillDefinition Strike { get; } = StrikeSkill;
     public SkillDefinition Parry { get; } = ParrySkill;
     public SkillDefinition Grab { get; } = GrabSkill;
-    public double ParryFollowupSeconds { get; init; } = 0.18;
+    // 기운이 도는 가장 긴 시간(초)이다. 버튼을 누르고 있어도 기술을 시작한 지 이만큼 지나면 장판이 나간다.
+    // 한도가 없으면 버튼을 누르고만 있는 자세가 마나 없이 이어진다. 기술의 가장 짧은 기운 시간이 이보다 길면 그 시간까지다.
+    public double MaxAuraSeconds { get; init; } = 1;
 
     // id로 대원 기술을 찾는다. 모르는 id면 null이다.
     public static SkillDefinition? FindSkill(string? id)
@@ -129,9 +127,12 @@ public sealed class Rules
 
     // 앞의 세 칸은 그 칸 종류의 기술 가운데 하나이고, 네 번째 자유 칸은 아무 기술이나 된다(2026-10-31 합의).
     // 그래서 어떤 장비든 세 상성을 모두 하나씩은 든다.
+    // 장비 칸의 수다. 입력의 슬롯 번호는 1부터 이 수까지다.
+    public const int SlotCount = 4;
+
     public static bool ValidSlots(string[]? slots)
     {
-        if (slots == null || slots.Length != 4)
+        if (slots == null || slots.Length != SlotCount)
         {
             return false;
         }
