@@ -20,7 +20,12 @@ export interface SkillDefinition {
 export interface CombatAction {
   id: number; skill: string; kind: Affinity; slot: number; tier: number;
   phase: 'aura' | 'zone' | 'telegraph' | 'active' | 'recovery';
+  // 시각은 서버가 지금 정해 둔 틱 그대로다. 대원이 버튼을 누르고 있어 기운이 이어지는 중(held)이면 contactAt은 지금 놓았을 때
+  // 장판이 나가는 시각이고, 누르고 있는 동안 한 틱씩 뒤로 밀린다. activeUntil과 endsAt도 함께 밀린다.
   aim: number; startedAt: number; contactAt: number; activeUntil: number; endsAt: number;
+  // 대원의 기술에만 있다. held는 버튼을 누르고 있어 기운이 이어지는 중인지, holdUntil은 계속 누르고 있을 때 장판이 나가는 시각
+  // (늦어도 이때는 나간다)이다(protocol v6).
+  held?: boolean; holdUntil?: number;
   range: number; halfWidth: number;
   // 적의 행동이 노린 대원의 id다. 대원의 행동과 노린 대원이 없는 행동에는 없다(protocol v5, 2026-11-08).
   target?: string;
@@ -68,4 +73,4 @@ export function applyWallChanges(walls: string, changes: readonly number[]): str
   return btoa(binary);
 }
 export interface Guest { room: string; id: string; token: string }
-export interface Control { x: number; y: number; aim: number; slot: number }
+export interface Control { x: number; y: number; aim: number }

@@ -193,9 +193,9 @@ test('a squad counters enemies and completes the mission using only public gamep
         const next = route(snapshot, player, destination);
         const dx = next.x - player.x, dy = next.y - player.y, length = Math.hypot(dx, dy);
         const move = distance > stop && length > 2;
-        // 기술은 press로만 시작한다(protocol v6). 봇은 버튼을 누르고 있지 않으므로(slot 0) 기운은 가장 짧게 돌고 장판이 나간다.
+        // 기술은 누름(pressed)으로만 시작한다(protocol v6). 봇은 버튼을 누르고 있지 않으므로(held가 빔) 기운은 가장 짧게 돌고 장판이 나간다.
         client.ws.send(JSON.stringify({ type: 'input', seq: client.seq++, moveX: move ? dx / length : 0,
-          moveY: move ? dy / length : 0, aim: Math.atan2(target.y - player.y, target.x - player.x), slot: 0, press: slot }));
+          moveY: move ? dy / length : 0, aim: Math.atan2(target.y - player.y, target.x - player.x), held: [], pressed: slot > 0 ? [slot] : [] }));
       }
       if (shared.now - lastRecord > 1) {
         lastRecord = shared.now;

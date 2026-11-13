@@ -20,8 +20,9 @@ const arcOnNewPath = (g: Graphics, x: number, y: number, radius: number, start: 
   g.beginPath().arc(x, y, radius, start, end);
 
 // 기운을 그리는 크기다(월드 단위). 기운은 몸 둘레의 옅은 빛으로 그리고, 대원은 그 바깥에 기운이 향한 쪽을 굵은 고리(둘레 기술)나
-// 앞 120°의 호로 그린다. 그 바깥의 가는 호는 기운이 남은 시간이다. 적의 예고 고리(반지름 32)는 가장 큰 적의 빛(23 + 8)보다 바깥이다.
-const auraGlow = 8, auraRing = 28, auraTimer = 34, telegraphRing = 32;
+// 앞 120°의 호로 그린다. 그 바깥의 가는 호는 기운이 남은 시간이고, 호 위의 짧은 눈금은 가장 짧은 기운 시간이 끝나는 자리다.
+// 적의 예고 고리(반지름 32)는 가장 큰 적의 빛(23 + 8)보다 바깥이다.
+const auraGlow = 8, auraRing = 28, auraTimer = 34, auraNotch = 3, telegraphRing = 32;
 
 // 확인받지 않은 입력을 이만큼(30Hz로 2초 분량)까지 보관한다. 확인이 오지 않는 이상한 상황에서도 끝없이 늘지 않게 한다.
 const maxPending = 60;
@@ -87,7 +88,7 @@ export class World {
   landing?: Position;
   fps = 60;
   shownEnemies = 0;
-  control: Control = { x: 0, y: 0, aim: 0, slot: 0 };
+  control: Control = { x: 0, y: 0, aim: 0 };
 
   async init(host: HTMLElement) {
     await this.app.init({
@@ -290,16 +291,19 @@ export class World {
   }
 
   // 기술 하나를 그린다. 몸에 도는 기운과 범위에 깔리는 장판을 따로 그린다(protocol v6). radius는 그 몸의 반지름이다.
-  // - contactAt 전: 몸에 기운이 돈다. 몸 둘레에 상성 색의 옅은 빛을 그리고, 장판이 깔릴 자리는 옅게 그린다.
+  // - 장판이 나가기 전: 몸에 기운이 돈다. 몸 둘레에 상성 색의 옅은 빛을 그리고, 장판이 깔릴 자리는 옅게 그린다.
   //   대원은 기운이 향한 쪽(둘레 기술은 고리, 그 밖에는 앞 120°의 호)과 기운이 남은 시간(바깥의 가는 호)도 그린다.
-  //   버튼을 누르고 있으면 서버가 장판 시각을 최대 기운 시간으로 보내므로, 남은 시간은 누르고 있을 수 있는 시간이다.
   //   적은 예고가 얼마나 지났는지를 고리로 그린다. 고리가 다 차면 장판이 나간다.
-  // - contactAt부터 activeUntil 전: 장판이 나갔다. 진하게 그리고, 기운은 사라졌으므로 그리지 않는다.
+  // - 장판이 나간 뒤 걷히기 전: 진하게 그리고, 기운은 사라졌으므로 그리지 않는다.
+  // 스냅샷의 시각은 서버가 지금 정해 둔 틱 그대로다. 대원이 버튼을 누르고 있어 기운이 이어지는 중(held)이면 contactAt은
+  // 지금 놓았을 때의 시각이라 곧 지나가는데, 그때도 장판은 나가지 않는다. 그래서 held인 기운은 다음 스냅샷이 올 때까지,
+  // 늦어도 장판이 나가는 시각(holdUntil)까지 기운으로 그린다. 그러지 않으면 스냅샷 사이에 장판을 그렸다가 기운으로 되돌린다.
   private drawAction(g: Graphics, p: Position, action: CombatAction, now: number, player: boolean, radius: number) {
-    if (now >= action.activeUntil) return;
+    const wait = action.held && action.holdUntil !== undefined ? Math.max(0, action.holdUntil - action.contactAt) : 0;
+    if (now >= action.activeUntil + wait) return;
     // 기술별 그림은 id가 아니라 서버가 보낸 기술 속성으로 정한다. 적의 행동에는 기술 정의가 없다.
     const definition = player ? this.snapshot!.rules.skills.find(d => d.id === action.skill) : undefined;
-    const aura = now < action.contactAt;
+    const aura = now < action.contactAt + wait;
     // 기운의 색은 기술의 종류다. 스냅샷의 kind는 지금 단계의 종류라 받아치기의 반격 중에는 none이다. 화면 시계는 스냅샷보다
     // 앞서 가므로, 대원의 기술은 정의의 종류로 기운을 칠하고 상성 없는 장판(plainZone)은 none 색으로 칠한다.
     const auraKind: Affinity = definition?.kind ?? action.kind;
@@ -324,8 +328,21 @@ export class World {
       g.moveTo(p.x, p.y).lineTo(p.x + Math.cos(aim - half) * auraRing, p.y + Math.sin(aim - half) * auraRing)
         .moveTo(p.x, p.y).lineTo(p.x + Math.cos(aim + half) * auraRing, p.y + Math.sin(aim + half) * auraRing).stroke({ color, width: 1, alpha: .4 });
     }
-    const left = Math.max(0, Math.min(1, (action.contactAt - now) / span));
+    // 기운이 남은 시간이다. 늦어도 장판이 나가는 시각(holdUntil)까지를 한 바퀴로 그린다. 버튼을 누르고 있으면 호가 다 닳을 때
+    // 장판이 나가고, 짧게 누른 기술은 호가 눈금(가장 짧은 기운 시간이 끝나는 자리)에 닿을 때 나간다.
+    // 호의 길이는 held에 기대지 않는다. 짧게 누른 기술도 뗀 입력이 서버에 닿기 전의 스냅샷에서는 held라, 그 값으로 길이를
+    // 정하면 호가 긴 값에서 짧은 값으로 튄다(PR #28 리뷰 9번).
+    const limit = action.holdUntil ?? action.contactAt;
+    const whole = Math.max(.001, limit - action.startedAt);
+    const left = Math.max(0, Math.min(1, (limit - now) / whole));
     if (left > 0) arcOnNewPath(g, p.x, p.y, auraTimer, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left).stroke({ color, width: 2, alpha: .75 });
+    // 눈금은 서버처럼 기운 시간을 틱으로 올려 구한다(Rules.ToTicks). 가장 짧은 기운 시간이 한 바퀴보다 짧을 때만 그린다.
+    const shortest = definition ? Math.ceil(definition.auraSeconds * ticksPerSecond - .000001) / ticksPerSecond : whole;
+    if (shortest < whole - .0005) {
+      const mark = -Math.PI / 2 + Math.PI * 2 * (1 - shortest / whole);
+      g.moveTo(p.x + Math.cos(mark) * (auraTimer - auraNotch), p.y + Math.sin(mark) * (auraTimer - auraNotch))
+        .lineTo(p.x + Math.cos(mark) * (auraTimer + auraNotch), p.y + Math.sin(mark) * (auraTimer + auraNotch)).stroke({ color, width: 2, alpha: .9 });
+    }
   }
 
   // 장판을 그린다. 둘레 기술은 대원 둘레의 원, 그 밖에는 조준 방향의 사각형이다. faint면 아직 나가지 않은 장판(깔릴 자리)이다.

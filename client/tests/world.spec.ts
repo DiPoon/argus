@@ -442,6 +442,91 @@ test('skills around the player draw a circle of their reach, and their aura draw
   expect(at(shapes.ring.circles, 0)).toBe(0);
 });
 
+test('a held aura stays an aura past its contactAt, and its time arc is the same whether or not the server still counts the button as held', async ({ page }) => {
+  // 스냅샷의 시각은 서버가 지금 정해 둔 틱 그대로다(PR #28 리뷰 9번). 버튼을 누르고 있어 기운이 이어지는 중(held)이면 contactAt은
+  // 지금 놓았을 때 장판이 나가는 시각이라 스냅샷 사이에 지나간다. 그때도 장판은 나가지 않으므로, 화면은 held인 기운을
+  // 늦어도 장판이 나가는 시각(holdUntil)까지 기운으로 그린다. held가 아니면 contactAt부터 장판이다.
+  const state = snapshot();
+  const strike = { id: 'strike' as const, kind: 'strike' as const, mana: 1, auraSeconds: .18, zoneSeconds: .24, duration: .66,
+    range: 54, halfWidth: 10, plainZone: false, singleTarget: false, breaksStructures: true, around: false };
+  state.rules.skills = [strike, parrySkill];
+  // 10초에 시작한 타격이다. 스냅샷(10.4초)은 장판이 나갈 틱을 다음 틱(10.43)으로, 늦어도 나가는 시각을 11초로 알린다.
+  const drawn = await page.evaluate(([state]) => {
+    type Style = { color?: number; alpha?: number };
+    type Step = { action: string; data: number[] };
+    type Painted = { action: string; data: { style?: Style; path?: { instructions: Step[] } } };
+    const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; received: number; units: { context: { instructions: Painted[] } } };
+    // later초 뒤의 화면이다. 스냅샷을 받은 시각을 그만큼 앞당겨, 다음 스냅샷이 오기 전에 화면 시계만 흐른 장면을 만든다.
+    // 그리는 동안에는 시계를 멈춘다. 받은 시각을 적고 그리기까지 흐른 실제 시간(1ms 안팎)이 화면 시계에 섞이면,
+    // 같은 장면의 호가 그릴 때마다 조금씩 달라져 두 장면의 호를 비교할 수 없다.
+    const realNow = performance.now.bind(performance);
+    const scene = (action: object, later: number) => {
+      const copy = structuredClone({ ...state, now: 10.4 });
+      copy.players[0].actions = [{ id: 950, skill: 'strike', kind: 'strike', slot: 1, tier: 1, phase: 'aura', aim: 0,
+        startedAt: 10, contactAt: 10.43, activeUntil: 10.67, endsAt: 10.9, range: 54, halfWidth: 10, ...action }];
+      const frozen = realNow();
+      performance.now = () => frozen;
+      try {
+        world.update(copy);
+        world.received = frozen - later * 1000;
+        world.draw(1 / 60);
+      } finally { performance.now = realNow; }
+      const painted = world.units.context.instructions;
+      const steps = painted.flatMap(i => i.data.path?.instructions ?? []);
+      // 기운의 빛(몸 13 + 8의 원), 남은 시간 호(반지름 34)의 끝 각도, 눈금(호를 가로지르는 짧은 선의 두 끝)을 모은다.
+      const glow = steps.filter(step => step.action === 'circle' && step.data[2] === 21).length;
+      const arcs = steps.filter(step => step.action === 'arc' && step.data[2] === 34).map(step => step.data[4]);
+      const notches: number[][] = [];
+      steps.forEach((step, index) => {
+        const next = steps[index + 1];
+        if (step.action !== 'moveTo' || next?.action !== 'lineTo') return;
+        const from = Math.hypot(step.data[0] - 400, step.data[1] - 730), to = Math.hypot(next.data[0] - 400, next.data[1] - 730);
+        if (Math.abs(from - 31) < .01 && Math.abs(to - 37) < .01) notches.push([Math.atan2(step.data[1] - 730, step.data[0] - 400)]);
+      });
+      const zones = painted.filter(i => i.action === 'fill' && (i.data.path?.instructions ?? []).some(step => step.action === 'poly'))
+        .map(i => i.data.style?.alpha ?? 1).filter(alpha => alpha < 1);
+      return { glow, arcs, notches, zones };
+    };
+    return {
+      // 누르고 있는 기운: 화면 시계가 contactAt(10.43)을 지난 10.5초에도 기운이다.
+      heldPast: scene({ held: true, holdUntil: 11 }, .1),
+      // 놓은 기술: 같은 시각에 장판이 나가 있다.
+      releasedPast: scene({ held: false, holdUntil: 11 }, .1),
+      // 짧게 누른 기술의 두 스냅샷이다. 뗀 입력이 서버에 닿기 전(held)과 닿은 뒤(held 아님)의 장판 시각은 같다(10.2초).
+      tapBefore: scene({ startedAt: 10.3, contactAt: 10.5, activeUntil: 10.73, endsAt: 10.97, held: true, holdUntil: 11.3 }, 0),
+      tapAfter: scene({ startedAt: 10.3, contactAt: 10.5, activeUntil: 10.73, endsAt: 10.97, held: false, holdUntil: 11.3 }, 0),
+      // 받아치기는 가장 짧은 기운 시간이 0.55초(17틱, 0.57초)라 눈금이 다른 자리에 있다.
+      parry: scene({ skill: 'parry', kind: 'block', startedAt: 10.3, contactAt: 10.87, activeUntil: 11.03, endsAt: 11.3, held: false, holdUntil: 11.3 }, 0),
+      // 늦어도 나가는 시각이 없는 스냅샷(적의 행동처럼)에는 눈금이 없다.
+      bare: scene({ startedAt: 10.3, contactAt: 10.5, activeUntil: 10.73, endsAt: 10.97 }, 0),
+    };
+  }, [state] as const);
+  // 누르고 있는 기운은 contactAt이 지나도 빛과 남은 시간 호가 있고, 장판은 깔릴 자리(옅음)만 있다.
+  expect(drawn.heldPast.glow).toBeGreaterThan(0);
+  expect(drawn.heldPast.arcs).toHaveLength(1);
+  expect(drawn.heldPast.zones).toEqual([.08]);
+  // 놓은 기술은 같은 시각에 빛과 호가 없고 장판이 진하다.
+  expect(drawn.releasedPast.glow).toBe(0);
+  expect(drawn.releasedPast.arcs).toHaveLength(0);
+  expect(drawn.releasedPast.zones).toEqual([.28]);
+  // 남은 시간 호는 늦어도 나가는 시각까지를 한 바퀴로 그린다. 10.5초면 11초까지 절반이 남았다(시작 10초, 끝 11초).
+  expect(drawn.heldPast.arcs[0]).toBeCloseTo(-Math.PI / 2 + Math.PI * 2 * .5, 1);
+  // 호의 길이는 held에 기대지 않는다. 짧게 누른 기술의 두 스냅샷에서 호가 같아, 뗀 입력이 닿는 순간 호가 튀지 않는다.
+  // 10.4초에 남은 시간은 시작(10.3)부터 늦어도 나가는 시각(11.3)까지의 90%다.
+  expect(drawn.tapBefore.arcs).toHaveLength(1);
+  expect(drawn.tapAfter.arcs[0]).toBeCloseTo(drawn.tapBefore.arcs[0], 6);
+  expect(drawn.tapBefore.arcs[0]).toBeCloseTo(-Math.PI / 2 + Math.PI * 2 * .9, 2);
+  // 눈금은 가장 짧은 기운 시간이 끝나는 자리다. 타격은 6틱(0.2초)이라 한 바퀴의 80%가 남는 자리, 받아치기는 17틱이라 약 43%가 남는 자리다.
+  const mark = (left: number) => Math.atan2(Math.sin(-Math.PI / 2 + Math.PI * 2 * left), Math.cos(-Math.PI / 2 + Math.PI * 2 * left));
+  expect(drawn.tapBefore.notches).toHaveLength(1);
+  expect(drawn.tapBefore.notches[0][0]).toBeCloseTo(mark(.8), 3);
+  expect(drawn.tapAfter.notches[0][0]).toBeCloseTo(mark(.8), 3);
+  expect(drawn.parry.notches).toHaveLength(1);
+  expect(drawn.parry.notches[0][0]).toBeCloseTo(mark(1 - 17 / 30), 3);
+  expect(drawn.bare.notches).toHaveLength(0);
+  expect(drawn.bare.arcs).toHaveLength(1);
+});
+
 test('the camera keeps the player in the middle at the edge of the map', async ({ page }) => {
   const state = snapshot();
   // 맵(가로 1920, 세로 1440)의 오른쪽 아래 구석 가까이에 선 대원이다.
@@ -586,7 +671,7 @@ test('the drawn position follows the reconciled position instead of the lagging 
     // 0.2초 동안 오른쪽으로 보낸 입력을 서버가 아직 처리하지 않은 상태다.
     for (let i = 0; i < 6; i++) world.recordInput(i + 1, 1, 0, now - 200 + i * 1000 / 30);
     // 현재 입력을 0으로 두어 프레임마다의 이동을 빼고 보정 목표만 본다.
-    world.control = { x: 0, y: 0, aim: 0, slot: 0 };
+    world.control = { x: 0, y: 0, aim: 0 };
     for (let frame = 0; frame < 30; frame++) world.draw(1 / 60);
     return world.mePosition()!;
   }, state);

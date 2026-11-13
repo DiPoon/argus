@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { test, expect, type CDPSession, type Page } from '@playwright/test';
 import type { Player, Snapshot } from '../src/types';
+import { quietRoom } from './rooms';
 
 // 휴대폰 가로 화면이다. hasTouch를 켜면 브라우저가 손가락 기기((pointer: coarse))로 알리므로 클라이언트가 터치 화면을 띄운다.
 const phone = { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true };
@@ -48,7 +49,7 @@ class Fingers {
 // 연결을 끊어 재접속 장면도 만든다.
 async function relay(page: Page) {
   const wire = {
-    inputs: [] as { slot: number; press: number; aim: number; moveX: number; moveY: number }[],
+    inputs: [] as { held: number[]; pressed: number[]; aim: number; moveX: number; moveY: number }[],
     player: undefined as Player | undefined,
     change: (data: Snapshot): Snapshot => data,
     holding: false,
@@ -115,10 +116,6 @@ const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([x, y]) =>
 // 로비의 장비 칸 선택지다. 칸 이름마다 고를 수 있는 기술 id를 차례대로 모은다.
 const lobbyChoices = (page: Page) => page.evaluate(() => Object.fromEntries(['slot-1', 'slot-2', 'slot-3', 'free-slot'].map(name =>
   [name, [...document.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)].map(input => input.value)])));
-
-// 기술을 쓰는 검사는 적이 없는 조용한 방에서 돈다(주소의 ?layout=quiet, 서버 설정 Argus:Missions:AllowHandmade가 필요하다).
-// 생성 작전에서는 처음 적들이 캠프로 와서 대원을 치고, 맞거나 받아친 기술은 그 순간 기술 목록에서 빠져 검사가 흔들린다(game.spec.ts의 설명).
-const quietRoom = '/?layout=quiet';
 
 test('a phone picks only around skills in a one-screen lobby and fights with the joystick and skill buttons', async ({ browser }) => {
   const context = await browser.newContext(phone);
@@ -208,11 +205,12 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     expect(me.player!.actions.at(-1)!.skill).toBe('spin');
     await expect(skillButton).toHaveClass(/\bheld\b/);
     await expect(skillButton).toHaveClass(/\bactive\b/);
-    // 버튼을 누르고 있는 동안에는 기운이 이어진다. 서버는 장판이 나갈 시각을 최대 기운 시간(시작 1초 뒤)으로 알리고,
-    // 기술 버튼은 지금 단계를 적는다. 짧게 눌렀다면 장판은 시작 0.18초 뒤에 나간다.
+    // 버튼을 누르고 있는 동안에는 기운이 이어진다. 서버는 기운을 잇는 중(held)이라고 알리고, 늦어도 장판이 나가는 시각을
+    // 최대 기운 시간(시작 1초 뒤)으로 알린다. 기술 버튼은 지금 단계를 적는다. 짧게 눌렀다면 장판은 시작 0.18초 뒤에 나간다.
     const aura = me.player!.actions.at(-1)!;
     expect(aura.phase).toBe('aura');
-    expect(aura.contactAt - aura.startedAt).toBeCloseTo(1, 1);
+    expect(aura.held).toBe(true);
+    expect(aura.holdUntil! - aura.startedAt).toBeCloseTo(1, 1);
     await expect(skillButton.locator('small')).toHaveText('기운');
     const casting = me.player!;
     await expect.poll(() => me.player?.x).toBeLessThan(casting.x - 15);
@@ -224,7 +222,8 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     await expect.poll(() => me.player?.x).toBeLessThan(released.x - 15);
     await fingers.up(0);
     await expect(page.locator('#touch-base')).toBeHidden();
-    // 버튼을 떼면 기술이 더 나가지 않는다. 뗀 입력이 서버에 닿은 뒤의 마나를 기준으로 본다.
+    // 버튼을 뗀 뒤에 기술이 더 나가지 않는다. 뗀 입력이 서버에 닿은 뒤의 마나를 기준으로 본다.
+    // 기술은 누를 때 한 번만 시전하므로 버튼이 눌린 채 남았는지는 마나로 알 수 없다. 그것은 아래의 검사가 보낸 입력의 held로 본다.
     await page.waitForTimeout(300);
     const left = me.player!.mana;
     expect(left).toBeLessThan(24);
@@ -443,12 +442,17 @@ test('fingers that stay on the joystick and skill buttons keep working through l
     await fingers.move(0, center.x - 50, center.y);
     await fingers.down(1, onButton.x, onButton.y);
     await expect.poll(() => last()?.moveX).toBe(-1);
-    await expect.poll(() => last()?.slot).toBe(1);
+    await expect.poll(() => last()?.held).toEqual([1]);
 
     // 창이 초점을 잃었다가 돌아와도 손가락은 그대로다. 곧바로 다시 걷고 기술을 쥐고 있다.
+    // 초점을 잃을 때 보내는 멈춤 입력에도 누르고 있는 버튼이 실린다. 빈 것으로 보내면 서버가 그 버튼을 놓은 것으로 적어,
+    // 손가락으로 잇던 기운이 그 입력 하나에 끝난다.
+    const blurred = wire.inputs.length;
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await page.waitForTimeout(150);
-    expect(last()).toMatchObject({ moveX: -1, slot: 1 });
+    expect(wire.inputs.length).toBeGreaterThan(blurred + 2);
+    expect(wire.inputs.slice(blurred).filter(input => !input.held.includes(1))).toEqual([]);
+    expect(last()).toMatchObject({ moveX: -1, held: [1] });
     await expect(page.locator('#touch-base')).toBeVisible();
     await expect(skillButton).toHaveClass(/\bheld\b/);
 
@@ -457,12 +461,12 @@ test('fingers that stay on the joystick and skill buttons keep working through l
     wire.drop();
     await expect(page.locator('#connection')).toContainText('재접속 중');
     await expect.poll(() => wire.inputs.length, { timeout: 8000 }).toBeGreaterThan(beforeDrop + 3);
-    expect(last()).toMatchObject({ moveX: -1, slot: 1 });
+    expect(last()).toMatchObject({ moveX: -1, held: [1] });
     await expect(page.locator('#touch-base')).toBeVisible();
 
     // 뗄 때는 곧바로 멈춘다.
     await fingers.up(1);
-    await expect.poll(() => last()?.slot).toBe(0);
+    await expect.poll(() => last()?.held).toEqual([]);
     await fingers.up(0);
     await expect.poll(() => last()?.moveX).toBe(0);
     await expect(page.locator('#touch-base')).toBeHidden();
@@ -470,13 +474,13 @@ test('fingers that stay on the joystick and skill buttons keep working through l
     // 한 기술 버튼을 두 손가락으로 누르다 하나를 떼도, 남은 손가락이 쥐고 있으면 기술을 쥐고 있는 것이다.
     await fingers.down(1, onButton.x, onButton.y);
     await fingers.down(2, onButton.x + 12, onButton.y);
-    await expect.poll(() => last()?.slot).toBe(1);
+    await expect.poll(() => last()?.held).toEqual([1]);
     await fingers.up(2);
     await page.waitForTimeout(150);
-    expect(last()?.slot).toBe(1);
+    expect(last()?.held).toEqual([1]);
     await expect(skillButton).toHaveClass(/\bheld\b/);
     await fingers.up(1);
-    await expect.poll(() => last()?.slot).toBe(0);
+    await expect.poll(() => last()?.held).toEqual([]);
     await expect(skillButton).not.toHaveClass(/\bheld\b/);
 
     // 잡아 둔 포인터를 놓치면 조이스틱을 비운다. 비우지 않으면 다음 손가락의 누름을 받지 못해 걸을 수 없다.
@@ -538,7 +542,7 @@ test('a skill button pressed between two operations does not cast in the next on
     const mark = wire.inputs.length;
     await deployAtCamp(page);
     await expect.poll(() => wire.inputs.length).toBeGreaterThan(mark + 3);
-    expect(wire.inputs.slice(mark).filter(input => input.press > 0 || input.slot > 0)).toEqual([]);
+    expect(wire.inputs.slice(mark).filter(input => input.pressed.length > 0 || input.held.length > 0)).toEqual([]);
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });
@@ -562,7 +566,7 @@ test('on a touch screen a pen is like a finger: the map casts nothing and the ai
     });
     const mark = wire.inputs.length;
     await expect.poll(() => wire.inputs.length).toBeGreaterThan(mark + 3);
-    expect(wire.inputs.filter(input => input.press > 0 || input.slot > 0)).toEqual([]);
+    expect(wire.inputs.filter(input => input.pressed.length > 0 || input.held.length > 0)).toEqual([]);
     expect(wire.inputs.at(-1)!.aim).toBe(aim);
   } finally { await context.close(); }
 });
@@ -644,16 +648,16 @@ test('on a PC screen a finger still aims and casts like the mouse', async ({ pag
   }, [type, button, buttons]);
   // 터치스크린 노트북의 PC 화면에는 터치 조작이 없다. 손가락이 마우스 구실을 하지 않으면 공격할 길이 없다.
   await finger('pointerdown', 0, 1);
-  await expect.poll(() => wire.inputs.filter(input => input.press === 1).length).toBe(1);
+  await expect.poll(() => wire.inputs.filter(input => input.pressed.includes(1)).length).toBe(1);
   await expect.poll(() => wire.inputs.at(-1)?.aim).not.toBe(before);
-  expect(wire.inputs.at(-1)!.slot).toBe(1);
+  expect(wire.inputs.at(-1)!.held).toEqual([1]);
   await finger('pointerup', 0, 0);
-  await expect.poll(() => wire.inputs.at(-1)?.slot).toBe(0);
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
   // 손가락을 끌면 브라우저가 화면 밀기로 받아 pointerup 대신 pointercancel을 보낸다. 이때도 뗀 것이다.
   await finger('pointerdown', 0, 1);
-  await expect.poll(() => wire.inputs.at(-1)?.slot).toBe(1);
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([1]);
   await finger('pointercancel', 0, 0);
-  await expect.poll(() => wire.inputs.at(-1)?.slot).toBe(0);
+  await expect.poll(() => wire.inputs.at(-1)?.held).toEqual([]);
 });
 
 test('the drawer closes when the player falls, so it does not cover the deploy buttons', async ({ browser }) => {
