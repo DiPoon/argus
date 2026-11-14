@@ -2,6 +2,22 @@ namespace Argus.Server.Game;
 
 public sealed partial class Match
 {
+    // 반지름이 radius인 몸이 position에 서면, center에 있는 다른 몸(반지름 otherRadius)과 겹치는지다. 딱 닿은 것은 겹친 것이 아니다.
+    // 몸끼리 겹치는지는 모두 이 식으로 묻는다. 설 수 있는 자리(CanOccupy), 막은 것 찾기(Blocker), 기다림 판정(Stuck)이 같은 식과
+    // 같은 여유(TouchTolerance)를 써야 한다. 한 곳만 달라지면 설 수 없다는 자리에서 막은 것을 찾지 못하거나, 기다린다는 판정이
+    // 실제로 막히는 것과 어긋난다.
+    private static bool BodiesOverlap(FixedVector position, Fixed radius, FixedVector center, Fixed otherRadius)
+    {
+        Fixed minimum = radius + otherRadius;
+        return FixedVector.DistanceSquared(position, center) < minimum * minimum - TouchTolerance;
+    }
+
+    // 그렇게 겹친 깊이다. 겹친 몸에만 쓴다.
+    private static Fixed OverlapDepth(FixedVector position, Fixed radius, FixedVector center, Fixed otherRadius)
+    {
+        return radius + otherRadius - Fixed.Sqrt(FixedVector.DistanceSquared(position, center));
+    }
+
     // mover가 null이면 플레이어다. 플레이어끼리는 통과하고 나머지 몸 충돌은 막는다.
     private bool CanOccupy(FixedVector position, Fixed radius, Enemy? mover)
     {
@@ -16,8 +32,7 @@ public sealed partial class Match
             {
                 continue;
             }
-            Fixed minimum = radius + other.Definition.Radius;
-            if (FixedVector.DistanceSquared(position, other.Position) < minimum * minimum - TouchTolerance)
+            if (BodiesOverlap(position, radius, other.Position, other.Definition.Radius))
             {
                 return false;
             }
@@ -27,9 +42,7 @@ public sealed partial class Match
             for (int i = 0; i < Players.Count; i++)
             {
                 Player player = Players[i];
-                Fixed minimum = radius + Rules.PlayerRadius;
-                if (player.State == "alive" &&
-                    FixedVector.DistanceSquared(position, player.Position) < minimum * minimum - TouchTolerance)
+                if (player.State == "alive" && BodiesOverlap(position, radius, player.Position, Rules.PlayerRadius))
                 {
                     return false;
                 }
@@ -67,20 +80,35 @@ public sealed partial class Match
         return from;
     }
 
-    // 적의 몸을 delta만큼 움직인다. 먼저 MoveBody로 가로와 세로를 따로 움직여 본다. 벽 면에 막히면 그 면을 따라 미끄러진다.
+    // 적의 몸을 계획한 만큼(plan.Step) 움직인다. 먼저 MoveBody로 가로와 세로를 따로 움직여 본다. 벽 면에 막히면 그 면을 따라 미끄러진다.
     // 그것으로 다 가지 못했으면 막은 것을 끼고 도는 길(Slide)도 구해, 가려던 쪽으로 더 나아간 것을 쓴다.
     // 가로와 세로를 따로 움직이는 것만으로는 벽 모서리와 다른 몸에 함께 막혔을 때 빠져나오지 못한다. 모서리에 걸린 적은
     // 가로로 조금 비켜야 모서리를 돌 수 있는데, 그 가로를 옆에 붙은 적이 막고 세로는 모서리가 막는다. 비스듬히 모서리를
     // 끼고 도는 길은 열려 있어도 가로와 세로 어느 하나로는 가지 못한다.
-    private FixedVector MoveEnemy(Enemy enemy, FixedVector delta, FixedVector toward)
+    private FixedVector MoveEnemy(EnemyPlan plan)
     {
+        Enemy enemy = plan.Enemy;
+        FixedVector delta = plan.Step;
         FixedVector from = enemy.Position;
         FixedVector stepped = MoveBody(from, delta, enemy.Definition.Radius, enemy);
         if (stepped == from + delta)
         {
             return stepped;
         }
-        FixedVector slid = Slide(enemy, delta, toward);
+        bool keeps = KeepsCourse(plan);
+        FixedVector slid = Slide(plan, keeps);
+        // 움직이던 쪽을 지키는 적은 그쪽을 거슬러 되돌아가는 걸음을 버린다(KeepsCourse). 둘 다 버리면 그 틱에는 선다.
+        if (keeps)
+        {
+            if (Reverses(stepped - from, enemy.LastMove))
+            {
+                stepped = from;
+            }
+            if (Reverses(slid - from, enemy.LastMove))
+            {
+                slid = from;
+            }
+        }
         // 가로와 세로로는 조금도 가지 못했으면 끼고 도는 길로 간다. 다른 적의 몸에 딱 정면으로 막혀 옆으로 도는 걸음은
         // 가려던 쪽으로는 조금도 나아가지 않으므로, 나아간 양만 견주면 고르지 못한다.
         if (stepped == from)
@@ -97,10 +125,42 @@ public sealed partial class Match
         return stepped;
     }
 
+    // 이 적이 이번 틱에 움직이던 쪽(Enemy.LastMove)을 지켜야 하는지다. 더 갈 수 없어 기다리는 적이 그렇다(EnemyPlan.Waiting).
+    // 기다리는 적은 서 있는 몸에 막혀 있으므로, 막은 몸을 끼고 돌거나 옆으로 도는 걸음이 길을 열어 주지 못할 때가 많다.
+    // 그런 자리에서는 틱마다 다시 정하는 방향이 한 걸음 차이로 뒤집힌다. 흐름장의 칸이 바뀌거나, 직진과 흐름장이 갈리거나,
+    // 가로·세로로 조금 간 걸음과 옆으로 도는 걸음이 맞서서다. 뒤집힌 방향으로 가면 다음 틱에 다시 돌아와, 제자리를 끝없이 오간다
+    // (2026-11-14 리뷰: 대원 앞의 분쇄자 뒤에서 병사가 한 걸음씩 북서로 갔다 남동으로 돌아오기를 되풀이했다).
+    // 그래서 기다리는 적은 움직이던 쪽을 거슬러 가지 않는다. 가던 쪽으로 더 갈 수 없으면 그 자리에 선다.
+    // - 막히지 않고 한 걸음을 다 가는 것은 막지 않는다(MoveEnemy가 먼저 돌려준다). 길이 열리면 어느 쪽으로든 간다.
+    // - 길을 내주는 적은 뺀다. 물러났다 다시 다가가는 것이 길 내주기다.
+    // - 기다리는 적이 아닌 적도 뺀다. 움직이는 적들 사이에서는 한 틱 물러났다 다시 가는 걸음이 필요하다. 모든 적에게 걸어 보니
+    //   길에서 멈추는 적이 생겼다(2026-11-15, 적이 행동하는 1,800판에서 17).
+    // - 행동을 시작해도 움직이던 쪽은 그대로 둔다. 지우면 공격 사이의 짧은 틈마다 한 번씩 갔다가 다음 틈에 돌아온다.
+    private static bool KeepsCourse(EnemyPlan plan)
+    {
+        return plan.Waiting && !plan.Yielding;
+    }
+
+    // move가 last를 거슬러 가는지다. 두 방향이 120° 넘게 벌어졌을 때 그렇다(코사인이 -1/2 미만).
+    // 직각으로 꺾는 걸음은 거스르는 것이 아니다. 정면으로 막힌 적이 옆으로 도는 걸음이 그렇다.
+    private static bool Reverses(FixedVector move, FixedVector last)
+    {
+        Fixed dot = move.Dot(last);
+        if (dot >= Fixed.Zero)
+        {
+            return false;
+        }
+        return dot * 2 < -(move.Length() * last.Length());
+    }
+
     // 막은 것을 끼고 도는 이동이다. 가려던 자리를 막은 것 가운데 가장 깊이 겹치는 것을 골라, 그것 쪽으로 파고드는 성분을 빼고
     // 남은 방향(그것의 겉을 따라가는 방향)으로 간다. 그 길도 다른 것이 막으면 움직이지 않는다.
-    private FixedVector Slide(Enemy enemy, FixedVector delta, FixedVector toward)
+    // keeps는 이 적이 움직이던 쪽을 지켜야 하는지다(KeepsCourse).
+    private FixedVector Slide(EnemyPlan plan, bool keeps)
     {
+        Enemy enemy = plan.Enemy;
+        FixedVector delta = plan.Step;
+        FixedVector toward = plan.Toward;
         FixedVector from = enemy.Position;
         Fixed radius = enemy.Definition.Radius;
         // 설 수 있는 자리인지는 늘 CanOccupy로 정한다. Blocker는 막은 것의 방향을 알아내는 데만 쓴다.
@@ -125,10 +185,13 @@ public sealed partial class Match
         // 다른 적의 몸을 거의 정면으로 밀고 있으면 겉을 따라가는 성분이 거의 없어 그 뒤에 그대로 선다. 한 칸 틈에서 줄지어
         // 나온 적들이 대원과 한 줄에 서면, 맨 앞의 적 뒤에 모두 멈춰 대원을 둘러싸지 못한다. 그때는 옆으로 돌아간다.
         // 벽과 대원의 몸은 돌아가지 않는다. 대원에게 닿은 적은 다 온 것이라 대원 둘레를 돌 까닭이 없다.
-        // 도는 쪽은 쫓는 대원 쪽(toward)에서 보아 이미 치우쳐 있는 쪽이고, 딱 정면이면 늘 같은 쪽이다.
+        // 먼저 도는 쪽은 쫓는 대원 쪽(toward)에서 보아 이미 치우쳐 있는 쪽이고, 딱 정면이면 늘 같은 쪽이다.
         // 가려는 방향이나 이번 틱의 이동(delta)으로 고르지 않는다. 가려는 방향은 직진과 흐름장 사이를 오갈 수 있고(몸 통과 판단이
-        // 한 걸음 차이로 갈리는 자리), 이동에는 길을 내주는 방향이 섞여 틱마다 조금씩 달라진다. 그런 것으로 고르면 도는 쪽이
-        // 틱마다 뒤집혀, 앞줄 뒤에서 기다리는 적이 제자리에서 떤다.
+        // 한 걸음 차이로 갈리는 자리), 이동에는 길을 내주는 방향이 섞여 틱마다 조금씩 달라진다.
+        // 그쪽 걸음을 디딜 수 없으면 반대쪽으로 돈다. 대원 쪽이 벽이나 다른 몸에 막혀 있어도 반대쪽이 비어 있으면 돌아 들어간다.
+        // 움직이던 쪽을 지키는 적(keeps)은 그쪽을 거스르는 걸음도 디딜 수 없는 걸음으로 친다. 그래서 한번 돌기 시작한 쪽으로
+        // 계속 돌고, 막힌 쪽과 열린 쪽을 한 틱씩 오가지 않는다. 움직이던 쪽을 기억하지 않고 반대쪽으로 돌게 했을 때는
+        // 제자리를 오가는 구간이 1,800판에서 243에서 11,281로 늘었다(2026-11-15). 두 쪽이 모두 안 되면 선다.
         // 옆으로 도는 걸음은 제 빠르기다. 절반 빠르기로도 재 봤는데 제자리에서 떠는 틱이 더 많았다(2026-11-14). 장면 하나로 가를 수는
         // 없어 검사로 묶지 않았다.
         if (body && along.LengthSquared() * 4 < delta.LengthSquared())
@@ -138,7 +201,21 @@ public sealed partial class Match
             {
                 side = -side;
             }
-            along = side * delta.Length();
+            FixedVector around = side * delta.Length();
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                bool open = CanOccupy(from + around, radius, enemy);
+                if (open && keeps && Reverses(around, enemy.LastMove))
+                {
+                    open = false;
+                }
+                if (open)
+                {
+                    return from + around;
+                }
+                around = -around;
+            }
+            return from;
         }
         if (along.LengthSquared() < TinyLengthSquared)
         {
@@ -169,13 +246,11 @@ public sealed partial class Match
             {
                 continue;
             }
-            Fixed minimum = radius + other.Definition.Radius;
-            Fixed distanceSquared = FixedVector.DistanceSquared(position, other.Position);
-            if (distanceSquared >= minimum * minimum - TouchTolerance)
+            if (!BodiesOverlap(position, radius, other.Position, other.Definition.Radius))
             {
                 continue;
             }
-            Fixed overlap = minimum - Fixed.Sqrt(distanceSquared);
+            Fixed overlap = OverlapDepth(position, radius, other.Position, other.Definition.Radius);
             if (blocked && overlap <= depth)
             {
                 continue;
@@ -192,13 +267,11 @@ public sealed partial class Match
             {
                 continue;
             }
-            Fixed minimum = radius + Rules.PlayerRadius;
-            Fixed distanceSquared = FixedVector.DistanceSquared(position, player.Position);
-            if (distanceSquared >= minimum * minimum - TouchTolerance)
+            if (!BodiesOverlap(position, radius, player.Position, Rules.PlayerRadius))
             {
                 continue;
             }
-            Fixed overlap = minimum - Fixed.Sqrt(distanceSquared);
+            Fixed overlap = OverlapDepth(position, radius, player.Position, Rules.PlayerRadius);
             if (blocked && overlap <= depth)
             {
                 continue;
@@ -570,6 +643,11 @@ public sealed partial class Match
     // - 행동 중인 적의 몸: 예고하고 공격하는 적은 그 자리에 서 있다. 그 뒤에 선 적이다.
     // - 기다리는 앞선 적의 몸: rank는 이 적의 앞선 차례다. 앞선 적들이 기다리는지는 이미 정해져 있으므로,
     //   다 온 적 뒤에 선 적, 그 뒤에 선 적으로 차례로 이어진다.
+    // 뒤 차례의 기다리는 적에게 막힌 적은 여기에 들지 않는다. 앞선 차례는 길의 칸 수로 먼저 가리는데 대각선 칸은 두 칸으로 세므로,
+    // 대원에게 닿아 선 적이 그 옆에서 아직 닿지 못한 적보다 뒤 차례일 때가 있다. 그 몸과 벽 사이에 끼인 적은 움직이는 적으로 남아
+    // 뒤의 적들이 길을 내주려 한다(2026-11-14 리뷰). 대원에게 닿은 적의 몸을 차례와 관계없이 보게도 해 봤는데(2026-11-15), 잰 장면
+    // 전체의 결과가 같았고 리뷰의 두 장면에서는 오히려 한 마리씩 덜 붙었다. 막힌 적이 반대쪽으로 돌게 된 뒤로는(Slide) 그런 적이
+    // 남아도 뒤의 적이 돌아 들어가고, 아무 데나 놓은 장면 수천 판의 끝에는 끼인 채 남는 적이 없어 그대로 두었다.
     private bool Stuck(Enemy enemy, FixedVector position, int rank)
     {
         for (int i = 0; i < Players.Count; i++)
@@ -579,8 +657,7 @@ public sealed partial class Match
             {
                 continue;
             }
-            Fixed minimum = enemy.Definition.Radius + Rules.PlayerRadius;
-            if (FixedVector.DistanceSquared(position, player.Position) < minimum * minimum - TouchTolerance)
+            if (BodiesOverlap(position, enemy.Definition.Radius, player.Position, Rules.PlayerRadius))
             {
                 return true;
             }
@@ -592,8 +669,7 @@ public sealed partial class Match
             {
                 continue;
             }
-            Fixed minimum = enemy.Definition.Radius + acting.Definition.Radius;
-            if (FixedVector.DistanceSquared(position, acting.Position) < minimum * minimum - TouchTolerance)
+            if (BodiesOverlap(position, enemy.Definition.Radius, acting.Position, acting.Definition.Radius))
             {
                 return true;
             }
@@ -605,8 +681,7 @@ public sealed partial class Match
             {
                 continue;
             }
-            Fixed minimum = enemy.Definition.Radius + other.Enemy.Definition.Radius;
-            if (FixedVector.DistanceSquared(position, other.Enemy.Position) < minimum * minimum - TouchTolerance)
+            if (BodiesOverlap(position, enemy.Definition.Radius, other.Enemy.Position, other.Enemy.Definition.Radius))
             {
                 return true;
             }
@@ -626,7 +701,14 @@ public sealed partial class Match
             {
                 continue;
             }
-            plan.Enemy.Position = MoveEnemy(plan.Enemy, plan.Step, plan.Toward);
+            Enemy enemy = plan.Enemy;
+            FixedVector next = MoveEnemy(plan);
+            // 움직였으면 움직이던 쪽을 적어 둔다. 서 있었으면 앞의 것을 그대로 둔다.
+            if (next != enemy.Position)
+            {
+                enemy.LastMove = next - enemy.Position;
+            }
+            enemy.Position = next;
         }
     }
 
@@ -637,6 +719,7 @@ public sealed partial class Match
         // 움직이는 앞선 적이 가까울수록 제 갈 길을 덜 가고 그 적에게서 멀어진다. 몸이 닿았으면 제 갈 길을 멈추고 비켜나기만 한다.
         Fixed strongest;
         FixedVector push = Yield(plan, rank, out strongest);
+        plan.Yielding = strongest > Fixed.Zero;
         FixedVector steer = plan.Heading * (Fixed.One - strongest) + push;
         // 두 방향이 거의 맞서 합이 짧으면(1/4 미만) 그 틱에는 서 있는다. 그런 때 제 빠르기로 움직이면, 비켜 줬다가 다음 틱에
         // 다시 다가가기를 되풀이하며 제자리에서 떤다. 움직이는 앞선 적을 바로 뒤에서 따라가는 적이 그렇다.

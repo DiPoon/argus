@@ -134,9 +134,7 @@ public sealed class BattleMap
                 }
 
                 // 타일 사각형에서 몸의 중심에 가장 가까운 점이 반지름보다 가까우면 겹친다.
-                FixedVector nearest = new FixedVector(
-                    Fixed.Clamp(position.X, Fixed.FromInt(x * Cell), Fixed.FromInt((x + 1) * Cell)),
-                    Fixed.Clamp(position.Y, Fixed.FromInt(y * Cell), Fixed.FromInt((y + 1) * Cell)));
+                FixedVector nearest = NearestInCell(position, x, y);
                 if (FixedVector.DistanceSquared(nearest, position) < radiusSquared)
                 {
                     return false;
@@ -144,6 +142,14 @@ public sealed class BattleMap
             }
         }
         return true;
+    }
+
+    // 칸 (x, y)의 사각형에서 position에 가장 가까운 점이다. 몸이 벽 칸과 겹치는지(CanStand)와 겹친 깊이(DeepestWall)를 여기서 잰다.
+    private static FixedVector NearestInCell(FixedVector position, int x, int y)
+    {
+        return new FixedVector(
+            Fixed.Clamp(position.X, Fixed.FromInt(x * Cell), Fixed.FromInt((x + 1) * Cell)),
+            Fixed.Clamp(position.Y, Fixed.FromInt(y * Cell), Fixed.FromInt((y + 1) * Cell)));
     }
 
     // position에 선 몸과 가장 깊이 겹치는 벽 칸을 찾는다. 겹치는 벽이 없으면 false다.
@@ -168,11 +174,8 @@ public sealed class BattleMap
                 {
                     continue;
                 }
-                Fixed left = Fixed.FromInt(x * Cell);
-                Fixed right = Fixed.FromInt((x + 1) * Cell);
-                Fixed top = Fixed.FromInt(y * Cell);
-                Fixed bottom = Fixed.FromInt((y + 1) * Cell);
-                FixedVector nearest = new FixedVector(Fixed.Clamp(position.X, left, right), Fixed.Clamp(position.Y, top, bottom));
+                // 겹치는지는 CanStand와 같은 식으로 본다(칸에서 가장 가까운 점까지의 거리).
+                FixedVector nearest = NearestInCell(position, x, y);
                 Fixed distanceSquared = FixedVector.DistanceSquared(nearest, position);
                 if (distanceSquared >= radiusSquared)
                 {
@@ -183,7 +186,7 @@ public sealed class BattleMap
                 {
                     continue;
                 }
-                FixedVector nearestNow = new FixedVector(Fixed.Clamp(from.X, left, right), Fixed.Clamp(from.Y, top, bottom));
+                FixedVector nearestNow = NearestInCell(from, x, y);
                 found = true;
                 depth = overlap;
                 away = from - nearestNow;

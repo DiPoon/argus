@@ -27,6 +27,9 @@ internal static class EncounterTests
         tests.Add(new TestCase("An enemy blocked head-on by another goes round on the player's side and then stands still", SidestepSettles));
         tests.Add(new TestCase("Enemies that have reached the player, or wait behind those who have, stand still instead of trembling", CrowdSettles));
         tests.Add(new TestCase("Enemies waiting behind others that are attacking stand still instead of milling about", WaitersBehindAttackers));
+        tests.Add(new TestCase("An enemy waiting behind others does not turn back the way it came, so it stands instead of pacing in place", KeepsCourse));
+        tests.Add(new TestCase("Enemies in reach that are blocked keep their place between attacks instead of shifting back and forth", HoldsPlaceBetweenAttacks));
+        tests.Add(new TestCase("An enemy that cannot go round another on the player's side goes round the other side", TurnsOtherWay));
         tests.Add(new TestCase("A telegraphing enemy turns toward its target, so stepping aside does not leave the attack", TelegraphTracksTarget));
         tests.Add(new TestCase("A player who steps aside during any telegraph meets its affinity instead of flanking it", SidestepMeetsAffinity));
         tests.Add(new TestCase("A target circling the enemy at full speed through the telegraph is still hit as the attack window opens", WalkingAsideStillHit));
@@ -35,6 +38,7 @@ internal static class EncounterTests
         tests.Add(new TestCase("A teammate beside an enemy that targets someone else flanks it, also for actions the server started", TeammateFlanksTurningEnemy));
         tests.Add(new TestCase("An enemy whose target falls during the telegraph keeps its last direction", FallenTargetKeepsDirection));
         tests.Add(new TestCase("The state summary tells apart enemy actions that differ only in their target", TargetInStateHash));
+        tests.Add(new TestCase("The state summary tells apart enemies that differ only in the way they last moved", LastMoveInStateHash));
         tests.Add(new TestCase("Every enemy skill reaches a player anywhere within the distance at which enemies choose an action", SkillsReachEngageDistance));
         tests.Add(new TestCase("A grunt grab chosen at the edge of the engage distance reaches a player standing still", GrabReachesStandingPlayer));
     }
@@ -345,22 +349,6 @@ internal static class EncounterTests
         return Crowd(match, kinds, x, y);
     }
 
-    // 시드로 만든 생성 맵의 장면 하나를 만든다. 대원을 캠프에 투입한 뒤 (playerX, playerY)로 옮기고, 처음 적을 치운 다음
-    // spots에 적은 적들을 놓는다(GapScene과 같은 글). 증원이 생기지 않게 적 수 상한을 1로 둔다.
-    private static List<Enemy> MapScene(out Match match, int seed, int playerX, int playerY, string spots)
-    {
-        byte[] bytes = SeededRandom.SeedFromNumber(seed);
-        MissionLayout layout = MissionGenerator.Generate(bytes);
-        Rules rules = new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1, MaxEnemies = 1 };
-        match = new Match("SCENE" + seed, rules, bytes, layout);
-        Player player = match.Join("p", "pilot")!;
-        player.Connected = true;
-        Check(match.Deploy(player, layout.Camp.X.ToDouble(), layout.Camp.Y.ToDouble()));
-        Advance(match, rules.DeploySeconds + 0.01);
-        player.Position = FixedVector.FromInt(playerX, playerY);
-        return Place(match, spots);
-    }
-
     // 장면의 적들이 reachBy초 안에 모두 대원의 공격 거리 안에 들어오고, seconds초 뒤에도 모두 그 안에 가만히 서 있는지 본다.
     // 가만히는 마지막 3초 동안 아무도 1 넘게 움직이지 않는 것이다. 틱마다 몸이 놓일 수 없는 자리에 있지 않은지도 본다.
     // 이 도우미로 보는 장면은 2026-11-14에 저장소 밖 실험 도구로 고른 것이다. 적을 아무 데나 놓은 장면 수천 개에서, 처음 자리를
@@ -369,10 +357,41 @@ internal static class EncounterTests
     // reachBy는 고칠 때 잰 시간(주석의 "지금")의 한 배 반쯤이다.
     private static void CheckSettles(string name, Match match, List<Enemy> crowd, double reachBy, double seconds)
     {
+        SceneRun run = RunScene(match, crowd, seconds);
+        for (int i = 0; i < crowd.Count; i++)
+        {
+            Enemy enemy = crowd[i];
+            Fixed distance = FixedVector.Distance(enemy.Position, match.Players[0].Position);
+            Check(InReach(match, enemy), $"{name}: {enemy.Definition.Name}가 대원에게 붙지 못하고 {enemy.Position}(거리 {distance})에 섰습니다");
+            CheckStill(name, enemy, run.Travelled[i]);
+        }
+        Check(run.ReachedAt >= 0 && run.ReachedAt <= Rules.ToTicks(reachBy), $"{name}: 모두 공격 거리 안에 든 때가 {Rules.ToSeconds(run.ReachedAt)}초입니다({reachBy}초 안이어야 함)");
+    }
+
+    // "가만히 선다"의 기준이다. 마지막 StillSeconds초 동안 움직인 거리(지나간 길이)가 StillLimit 미만이어야 한다.
+    // 자리가 얼마나 바뀌었는지가 아니라 지나간 길이로 재므로, 제자리를 오가는 적은 끝 자리가 처음과 같아도 걸린다.
+    // 이 기준을 쓰는 검사는 모두 RunScene과 CheckStill을 거친다. 기준을 바꿀 때는 여기만 고친다.
+    private const double StillSeconds = 3;
+    private static readonly Fixed StillLimit = Fixed.One;
+
+    // 장면을 돌린 결과다.
+    private sealed class SceneRun
+    {
+        // 적마다 마지막 StillSeconds초 동안 움직인 거리다(crowd와 같은 차례).
+        public Fixed[] Travelled = new Fixed[0];
+        // 모두가 대원의 공격 거리 안에 든 첫 틱이다. 끝까지 들지 못했으면 -1이다.
+        public long ReachedAt = -1;
+        // 행동한 적이 있었는지다.
+        public bool Acted;
+    }
+
+    // 장면을 seconds초 돌린다. 틱마다 몸이 놓일 수 없는 자리에 있지 않은지 보고, 마지막 StillSeconds초 동안 적마다 움직인 거리를 잰다.
+    private static SceneRun RunScene(Match match, List<Enemy> crowd, double seconds)
+    {
+        SceneRun run = new SceneRun();
+        run.Travelled = new Fixed[crowd.Count];
         long total = Rules.ToTicks(seconds);
-        long settled = total - Rules.ToTicks(3);
-        long reachedAt = -1;
-        Fixed[] travelled = new Fixed[crowd.Count];
+        long settled = total - Rules.ToTicks(StillSeconds);
         FixedVector[] before = new FixedVector[crowd.Count];
         for (long tick = 1; tick <= total; tick++)
         {
@@ -389,24 +408,27 @@ internal static class EncounterTests
                 {
                     all = false;
                 }
+                if (crowd[i].Action != null)
+                {
+                    run.Acted = true;
+                }
                 if (tick > settled)
                 {
-                    travelled[i] += FixedVector.Distance(crowd[i].Position, before[i]);
+                    run.Travelled[i] += FixedVector.Distance(crowd[i].Position, before[i]);
                 }
             }
-            if (all && reachedAt < 0)
+            if (all && run.ReachedAt < 0)
             {
-                reachedAt = tick;
+                run.ReachedAt = tick;
             }
         }
-        for (int i = 0; i < crowd.Count; i++)
-        {
-            Enemy enemy = crowd[i];
-            Fixed distance = FixedVector.Distance(enemy.Position, match.Players[0].Position);
-            Check(InReach(match, enemy), $"{name}: {enemy.Definition.Name}가 대원에게 붙지 못하고 {enemy.Position}(거리 {distance})에 섰습니다");
-            Check(travelled[i] < Fixed.One, $"{name}: {enemy.Definition.Name}({enemy.Position})가 자리를 잡은 뒤에도 3초 동안 {travelled[i]}만큼 움직였습니다");
-        }
-        Check(reachedAt >= 0 && reachedAt <= Rules.ToTicks(reachBy), $"{name}: 모두 공격 거리 안에 든 때가 {Rules.ToSeconds(reachedAt)}초입니다({reachBy}초 안이어야 함)");
+        return run;
+    }
+
+    // 그 적이 가만히 서 있었는지 확인한다. travelled는 RunScene이 잰 거리다.
+    private static void CheckStill(string name, Enemy enemy, Fixed travelled)
+    {
+        Check(travelled < StillLimit, $"{name}: {enemy.Definition.Name}({enemy.Position})가 자리를 잡은 뒤에도 {StillSeconds}초 동안 {travelled}만큼 움직였습니다");
     }
 
     // 틈 맵의 장면을 25초 동안 본다(CheckSettles).
@@ -687,14 +709,14 @@ internal static class EncounterTests
         CheckSurrounds("다 온 적", 744, 312, "b:396,296 g:434,440 b:437,351", 6.5);
 
         // 다 온 적 뒤에 막혀 선 적도 기다리는 적이다. 대원이 틈 남동쪽의 벽 가까이에 있다(지금 5.1초). 그 적에게도 길을 내주면
-        // 병사 둘이 물러나 공격 거리 밖(거리 101)과 그 언저리(거리 70)에 선다.
+        // 셋이 대원에게 붙기는 하지만, 서로 비켜 주느라 자리를 잡지 못하고 계속 움직인다.
         CheckSurrounds("다 온 적 뒤에 선 적", 581, 405, "w:313,320 g:304,98 g:246,446", 8);
 
         // 기다리는지를 아예 보지 않으면, 대원 앞에 모이던 병사 셋 가운데 하나가 공격 거리 밖(거리 92)으로 밀려난다(지금 4.0초).
         CheckSurrounds("대원 앞에 모이는 셋", 590, 307, "g:236,434 g:411,335 g:425,420", 6);
 
         // 길을 내주는 세기는 몸이 닿기 조금 전부터 가까울수록 세진다(지금 9.3초). 가까이 오자마자 가장 세게 물러나면
-        // 다섯 가운데 철위병 하나가 들어설 자리를 놓쳐 공격 거리 밖(거리 78)에 선다.
+        // 다섯 가운데 철위병 하나가 들어설 자리를 놓쳐 공격 거리 밖(거리 79)에 선다.
         CheckSurrounds("가까울수록 세게", 744, 312, "b:335,457 b:251,264 g:206,144 w:258,154 w:253,530", 14);
     }
 
@@ -702,73 +724,34 @@ internal static class EncounterTests
     {
         // 틈과 대원이 한 줄(y = 312)에 있고, 느린 적이 앞서고 빠른 병사들이 그 줄로 뒤따른다. 뒤따르는 적은 앞의 적이 가까워지면
         // 제 갈 길을 덜 가다가, 가려는 방향과 물러나는 방향이 거의 맞서는 거리에서는 그 틱에 서 있는다.
-        // 서 있지 않고 제 빠르기로 움직이면 한 틱은 다가가고 다음 틱은 물러나기를 되풀이한다(셋이 가는 장면에서 72틱).
+        // 서 있지 않고 제 빠르기로 움직이면 한 틱은 다가가고 다음 틱은 물러나기를 되풀이한다.
         string[] lines = new string[]
         {
             "w:200,312 g:150,312 g:100,312",
             "w:230,312 g:180,312 g:130,312 g:80,312",
             "b:200,312 g:150,312 g:100,312",
         };
-        Fixed stepped = Fixed.FromDouble(0.5);
-        Fixed same = Fixed.FromDouble(0.3);
         for (int s = 0; s < lines.Length; s++)
         {
             Match match;
             List<Enemy> crowd = GapScene(out match, 744, 312, lines[s]);
-            FixedVector[] last = new FixedVector[crowd.Count];
-            FixedVector[] older = new FixedVector[crowd.Count];
-            for (int i = 0; i < crowd.Count; i++)
-            {
-                last[i] = crowd[i].Position;
-                older[i] = crowd[i].Position;
-            }
-            // 움직였는데 두 틱 전 자리로 돌아와 있으면 다가갔다 물러난 것이다.
-            int rocked = 0;
-            for (long tick = 1; tick <= Rules.ToTicks(16); tick++)
-            {
-                match.Step();
-                CheckBodies(match);
-                for (int i = 0; i < crowd.Count; i++)
-                {
-                    FixedVector position = crowd[i].Position;
-                    if (tick > 2 && FixedVector.Distance(position, last[i]) > stepped && FixedVector.Distance(position, older[i]) < same)
-                    {
-                        rocked++;
-                    }
-                    older[i] = last[i];
-                    last[i] = position;
-                }
-            }
-            Check(rocked == 0, $"줄 {s + 1}({lines[s]}): 뒤따르는 적이 다가갔다 물러나기를 {rocked}틱 되풀이했습니다");
+            // 맨 앞의 적이 대원에게 닿기 전까지(6초)만 본다. 뒤따르는 동안을 보는 검사다. 닿은 뒤에는 대원을 둘러싸며 자리를 잡는다.
+            int turned = TurnBacks(match, crowd, 6);
+            Check(turned == 0, $"줄 {s + 1}({lines[s]}): 뒤따르는 적이 물러났다 다시 다가가기를 되풀이했습니다(되돌아선 걸음 {turned}번)");
         }
     }
 
-    private static void AheadOrder()
+    // 장면을 seconds초 돌리며, 적이 바로 앞서 움직인 쪽을 거슬러(120° 넘게) 움직인 걸음을 센다. 반 걸음(0.5)에 못 미치는 걸음은 보지 않는다.
+    // 제 길을 가는 적은 굽은 길에서도 되돌아서지 않는다. 제자리를 오가는 적은 오갈 때마다 걸린다.
+    // 2026-11-15 전에는 "움직였는데 두 틱 전 자리에서 0.3 안으로 돌아온 틱"을 셌다. 그 기준은 돌아올 때마다 0.35쯤 어긋나며
+    // 오가는 적을 한 틱도 세지 못했다(2026-11-14 리뷰). 되돌아선 걸음으로 세면 어긋나며 오가도 걸린다.
+    private static int TurnBacks(Match match, List<Enemy> crowd, double seconds)
     {
-        // 앞선 적은 대원까지 가는 길이 더 짧은 적이고, 길의 칸 수가 같으면 대원에게 더 가까운 적이다. 적 목록의 차례와는 관계없다.
-
-        // 같은 칸의 적들 사이에서는 대원에게 더 가까운 적이 앞선다(지금 8.1초). 길의 칸 수만 보면 같은 칸에서는 id 차례가 되어,
-        // 앞에 있는 적이 뒤에 있는 적에게 길을 내주기도 한다. 그러면 철위병 하나가 공격 거리 밖(거리 81)에 선다.
-        CheckSurrounds("같은 칸에서는 가까운 적부터", 708, 328, "w:182,246 w:378,513 w:294,109 g:349,196", 12.5);
-
-        // 대원이 틈에서 멀리 북동쪽에 있어, 벽 서쪽의 적에게는 곧은 거리와 길의 거리가 어긋난다. 틈에 더 가까운 적이 길이 더 짧다.
-        // 곧은 거리만 보면 틈에서 멀지만 대원 쪽 벽에 가까운 적이 앞서, 틈 어귀의 적이 그 적에게 길을 내준다.
-        // 그러면 넷 가운데 철위병 하나가 공격 거리 밖(거리 81)에 선다(지금은 8.8초에 넷이 모두 든다).
-        CheckSurrounds("곧은 거리보다 길의 거리", 789, 176, "w:199,196 b:297,291 w:358,265 g:230,280", 13.5);
-
-        // 이 장면은 가장 멀리서 출발하는 철위병이 목록의 맨 앞이고, 가장 먼저 닿는 병사가 맨 뒤다(지금 8.2초).
-        // 목록 차례대로 앞선다고 치면 먼저 온 적들이 뒤에 오는 철위병에게 길을 내주려 물러나, 철위병 하나가 공격 거리 밖에 선다.
-        CheckSurrounds("목록 차례와 다른 앞선 차례", 596, 234, "w:335,518 w:166,539 g:318,160", 12.5);
-    }
-
-    // 장면의 적들이 seconds초 뒤에 가만히 서 있는지만 본다(모두 공격 거리 안에 드는지는 보지 않는다).
-    private static void CheckStands(string name, Match match, List<Enemy> crowd, double seconds)
-    {
-        long total = Rules.ToTicks(seconds);
-        long settled = total - Rules.ToTicks(3);
-        Fixed[] travelled = new Fixed[crowd.Count];
+        Fixed least = Fixed.FromDouble(0.5);
         FixedVector[] before = new FixedVector[crowd.Count];
-        for (long tick = 1; tick <= total; tick++)
+        FixedVector[] last = new FixedVector[crowd.Count];
+        int turned = 0;
+        for (long tick = 1; tick <= Rules.ToTicks(seconds); tick++)
         {
             for (int i = 0; i < crowd.Count; i++)
             {
@@ -778,41 +761,80 @@ internal static class EncounterTests
             CheckBodies(match);
             for (int i = 0; i < crowd.Count; i++)
             {
-                if (tick > settled)
+                FixedVector move = crowd[i].Position - before[i];
+                if (move.Length() < least)
                 {
-                    travelled[i] += FixedVector.Distance(crowd[i].Position, before[i]);
+                    continue;
                 }
+                // 두 걸음이 120° 넘게 벌어졌는지다(코사인이 -1/2 미만).
+                Fixed dot = move.Dot(last[i]);
+                if (dot < Fixed.Zero && dot * 2 < -(move.Length() * last[i].Length()))
+                {
+                    turned++;
+                }
+                last[i] = move;
             }
         }
+        return turned;
+    }
+
+    private static void AheadOrder()
+    {
+        // 앞선 적은 대원까지 가는 길이 더 짧은 적이고, 길의 칸 수가 같으면 대원에게 더 가까운 적이다. 적 목록의 차례와는 관계없다.
+        // 장면은 2026-11-15에 다시 골랐다(셋째는 그대로). 움직이던 쪽을 지키는 규칙과 반대쪽으로 도는 규칙이 들어간 뒤로,
+        // 예전 장면 둘은 차례를 틀리게 바꿔도 결과가 같거나 흔든 열두 가지 가운데 둘에서만 달라졌다.
+
+        // 같은 칸의 적들 사이에서는 대원에게 더 가까운 적이 앞선다(지금 5.9초). 대원이 틈 북쪽의 벽 가까이에 있고 병사 셋이 온다.
+        // 길의 칸 수만 보면 같은 칸에서는 id 차례가 되어, 앞에 있는 적이 뒤에 있는 적에게 길을 내주기도 한다.
+        // 그러면 병사 하나가 공격 거리 밖(거리 78)에 선다.
+        CheckSurrounds("같은 칸에서는 가까운 적부터", 562, 279, "g:238,343 g:77,510 g:113,136", 9);
+
+        // 대원이 틈에서 멀리 북동쪽에 있어, 벽 서쪽의 적에게는 곧은 거리와 길의 거리가 어긋난다. 틈에 더 가까운 적이 길이 더 짧다.
+        // 곧은 거리만 보면 틈에서 멀지만 대원 쪽 벽에 가까운 적이 앞서, 틈 어귀의 적이 그 적에게 길을 내준다.
+        // 그러면 넷 가운데 철위병 하나가 공격 거리 밖(거리 81)에 선다(지금은 9.9초 안에 넷이 모두 든다).
+        CheckSurrounds("곧은 거리보다 길의 거리", 789, 176, "w:199,196 b:297,291 w:358,265 g:230,280", 15);
+
+        // 이 장면은 목록의 차례(분쇄자, 병사, 분쇄자)가 틈에 가까운 차례와 다르다(지금 6.4초).
+        // 목록 차례대로 앞선다고 치면 틈 어귀에 먼저 온 적이 뒤에 오는 적에게 길을 내주려다, 셋이 틈 서쪽에서 서로 막고 멈춘다.
+        CheckSurrounds("목록 차례와 다른 앞선 차례", 744, 312, "b:201,314 g:222,468 b:260,340", 9.5);
+    }
+
+    // 장면의 적들이 seconds초 뒤에 가만히 서 있는지만 본다(모두 공격 거리 안에 드는지는 보지 않는다).
+    private static void CheckStands(string name, Match match, List<Enemy> crowd, double seconds)
+    {
+        SceneRun run = RunScene(match, crowd, seconds);
         for (int i = 0; i < crowd.Count; i++)
         {
-            Check(travelled[i] < Fixed.One, $"{name}: {crowd[i].Definition.Name}({crowd[i].Position})가 자리를 잡은 뒤에도 3초 동안 {travelled[i]}만큼 움직였습니다");
+            CheckStill(name, crowd[i], run.Travelled[i]);
         }
     }
 
     private static void SidestepSettles()
     {
         // 다른 적의 몸에 정면으로 막힌 적은 옆으로 돌아 들어가고, 더 갈 수 없으면 그 자리에 가만히 선다.
+        // 장면은 2026-11-15에 다시 골랐다. 예전 장면 가운데 생성 맵(시드 174)의 장면은 새 규칙에서 보려던 상황(마지막 분쇄자가
+        // 앞의 둘 뒤에서 기다림)이 더는 성립하지 않았고(흔든 열두 가지 가운데 다섯에서 그 분쇄자도 돌아 들어가 붙는다),
+        // 나머지도 규칙을 틀리게 바꿨을 때 결과가 같아졌다. 지금 장면은 모두 틈 맵이라 생성기를 바꿔도 달라지지 않는다.
 
-        // 도는 쪽은 쫓는 대원 쪽에서 보아 치우친 쪽이다. 생성 맵(시드 174)에서 대원이 벽 가까이에 있고, 병사가 먼저 붙은 뒤
-        // 분쇄자 셋이 온다. 셋째 분쇄자는 앞의 둘 뒤에서 들어설 자리가 없어 공격 거리 밖에 선다. 이런 자리에서는 대원이 보여도
-        // 몸 통과 판단이 한 걸음 차이로 갈려, 가려는 방향이 직진과 흐름장 사이를 오간다. 도는 쪽을 가려는 방향이나 이번 틱의
-        // 이동으로 고르면 도는 쪽이 틱마다 뒤집혀, 그 분쇄자가 제자리에서 떤다(흔든 열두 가지 가운데 열에서 열하나).
-        Match walled;
-        List<Enemy> four = MapScene(out walled, 174, 2616, 888, "b:2561,645 b:2568,713 g:2601,912 b:2533,597");
-        CheckStands("대원 쪽으로 도는 분쇄자", walled, four, 30);
+        // 먼저 도는 쪽은 쫓는 대원 쪽에서 보아 치우친 쪽이다(지금 5.4초, 4.8초). 대원이 틈 안에 서 있어 먼저 온 적이 틈을 막는다.
+        // 도는 쪽을 가려는 방향이나 이번 틱의 이동으로 고르면, 첫 장면은 셋이 모두 공격 거리 안에 들었다가 병사 하나가
+        // 공격 거리 밖(거리 77)으로 나가 서고, 둘째 장면은 철위병 하나가 끝내 들지 못한다(거리 89).
+        Match first;
+        List<Enemy> three = GapScene(out first, 520, 311, "b:190,516 g:124,315 g:102,80");
+        CheckSettles("대원 쪽으로 먼저 돎(가)", first, three, 8, 30);
+        Match second;
+        List<Enemy> wardens = GapScene(out second, 496, 319, "w:125,240 g:253,342 w:323,388");
+        CheckSettles("대원 쪽으로 먼저 돎(나)", second, wardens, 7, 30);
 
-        // 두 몸에 함께 막히면 더 깊이 겹친 몸을 끼고 돈다(지금 8.2초). 깊이를 보지 않고 아무 몸이나 고르면
-        // 분쇄자 하나가 앞줄 뒤에서 돌아 들어가지 못하고 공격 거리 밖(거리 82)에 선다.
-        CheckSurrounds("두 몸에 막힌 분쇄자", 744, 312, "b:239,495 g:397,314 g:411,67 g:237,132 b:240,80", 12.5);
+        // 두 몸에 함께 막히면 더 깊이 겹친 몸을 끼고 돈다(지금 7.9초). 대원이 틈 남쪽의 벽 가까이에 있고 다섯이 온다.
+        // 깊이를 보지 않고 아무 몸이나 고르면 병사 둘이 앞줄 뒤에서 돌아 들어가지 못하고 공격 거리 밖(거리 81, 100)에 선다.
+        Match crowded;
+        List<Enemy> five = GapScene(out crowded, 583, 388, "g:361,147 g:257,293 g:258,502 b:372,300 b:337,209");
+        CheckSettles("두 몸에 막힌 적", crowded, five, 12, 30);
 
-        // 대원의 몸은 옆으로 돌지 않는다. 틈과 대원이 한 줄에 있고 셋이 줄지어 온다(지금 4.6초). 대원에게 닿은 적은 다 온 것이다.
-        // 대원의 몸까지 옆으로 돌면, 대원에게 닿은 적이 대원 둘레를 계속 돈다.
-        CheckSurrounds("대원에게 닿으면 멈춤", 744, 312, "w:397,309 g:334,314 g:270,314", 7);
-
-        // 가로와 세로를 따로 움직여서는 못 가도, 두 몸 사이를 비스듬히 지나는 자리가 비어 있으면 그대로 간다(지금 6.3초).
-        // 막은 것을 끼고 도는 길만 찾으면, 대원 앞에 모인 다섯 가운데 앞의 몸들 사이를 빠져나가지 못한 적이 공격 거리 밖에 선다.
-        CheckSurrounds("두 몸 사이로 비스듬히", 601, 277, "g:186,86 b:275,502 g:232,452 g:112,554 g:109,411", 9.5);
+        // 대원의 몸은 옆으로 돌지 않는다(지금 10.6초). 대원에게 닿은 적은 다 온 것이다.
+        // 대원의 몸까지 옆으로 돌면, 셋이 대원에게 닿은 뒤에도 자리를 잡지 못하고 대원 둘레에서 계속 움직인다.
+        CheckSurrounds("대원에게 닿으면 멈춤", 744, 312, "w:369,445 w:73,509 g:95,253", 16);
     }
 
     private static void CrowdSettles()
@@ -827,86 +849,125 @@ internal static class EncounterTests
         Match match = GapMatch(layout);
         EnemyDefinition[] kinds = new EnemyDefinition[] { grunt, breaker, warden, grunt, breaker, warden };
         List<Enemy> crowd = Crowd(match, kinds, new int[] { 380, 320, 250, 180, 380, 300 }, new int[] { 312, 250, 312, 380, 420, 180 });
-        for (long tick = 0; tick < Rules.ToTicks(40); tick++)
-        {
-            match.Step();
-            CheckBodies(match);
-        }
-        Fixed[] travelled = new Fixed[crowd.Count];
-        for (long tick = 0; tick < Rules.ToTicks(3); tick++)
-        {
-            FixedVector[] before = new FixedVector[crowd.Count];
-            for (int i = 0; i < crowd.Count; i++)
-            {
-                before[i] = crowd[i].Position;
-            }
-            match.Step();
-            for (int i = 0; i < crowd.Count; i++)
-            {
-                travelled[i] += FixedVector.Distance(crowd[i].Position, before[i]);
-            }
-        }
-        for (int i = 0; i < crowd.Count; i++)
-        {
-            Check(travelled[i] < Fixed.One, $"{crowd[i].Definition.Name}({crowd[i].Position}): 자리를 잡은 뒤에도 3초 동안 {travelled[i]}만큼 움직였습니다");
-        }
+        CheckStands("여섯", match, crowd, 43);
     }
 
-    private static void WaitersBehindAttackers()
+    // 틈 맵의 장면에서 seconds초 뒤에 모두 가만히 서 있는지 본다(CheckStands). 대원에게 붙지 못하고 기다리는 적이 있어도 된다.
+    private static void CheckWaits(string name, int playerX, int playerY, string spots, double seconds)
     {
-        // 적이 행동하는 장면이다. 대원이 틈 북쪽의 벽 가까이에 서 있고 다섯이 온다. 먼저 닿은 적은 예고하고 공격하는 동안 그 자리에
-        // 서 있으므로, 나머지는 그 뒤에 막혀 공격 거리 밖에서 기다린다. 기다리는 적은 가만히 서 있어야 한다.
-        // 행동 중인 적 뒤에 선 적에게도 길을 내주면, 뒤의 적들이 서로 비켜 주고 다시 다가가기를 되풀이하며 떠돈다. 2026-11-14에
-        // 처음 자리를 ±2씩 흔든 열두 가지로 재니, 그렇게 바꾼 코드는 열두 가지 모두에서 기다리는 적 서넛이 떠돌았고 지금 코드는 모두 가만히 섰다.
         Match match;
-        List<Enemy> crowd = GapScene(out match, 581, 244, "w:199,196 b:297,291 w:358,265 g:230,280 b:297,152");
+        List<Enemy> crowd = GapScene(out match, playerX, playerY, spots);
+        CheckStands(name, match, crowd, seconds);
+    }
+
+    private static void KeepsCourse()
+    {
+        // 더 갈 수 없어 기다리는 적은 움직이던 쪽을 거슬러 되돌아가지 않는다(Match.KeepsCourse). 가던 쪽으로 더 갈 수 없으면 선다.
+        // 기다리는 적은 서 있는 몸에 막혀 있어, 틱마다 다시 정하는 방향이 한 걸음 차이로 뒤집히는 자리가 많다. 뒤집힌 쪽으로 가면
+        // 다음 틱에 다시 돌아와 제자리를 끝없이 오간다. 장면들은 2026-11-15에 저장소 밖 실험 도구로, 처음 자리를 ±2씩 흔든 열두 가지가
+        // 모두 가만히 서고 그 규칙을 빼면 열두 가지가 거의 모두(열하나 넘게) 오가는 것만 골랐다. 대원은 모두 틈 안이나 틈 어귀에 선다.
+        // 먼저 온 적이 틈을 막아 나머지가 그 뒤에서 기다린다.
+
+        // 2026-11-14 리뷰가 찾은 장면이다. 대원이 틈 안에 서 있고, 분쇄자가 틈 어귀에서 대원 앞에 선다. 병사는 그 뒤 칸의 경계에서
+        // 분쇄자의 겉을 따라 북서로 한 걸음 갔다가, 위 칸에 들면 분쇄자에 정면으로 막혀 남동으로 한 걸음 돌아오기를 되풀이했다
+        // (마지막 5초 동안 455를 움직였는데 자리는 1.7 바뀌었다).
+        CheckWaits("틈을 막은 분쇄자 뒤의 병사", 527, 321, "g:250,306 b:453,199", 40);
+
+        // 가로와 세로를 따로 움직인 걸음(MoveBody)도 움직이던 쪽을 지킨다. 그 걸음만 빼면, 틈을 막은 병사 둘 뒤에서 기다리는
+        // 분쇄자가 벽을 따라 아래로 내려갔다 위로 돌아오기를 되풀이한다.
+        CheckWaits("가로·세로 걸음", 538, 322, "b:161,457 g:183,247 g:291,110", 30);
+
+        // 막은 몸의 겉을 따라가는 걸음(끼고 돌기)도 지킨다. 그 걸음만 빼면, 틈을 막은 분쇄자 둘 뒤에서 병사가 제자리를 오간다
+        // (마지막 5초 동안 110을 움직이는데 자리는 그대로다).
+        CheckWaits("끼고 도는 걸음", 558, 315, "b:178,407 g:102,525 b:356,266", 30);
+
+        // 거스르는 걸음은 움직이던 쪽과 120° 넘게 벌어진 걸음이다. 거의 정반대(151° 넘게)만 거스른다고 보면, 철위병 뒤의 병사가
+        // 비스듬히 꺾기를 거듭해 여섯 틱마다 제자리로 돌아온다.
+        CheckWaits("비스듬히 되돌아가는 걸음", 549, 317, "w:268,312 g:65,253 g:372,321", 30);
+    }
+
+    private static void TurnsOtherWay()
+    {
+        // 다른 적의 몸에 정면으로 막힌 적은 먼저 대원 쪽으로 돌고, 그쪽 걸음을 디딜 수 없으면 반대쪽으로 돈다(Match.Slide).
+        // 그래서 틈을 막고 선 적 뒤에 온 적도 한쪽이 비어 있으면 그리로 돌아 들어간다. 장면들은 KeepsCourse처럼 고른 것이다
+        // (흔든 열두 가지가 모두 대원에게 붙고, 그 규칙을 빼면 열두 가지 모두에서 하나가 붙지 못한다). 뒤의 "지금"은 고친 코드에서
+        // 모두가 공격 거리 안에 든 때다(흔든 열두 가지 가운데 가장 늦은 때).
+
+        // 대원 쪽이 막혀 있으면 반대쪽으로 돈다(지금 4.7초). 반대쪽을 돌아보지 않으면 병사 하나가 틈 북쪽의 벽 모서리 뒤,
+        // 대원이 보이지 않는 자리에 선다.
+        Match shut;
+        List<Enemy> three = GapScene(out shut, 505, 303, "w:301,211 g:282,308 g:121,133");
+        CheckSettles("대원 쪽이 막힘", shut, three, 7, 30);
+
+        // 대원 쪽 걸음이 움직이던 쪽을 거스를 때도 반대쪽으로 돈다(지금 6.4초). 한번 돌기 시작한 쪽으로 계속 도는 것이다.
+        // 거스르는 쪽이라고 그냥 서 버리면 병사 하나가 공격 거리 밖(거리 81)에 선다.
+        Match turning;
+        List<Enemy> grunts = GapScene(out turning, 536, 318, "g:78,322 g:346,322 g:83,526");
+        CheckSettles("대원 쪽이 거스르는 쪽", turning, grunts, 9.5, 30);
+
+        // 직각으로 꺾는 걸음은 거스르는 걸음이 아니다(지금 3.6초). 정면으로 막힌 적이 옆으로 도는 첫 걸음이 그렇다.
+        // 직각부터 거스른다고 보면, 철위병 하나가 틈 남쪽의 벽 모서리 뒤로 들어가 대원이 보이지 않는 자리에 선다.
+        Match square;
+        List<Enemy> wardens = GapScene(out square, 501, 319, "b:404,134 w:314,500 w:332,215");
+        CheckSettles("직각으로 꺾는 걸음", square, wardens, 5.5, 30);
+    }
+
+    // 적이 행동하는 틈 맵 장면을 seconds초 돌린다. 대원은 맞기만 하므로 쓰러지지 않게 체력을 넉넉히 둔다.
+    // 대원이 살아 있고 행동한 적이 있었는지를 확인한 뒤 결과를 돌려준다(그렇지 않으면 보려는 장면이 아니다).
+    private static SceneRun RunFight(string name, out Match match, out List<Enemy> crowd, int playerX, int playerY, string spots, double seconds)
+    {
+        crowd = GapScene(out match, playerX, playerY, spots);
         for (int i = 0; i < crowd.Count; i++)
         {
             crowd[i].NextActionTick = 0;
         }
-        // 대원은 30초 동안 맞기만 하므로 쓰러지지 않게 체력을 넉넉히 둔다.
         Player player = match.Players[0];
         player.MaxHp = 1000000;
         player.Hp = 1000000;
-        long total = Rules.ToTicks(30);
-        long settled = total - Rules.ToTicks(3);
-        Fixed[] travelled = new Fixed[crowd.Count];
-        FixedVector[] before = new FixedVector[crowd.Count];
-        bool acted = false;
-        for (long tick = 1; tick <= total; tick++)
-        {
-            for (int i = 0; i < crowd.Count; i++)
-            {
-                before[i] = crowd[i].Position;
-            }
-            match.Step();
-            CheckBodies(match);
-            for (int i = 0; i < crowd.Count; i++)
-            {
-                if (crowd[i].Action != null)
-                {
-                    acted = true;
-                }
-                if (tick > settled)
-                {
-                    travelled[i] += FixedVector.Distance(crowd[i].Position, before[i]);
-                }
-            }
-        }
-        Check(player.State == "alive", "대원이 쓰러져 검사 조건이 아닙니다");
-        Check(acted, "행동한 적이 없어 검사 조건이 아닙니다");
+        SceneRun run = RunScene(match, crowd, seconds);
+        Check(player.State == "alive", $"{name}: 대원이 쓰러져 검사 조건이 아닙니다");
+        Check(run.Acted, $"{name}: 행동한 적이 없어 검사 조건이 아닙니다");
+        return run;
+    }
+
+    private static void WaitersBehindAttackers()
+    {
+        // 적이 행동하는 장면이다. 대원이 틈 어귀에 서 있고 넷이 온다. 먼저 닿은 둘은 예고하고 공격하는 동안 그 자리에 서 있으므로,
+        // 나머지 둘은 그 뒤에 막혀 공격 거리 밖에서 기다린다. 기다리는 적은 가만히 서 있어야 한다.
+        // 행동 중인 적 뒤에 선 적에게도 길을 내주면, 뒤의 적들이 서로 비켜 주고 다시 다가가기를 되풀이하며 떠돈다. 2026-11-15에
+        // 처음 자리를 ±2씩 흔든 열두 가지로 재니, 그렇게 바꾼 코드는 열두 가지 모두에서 기다리는 적이 떠돌았고 지금 코드는 모두 가만히 섰다.
+        // 움직이던 쪽을 지키지 않게 바꿔도 열두 가지 모두에서 떠돈다(KeepsCourse).
+        Match match;
+        List<Enemy> crowd;
+        SceneRun run = RunFight("공격하는 적 뒤", out match, out crowd, 567, 321, "b:353,377 g:132,492 b:71,532 g:397,432", 30);
         int waiting = 0;
         for (int i = 0; i < crowd.Count; i++)
         {
             Enemy enemy = crowd[i];
-            if (InReach(match, enemy))
+            CheckStill("공격하는 적 뒤", enemy, run.Travelled[i]);
+            if (!InReach(match, enemy))
             {
-                continue;
+                waiting++;
             }
-            waiting++;
-            Check(travelled[i] < Fixed.One, $"공격 거리 밖에서 기다리는 {enemy.Definition.Name}({enemy.Position})가 마지막 3초 동안 {travelled[i]}만큼 움직였습니다");
         }
         Check(waiting >= 2, $"기다리는 적이 {waiting}뿐이라 검사 조건이 아닙니다");
+    }
+
+    private static void HoldsPlaceBetweenAttacks()
+    {
+        // 움직이던 쪽은 행동을 시작해도 그대로 둔다(Enemy.LastMove). 공격 거리 안에서 다른 몸에 막혀 선 적은 공격과 공격 사이의
+        // 짧은 틈(0.27초)마다 다시 움직일 수 있다. 행동을 시작할 때 움직이던 쪽을 지우면, 틈마다 한쪽으로 몇 걸음 갔다가 다음 틈에
+        // 되돌아오기를 되풀이한다(2026-11-15에 잰 것: 적이 행동하는 1,800판에서 느리게 오가는 구간이 190에서 2,559로).
+        // 대원이 틈 안에 서 있고 셋이 모두 공격 거리 안에 든다. 흔든 열두 가지 모두에서 지금 코드는 셋이 제자리를 지키고,
+        // 지우게 바꾼 코드는 누군가 자리를 옮긴다.
+        Match match;
+        List<Enemy> crowd;
+        SceneRun run = RunFight("공격 사이", out match, out crowd, 505, 311, "g:186,86 b:275,502 g:232,452", 30);
+        for (int i = 0; i < crowd.Count; i++)
+        {
+            Check(InReach(match, crowd[i]), $"공격 사이: {crowd[i].Definition.Name}({crowd[i].Position})가 공격 거리 안에 들지 못해 검사 조건이 아닙니다");
+            CheckStill("공격 사이", crowd[i], run.Travelled[i]);
+        }
     }
 
     private static void FlowSource()
@@ -1129,6 +1190,17 @@ internal static class EncounterTests
         string first = f.Match.StateHash();
         enemy.Action = new EnemyAction(901, skill, Angle.Zero, f.Match.Tick, 1, ally.Id);
         Check(first != f.Match.StateHash(), "노린 대원만 다른데 상태 요약이 같습니다");
+    }
+
+    private static void LastMoveInStateHash()
+    {
+        // 움직이던 쪽도 진행 상태다. 기다리는 적이 다음 틱에 어느 걸음을 버릴지를 가른다. 같은 방의 같은 적에서 그 값만 바꿔 비교한다.
+        Fixture f = new Fixture();
+        Enemy enemy = Target(f);
+        enemy.LastMove = FixedVector.FromInt(2, 0);
+        string first = f.Match.StateHash();
+        enemy.LastMove = FixedVector.FromInt(-2, 0);
+        Check(first != f.Match.StateHash(), "움직이던 쪽만 다른데 상태 요약이 같습니다");
     }
 
     private static void SkillsReachEngageDistance()

@@ -273,6 +273,8 @@ public sealed class EnemyPlan
     public Fixed Closest { get; }
     // 이번 틱에 움직이려는 양이다. 가려는 방향에 앞선 적에게 길을 내주는 방향을 더한 것이다. 움직이지 않으면 0 벡터다.
     public FixedVector Step;
+    // 이번 틱에 앞선 적에게 길을 내주고 있는지다. 길을 내주는 걸음은 가려는 방향과 다르므로, 움직이던 쪽을 지키는 규칙에서 뺀다.
+    public bool Yielding;
     // 더 갈 수 없어 기다리는 적인지다. 이번 틱에 서 있는 적, 대원에게 다 온 적, 행동 중인 적이나 기다리는 앞선 적의 뒤에 선 적이다.
     public bool Waiting;
 
@@ -295,6 +297,9 @@ public sealed class Enemy
     // 다음 행동을 고를 수 있는 틱이다.
     public long NextActionTick;
     public EnemyAction? Action;
+    // 마지막으로 움직인 걸음이다(움직이던 쪽). 서 있는 동안에는 그대로 둔다. 더 갈 수 없어 기다리는 적이 이 방향을 거슬러
+    // 되돌아가지 않게 하는 데 쓴다(Match.KeepsCourse).
+    public FixedVector LastMove;
 
     public Enemy(int id, FixedVector position, EnemyDefinition definition)
     {
