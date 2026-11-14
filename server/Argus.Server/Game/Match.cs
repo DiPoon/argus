@@ -79,10 +79,17 @@ public sealed partial class Match
     // 길이의 제곱이 이보다 작은 벡터는 방향이 없는 것으로 본다. 거의 0인 벡터로 적의 이동 방향을 정하지 않게 한다.
     // 이 기준을 넘는 벡터는 길이가 Raw 111(약 0.027)보다 길어, 정규화한 결과의 길이가 1에서 0.5% 넘게 벗어나지 않는다.
     private static readonly Fixed TinyLengthSquared = Fixed.FromRaw(4);
-    // 적끼리 밀어내는 방향을 구하는 가장 짧은 거리다. 길이는 Raw 단위로 반올림하므로, 아주 짧은 벡터를 그 길이로 나누면
+    // 앞선 적에게서 멀어지는 방향(길 내주기)을 구하는 가장 짧은 거리다. 길이는 Raw 단위로 반올림하므로, 아주 짧은 벡터를 그 길이로 나누면
     // 길이가 1에서 크게 벗어난다(Raw (2, 4)는 길이 4로 나뉘어 길이 1.118이 된다). 1 이상이면 벗어나는 정도가 0.03% 아래다.
     // 살아 있는 적끼리는 몸 충돌(CanOccupy) 때문에 반지름의 합보다 가까워지지 않으므로, 정상 진행에서는 이 기준에 걸리지 않는다.
-    private static readonly Fixed SeparationMinimum = Fixed.One;
+    private static readonly Fixed YieldMinimum = Fixed.One;
+    // 뒤선 적이 앞선 적에게 길을 내주기 시작하는 거리다. 두 몸 사이의 틈이 이보다 좁아지면 물러나기 시작한다.
+    private static readonly Fixed YieldMargin = Fixed.FromInt(12);
+    // 가려는 방향과 길을 내주는 방향의 합(길이 0~1)이 이 길이(1/4)의 제곱보다 짧으면 그 틱에는 움직이지 않는다.
+    private static readonly Fixed StillSteerSquared = Fixed.One / 16;
+    // 이번 틱에 움직이는 적들의 이동 계획이다. 앞선 차례로 늘어놓는다(0번이 가장 앞선 적). 틱마다 UpdateEnemies가 다시 채운다.
+    // 틱 안에서만 쓰는 임시 값이라 상태 요약에는 넣지 않는다.
+    private readonly List<EnemyPlan> _moving = new List<EnemyPlan>();
     private static readonly int[] NeighborX = new int[] { 1, -1, 0, 0 };
     private static readonly int[] NeighborY = new int[] { 0, 0, 1, -1 };
 

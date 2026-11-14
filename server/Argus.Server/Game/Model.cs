@@ -260,6 +260,32 @@ public sealed class EnemyAction
     }
 }
 
+// 움직이는 적 하나의 이번 틱 이동 계획이다(Match.UpdateEnemies). 틱 안에서만 쓰는 임시 값이다.
+public sealed class EnemyPlan
+{
+    public Enemy Enemy { get; }
+    // 가려는 방향(길이 1)이다. 대원에게 직진하거나 흐름장을 따른다.
+    public FixedVector Heading { get; }
+    // 쫓는 대원 쪽이다(길이는 맞추지 않음). 벽에 가려 있어도 곧은 방향이다. 다른 적의 몸에 정면으로 막혔을 때 돌아갈 쪽을 가린다.
+    public FixedVector Toward { get; }
+    // 앞선 적을 가리는 값이다. Cost는 대원까지 가는 길의 칸 수(흐름장), Closest는 쫓는 대원까지의 거리의 제곱이다.
+    public int Cost { get; }
+    public Fixed Closest { get; }
+    // 이번 틱에 움직이려는 양이다. 가려는 방향에 앞선 적에게 길을 내주는 방향을 더한 것이다. 움직이지 않으면 0 벡터다.
+    public FixedVector Step;
+    // 더 갈 수 없어 기다리는 적인지다. 이번 틱에 서 있는 적, 대원에게 다 온 적, 행동 중인 적이나 기다리는 앞선 적의 뒤에 선 적이다.
+    public bool Waiting;
+
+    public EnemyPlan(Enemy enemy, FixedVector heading, FixedVector toward, int cost, Fixed closest)
+    {
+        Enemy = enemy;
+        Heading = heading;
+        Toward = toward;
+        Cost = cost;
+        Closest = closest;
+    }
+}
+
 public sealed class Enemy
 {
     public int Id { get; }
