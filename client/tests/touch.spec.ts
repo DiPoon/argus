@@ -87,7 +87,8 @@ test('a phone picks only skills that need no aim in a one-screen lobby and fight
     await page.goto(quietRoom);
     await expect(page.locator('body')).toHaveClass(/\btouch\b/);
     // 로비는 휴대폰 가로 화면 한 장에 들어온다. 페이지도 장비 칸도 스크롤하지 않고 모든 버튼과 선택지가 보인다.
-    for (const size of [{ width: 844, height: 390 }, { width: 740, height: 320 }]) {
+    // 가장 낮고 좁은 가로 화면(568×320, 533×320)도 본다. 자유 칸이 두 줄이 된 뒤로는 여기가 가장 빠듯하다.
+    for (const size of [{ width: 844, height: 390 }, { width: 740, height: 320 }, { width: 568, height: 320 }, { width: 533, height: 320 }]) {
       await page.setViewportSize(size);
       const overflow = await page.evaluate(() => {
         const panel = document.querySelector('.loadout-panel')!;

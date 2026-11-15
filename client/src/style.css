@@ -1476,6 +1476,12 @@ body { --touch-skills-w:188px }
 .touch-gear .equipment-options label.plain { grid-column:1 / -1 }
 .touch-gear .equipment-options label.plain>span { display:flex; align-items:baseline; gap:10px }
 .touch-gear .equipment-options label.plain small { display:block; margin-top:0 }
+/* 높이 320px의 가로 화면(가장 낮은 휴대폰)에서는 장비 칸의 줄 사이와 맨 아래 안내의 줄 높이를 줄인다. 자유 칸이 대시 때문에
+   두 줄이 된 뒤, 글자를 넓게 그리는 글꼴(CI 실행기의 글꼴)로는 폭 533px에서 아래 안내가 세 줄로 꺾여 패널이 5px 넘쳤다. */
+@media (orientation: landscape) and (max-height: 340px) {
+  .touch-gear { row-gap:6px }
+  .touch-gear .touch-intro { margin:0; line-height:1.5 }
+}
 @media (orientation: portrait) {
   .touch-lobby { overflow:auto; height:auto }
   .touch-lobby .loadout-panel { grid-template-columns:1fr; height:auto }
