@@ -300,6 +300,11 @@ input::placeholder {
   grid-template-columns:repeat(3,minmax(0,1fr))
 }
 
+/* 상성 없는 기술(대시)의 선택지는 한 줄을 다 쓴다. 설명이 다른 기술보다 길어 한 칸에서는 낱말 사이에서 두 줄로 꺾인다. */
+.primary-weapons label.plain {
+  grid-column:1 / -1
+}
+
 .secondary-equipment {
   grid-template-columns:repeat(2,minmax(0,1fr))
 }
@@ -1473,7 +1478,6 @@ body { --touch-skills-w:188px }
 .touch-gear .equipment-options label>span { padding:8px }
 .touch-gear .equipment-options b { font-size:12px }
 .touch-gear .equipment-options small { display:none }
-.touch-gear .equipment-options label.plain { grid-column:1 / -1 }
 .touch-gear .equipment-options label.plain>span { display:flex; align-items:baseline; gap:10px }
 .touch-gear .equipment-options label.plain small { display:block; margin-top:0 }
 /* 높이 320px의 가로 화면(가장 낮은 휴대폰)에서는 장비 칸의 줄 사이와 맨 아래 안내의 줄 높이를 줄인다. 자유 칸이 대시 때문에
