@@ -146,6 +146,8 @@ public sealed partial class Match
         hasher.AddText(enemy.Definition.Id);
         hasher.AddDouble(enemy.Hp);
         hasher.AddLong(enemy.NextActionTick);
+        // 움직이던 쪽은 기다리는 적의 다음 걸음을 가른다.
+        hasher.AddPoint(enemy.LastMove);
         EnemyAction? action = enemy.Action;
         hasher.AddBool(action != null);
         if (action == null)

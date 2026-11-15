@@ -12,6 +12,9 @@ internal static class GeneratorTests
     private const int SeedCount = 1000;
     // 적이 캠프까지 오는지 끝까지 따라가 보는 시드의 수다. 한 시드에 처음 적 자리 셋을 모두 본다.
     private const int ChaseSeedCount = 50;
+    // 시설 울타리 안에서 출발한 무리가 캠프까지 오는지 보는 시드의 수다. 한 시드에 시설 셋의 적 아홉을 함께 본다.
+    // 고치기 전에는 이 열두 시드 가운데 여섯에서 멈춘 적이 나왔다.
+    private const int GroupSeedCount = 12;
 
     public static void Register(List<TestCase> tests)
     {
@@ -21,6 +24,7 @@ internal static class GeneratorTests
         tests.Add(new TestCase("Map generation draws from its own stream so the public map does not repeat the room's random numbers", OwnStream));
         tests.Add(new TestCase("A room plays on generated maps: deploy at the camp, walk, and reinforcements arrive", PlaysOnGeneratedMaps));
         tests.Add(new TestCase("On generated maps every enemy kind reaches a player near the camp from every initial spot", EnemiesReachCamp));
+        tests.Add(new TestCase("On generated maps three enemies that start inside each facility enclosure all come out and reach the camp", GroupsLeaveEnclosures));
         tests.Add(new TestCase("Generated maps match fixed checksums so every machine generates the same maps", FixedChecksums));
     }
 
@@ -286,7 +290,7 @@ internal static class GeneratorTests
 
     private static void EnemiesReachCamp()
     {
-        // 조향은 몸 크기에 따라 다르게 걸리므로(몸 통과 판단, 분리 방향) 모든 적 종류를 따로 걸어 본다.
+        // 조향은 몸 크기에 따라 다르게 걸리므로(몸 통과 판단, 모서리를 끼고 돌기) 모든 적 종류를 따로 걸어 본다.
         for (int seed = 1; seed <= ChaseSeedCount; seed++)
         {
             byte[] bytes = SeededRandom.SeedFromNumber(seed);
@@ -328,6 +332,71 @@ internal static class GeneratorTests
                     Check(reached, $"시드 {seed}: 처음 적 자리 {s + 1}에서 출발한 {kind.Name}: {player.Position}의 대원에게 오지 못하고 {enemy.Position}에 멈췄습니다");
                 }
             }
+        }
+    }
+
+    private static void GroupsLeaveEnclosures()
+    {
+        // 시설 울타리(7×7칸) 안에 분쇄자·철위병·병사를 하나씩 두면, 셋이 한 칸짜리 출입구 둘로 나와 캠프의 대원에게 가야 한다.
+        // 적이 하나씩 올 때는 드러나지 않던 결함이 여기서 드러난다. 출입구 어귀에서 둘이 서로를 막거나, 모서리에 걸린 적을 옆의
+        // 적이 막으면 그대로 멈췄다(2026-11-14에 잰 것: 이 장면 그대로 시드 40개 가운데 22개에서 멈춘 적이 나왔다).
+        // 시설을 지키는 적을 두려는 계획(2026-11-13)이 이 장면이다.
+        int[] offsetX = new int[] { 60, -60, 60 };
+        int[] offsetY = new int[] { -60, 60, 60 };
+        EnemyDefinition[] kinds = new EnemyDefinition[] { EnemyDefinition.Breaker, EnemyDefinition.Warden, EnemyDefinition.Grunt };
+        for (int seed = 1; seed <= GroupSeedCount; seed++)
+        {
+            byte[] bytes = SeededRandom.SeedFromNumber(seed);
+            MissionLayout layout = MissionGenerator.Generate(bytes);
+            // 증원이 생기지 않게 적 수 상한을 1로 두고, 처음 적을 치운 뒤 검사할 적만 직접 넣는다. 행동 없이 이동만 본다.
+            Rules rules = new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1, MaxEnemies = 1 };
+            Match match = new Match("GROUP" + seed, rules, bytes, layout);
+            Player player = match.Join("p", "pilot")!;
+            player.Connected = true;
+            Check(match.Deploy(player, layout.Camp.X.ToDouble(), layout.Camp.Y.ToDouble()));
+            Advance(match, rules.DeploySeconds + 0.01);
+            match.Enemies.Clear();
+            for (int f = 0; f < layout.Facilities.Count; f++)
+            {
+                for (int k = 0; k < kinds.Length; k++)
+                {
+                    FixedVector spot = layout.Facilities[f] + FixedVector.FromInt(offsetX[k], offsetY[k]);
+                    Check(match.Map.CanStand(spot, kinds[k].Radius), $"시드 {seed}: 시설 {f + 1}의 울타리 안 {spot}에 {kinds[k].Name}가 설 수 없습니다");
+                    Enemy enemy = new Enemy(30200 + f * kinds.Length + k, spot, kinds[k]);
+                    enemy.NextActionTick = long.MaxValue;
+                    match.Enemies.Add(enemy);
+                }
+            }
+            // 모두가 대원 둘레(거리 200 안)에 올 때까지 본다. 아홉이 모두 공격 거리 안에 설 자리는 없을 수 있으므로,
+            // 대원을 둘러싼 무리의 바깥에 선 적까지 온 것으로 친다. 고친 뒤에는 시드 40개 모두 46초 안에 왔다. 75초를 준다.
+            // 가는 동안 틱마다 몸이 벽이나 다른 몸과 겹치지 않는지도 본다.
+            Fixed near = Fixed.FromInt(200);
+            Enemy? late = null;
+            for (long tick = 0; tick < Rules.ToTicks(75); tick++)
+            {
+                match.Step();
+                EncounterTests.CheckBodies(match);
+                // 1초마다, 아직 오지 못한 적이 있는지 본다.
+                if (tick % Rules.TicksPerSecond != 0)
+                {
+                    continue;
+                }
+                late = null;
+                for (int i = 0; i < match.Enemies.Count; i++)
+                {
+                    Enemy enemy = match.Enemies[i];
+                    if (FixedVector.DistanceSquared(enemy.Position, player.Position) >= near * near)
+                    {
+                        late = enemy;
+                        break;
+                    }
+                }
+                if (late == null)
+                {
+                    break;
+                }
+            }
+            Check(late == null, $"시드 {seed}: 울타리 안에서 출발한 {late?.Definition.Name}: 캠프의 대원에게 오지 못하고 {late?.Position}에 있습니다");
         }
     }
 

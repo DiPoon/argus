@@ -134,9 +134,7 @@ public sealed class BattleMap
                 }
 
                 // 타일 사각형에서 몸의 중심에 가장 가까운 점이 반지름보다 가까우면 겹친다.
-                FixedVector nearest = new FixedVector(
-                    Fixed.Clamp(position.X, Fixed.FromInt(x * Cell), Fixed.FromInt((x + 1) * Cell)),
-                    Fixed.Clamp(position.Y, Fixed.FromInt(y * Cell), Fixed.FromInt((y + 1) * Cell)));
+                FixedVector nearest = NearestInCell(position, x, y);
                 if (FixedVector.DistanceSquared(nearest, position) < radiusSquared)
                 {
                     return false;
@@ -144,6 +142,57 @@ public sealed class BattleMap
             }
         }
         return true;
+    }
+
+    // 칸 (x, y)의 사각형에서 position에 가장 가까운 점이다. 몸이 벽 칸과 겹치는지(CanStand)와 겹친 깊이(DeepestWall)를 여기서 잰다.
+    private static FixedVector NearestInCell(FixedVector position, int x, int y)
+    {
+        return new FixedVector(
+            Fixed.Clamp(position.X, Fixed.FromInt(x * Cell), Fixed.FromInt((x + 1) * Cell)),
+            Fixed.Clamp(position.Y, Fixed.FromInt(y * Cell), Fixed.FromInt((y + 1) * Cell)));
+    }
+
+    // position에 선 몸과 가장 깊이 겹치는 벽 칸을 찾는다. 겹치는 벽이 없으면 false다.
+    // depth는 겹친 깊이(반지름 - 그 칸까지의 거리)이고, away는 그 칸에서 from 쪽으로 향하는 벡터(길이는 맞추지 않음)다.
+    // from은 몸이 지금 서 있는 자리다. 가려는 자리가 아니라 지금 자리에서 본 방향을 쓰는 것은, 가려는 자리가 칸 안으로
+    // 들어가 있으면 방향을 정할 수 없기 때문이다. 벽 면에 닿아 있으면 면에 수직이고, 모서리에 닿아 있으면 모서리에서 몸 쪽이다.
+    public bool DeepestWall(FixedVector position, Fixed radius, FixedVector from, out FixedVector away, out Fixed depth)
+    {
+        away = FixedVector.Zero;
+        depth = Fixed.Zero;
+        bool found = false;
+        int minX = (position.X - radius).FloorDivide(Cell);
+        int maxX = (position.X + radius).FloorDivide(Cell);
+        int minY = (position.Y - radius).FloorDivide(Cell);
+        int maxY = (position.Y + radius).FloorDivide(Cell);
+        Fixed radiusSquared = radius * radius;
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                if (!Solid(x, y))
+                {
+                    continue;
+                }
+                // 겹치는지는 CanStand와 같은 식으로 본다(칸에서 가장 가까운 점까지의 거리).
+                FixedVector nearest = NearestInCell(position, x, y);
+                Fixed distanceSquared = FixedVector.DistanceSquared(nearest, position);
+                if (distanceSquared >= radiusSquared)
+                {
+                    continue;
+                }
+                Fixed overlap = radius - Fixed.Sqrt(distanceSquared);
+                if (found && overlap <= depth)
+                {
+                    continue;
+                }
+                FixedVector nearestNow = NearestInCell(from, x, y);
+                found = true;
+                depth = overlap;
+                away = from - nearestNow;
+            }
+        }
+        return found;
     }
 
     // from에서 to까지의 선분이 처음 닿는 벽을 찾는다. 타일 경계를 지나는 순서대로 한 칸씩 나아간다.
