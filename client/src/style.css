@@ -1458,8 +1458,10 @@ body { --touch-skills-w:188px }
 .touch-entry .join-row button { padding:9px 14px }
 .touch-entry .error { margin:0 }
 .touch-entry #lobby-full { align-self:flex-start; margin-top:auto }
-/* 장비 칸은 둘레 기술만 고른다. 종류 칸 셋은 기술이 하나씩이라 한 줄에 나란히 두고, 그 아래 자유 칸에 셋을 둔다.
-   기술 설명은 모두 "둘레 모두 · 조준 없음"이라 위의 한 줄로 대신하고 이름만 보인다. */
+/* 장비 칸은 조준하지 않아도 되는 기술만 고른다. 종류 칸 셋은 둘레 기술이 하나씩이라 한 줄에 나란히 두고, 그 아래 자유 칸에
+   둘레 기술 셋과 대시를 둔다. 둘레 기술의 설명은 모두 "둘레 모두 · 조준 없음"이라 위의 한 줄로 대신하고 이름만 보인다.
+   상성 없는 기술(대시, label.plain)은 설명이 달라 한 줄을 다 쓰고 이름 옆에 설명을 보인다. 위의 안내를 한 줄 늘리면
+   가장 좁은 가로 화면(533×320)에서 로비가 한 장을 넘는다(CI 실행기 글꼴로 4px). */
 .touch-gear { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px 10px; align-content:start; min-width:0 }
 .touch-gear-note, .touch-gear .primary-weapons, .touch-intro { grid-column:1 / -1 }
 .touch-gear .touch-intro { margin:2px 0 0; font-size:10px; line-height:1.8 }
@@ -1471,6 +1473,9 @@ body { --touch-skills-w:188px }
 .touch-gear .equipment-options label>span { padding:8px }
 .touch-gear .equipment-options b { font-size:12px }
 .touch-gear .equipment-options small { display:none }
+.touch-gear .equipment-options label.plain { grid-column:1 / -1 }
+.touch-gear .equipment-options label.plain>span { display:flex; align-items:baseline; gap:10px }
+.touch-gear .equipment-options label.plain small { display:block; margin-top:0 }
 @media (orientation: portrait) {
   .touch-lobby { overflow:auto; height:auto }
   .touch-lobby .loadout-panel { grid-template-columns:1fr; height:auto }

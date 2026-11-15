@@ -3,7 +3,7 @@
 // 클라이언트는 숨은 적을 모르고 적이 다음 틱에 어디로 갈지도 모르므로, 그런 몸에 막혀 생긴 차이는 서버 위치로 보정된다.
 // 서버의 계산을 바꾸면 이 파일도 함께 고치고 대조 자료(client/tests/fixed-vectors.json)를 다시 만든다.
 import {
-  type FixedVector, add, ceilingDivide, clamp, distanceSquared, divideInt, divideVectorInt, floorDivide, fromDouble, fromInt,
+  type FixedVector, add, angleUnits, ceilingDivide, clamp, direction, distanceSquared, divideInt, divideVectorInt, floorDivide, fromDouble, fromInt,
   length, lengthSquared, multiply, multiplyVectorInt, normalize, one, scaleVector, subtract, subtractVector,
 } from './fixed';
 
@@ -120,4 +120,126 @@ export function stepPlayer(terrain: Terrain, bodies: readonly Body[], position: 
   speed: number, radius: number): FixedVector {
   const delta = scaleVector(moveDirection(moveX, moveY), playerStep(speed));
   return moveBody(terrain, bodies, position, delta, radius);
+}
+
+// ---- 내 대원의 기술 차례와 대시 ----
+// 대시는 기술을 시작한 틱부터 몸을 움직이므로, 내 위치를 예측하려면 "이 누름으로 어느 틱에 무슨 기술이 시작하는가"도
+// 서버와 같게 따라가야 한다. 아래는 서버의 그 부분(Match.ApplyButtons·Press·UpdatePlayer·HoldAuras·StartWaitingSkill·MovePlayer)을
+// 옮긴 것이다. 전투 판정은 옮기지 않았다. 완벽 대응으로 기술이 그 자리에서 끝나거나 맞아서 끊기는 것은 클라이언트가
+// 미리 알 수 없고, 보급으로 마나가 차는 것도 따라 하지 않는다. 그렇게 생긴 차이는 다음 스냅샷의 서버 상태로 바로잡힌다.
+// 서버의 계산을 바꾸면 여기도 함께 고치고 대조 자료를 다시 만든다.
+
+// 초로 정한 기간을 틱 수로 바꾼다(Rules.ToTicks). 실수 곱셈의 오차를 막는 아주 작은 여유까지 서버와 같다.
+// 0초는 올림한 값이 -0으로 나오므로 0으로 맞춘다.
+export function toTicks(seconds: number): number {
+  const ticks = Math.ceil(seconds * ticksPerSecond - 0.000001);
+  return ticks === 0 ? 0 : ticks;
+}
+
+// 방향을 정할 수 없을 만큼 짧은 벡터의 기준이다(Match.TinyLengthSquared, Raw 4).
+const tinyLengthSquared = 4;
+
+// 장비 칸 하나에 든 기술에서 예측에 쓰는 값이다. 시간은 틱이고 dashStep은 한 틱의 대시 거리(Raw)다. 대시가 아니면 0이다.
+export interface SlotSkill { mana: number; auraTicks: number; durationTicks: number; dashStep: number }
+
+// 서버가 보낸 기술 정의에서 그 값을 구한다(SkillDefinition, PlayerAction의 생성자).
+export function slotSkill(skill: { mana: number; auraSeconds: number; duration: number; dashDistance: number }): SlotSkill {
+  const durationTicks = toTicks(skill.duration);
+  return {
+    mana: skill.mana, auraTicks: toTicks(skill.auraSeconds), durationTicks,
+    dashStep: skill.dashDistance > 0 ? divideInt(fromDouble(skill.dashDistance), durationTicks) : 0,
+  };
+}
+
+// 예측에 쓰는 규칙이다. slots는 장비 칸 넷의 기술(1번 칸이 0번째), maxAuraTicks는 최대 기운 시간이다.
+export interface PilotRules { speed: number; radius: number; maxAuraTicks: number; slots: SlotSkill[] }
+
+// 쓰는 중인 기술이다(PlayerAction). started는 시작한 틱, heldTicks는 버튼을 누르고 있어 기운이 더 이어진 틱 수다.
+export interface PilotAction { slot: number; started: number; heldTicks: number; released: boolean; direction: FixedVector }
+
+// 눌렀지만 아직 시작하지 못한 누름이다(WaitingPress).
+export interface PilotPress { slot: number; held: boolean; fresh: boolean }
+
+// 내 대원의 상태 가운데 이동과 기술 시작에 쓰이는 것이다(Player). 기술은 한 번에 하나만 쓴다.
+export interface Pilot { position: FixedVector; mana: number; tick: number; action?: PilotAction; waiting: PilotPress[] }
+
+// 보낸 입력 하나다. held는 그 순간 누르고 있는 슬롯의 비트 묶음(슬롯 n이 비트 n-1), pressed는 지난 입력 뒤에 누른 슬롯을 누른 차례대로다.
+export interface PilotInput { moveX: number; moveY: number; aim: number; held: number; pressed: readonly number[] }
+
+export const slotBit = (slot: number) => 1 << (slot - 1);
+
+// 슬롯 목록을 비트 묶음으로 바꾼다.
+export const slotMask = (slots: readonly number[]) => slots.reduce((mask, slot) => mask | slotBit(slot), 0);
+
+export const clonePilot = (pilot: Pilot): Pilot => ({
+  ...pilot, action: pilot.action ? { ...pilot.action } : undefined, waiting: pilot.waiting.map(press => ({ ...press })),
+});
+
+// 입력이 도착했을 때 버튼의 변화를 적는다(Match.ApplyButtons). 뗀 버튼의 기술은 기운을 더 잇지 않고, 새로 누른 버튼은 기다리는 누름에 넣는다.
+export function applyButtons(pilot: Pilot, held: number, pressed: readonly number[]) {
+  if (pilot.action && (held & slotBit(pilot.action.slot)) === 0) pilot.action.released = true;
+  for (const waiting of pilot.waiting) if ((held & slotBit(waiting.slot)) === 0) waiting.held = false;
+  for (const slot of pressed) press(pilot, slot, (held & slotBit(slot)) !== 0);
+}
+
+// 버튼 하나를 새로 눌렀다(Match.Press). 쓰던 기술의 버튼은 놓은 것으로 보고, 뗐다가 다시 누른 버튼은 맨 뒤로 간다.
+function press(pilot: Pilot, slot: number, held: boolean) {
+  if (pilot.action) pilot.action.released = true;
+  for (let i = pilot.waiting.length - 1; i >= 0; i--) {
+    const waiting = pilot.waiting[i];
+    if (waiting.slot !== slot) continue;
+    if (waiting.held) return;
+    pilot.waiting.splice(i, 1);
+  }
+  pilot.waiting.push({ slot, held, fresh: true });
+}
+
+// 대시가 갈 방향이다(Match.DashDirection). 걷던 쪽이고, 서 있었으면 조준한 쪽이다.
+export function dashDirection(moveX: number, moveY: number, aim: number): FixedVector {
+  const move = moveDirection(moveX, moveY);
+  if (lengthSquared(move) >= tinyLengthSquared) return normalize(move);
+  return direction(angleUnits(aim));
+}
+
+// 대원을 한 틱 진행한다(Match.UpdatePlayer). input은 이 틱에 서버가 쓰는 입력이다(새 입력이 없으면 마지막 입력).
+// 버튼의 변화는 입력이 도착할 때 applyButtons로 먼저 적어 둔다.
+export function stepPilot(terrain: Terrain, bodies: readonly Body[], pilot: Pilot, input: PilotInput, rules: PilotRules) {
+  pilot.tick += 1;
+  const tick = pilot.tick;
+  // 끝난 기술을 치운다.
+  if (pilot.action) {
+    const skill = rules.slots[pilot.action.slot - 1];
+    if (pilot.action.started + skill.durationTicks + pilot.action.heldTicks <= tick) pilot.action = undefined;
+  }
+  // 버튼을 누르고 있으면 장판이 나갈 틱에 기운을 한 틱 더 잇는다(HoldAuras). 기운이 없는 기술(대시)은 잇지 않는다.
+  if (pilot.action) {
+    const action = pilot.action;
+    const skill = rules.slots[action.slot - 1];
+    const zoneTick = action.started + skill.auraTicks + action.heldTicks;
+    const holdTicks = skill.auraTicks === 0 ? 0 : Math.max(skill.auraTicks, rules.maxAuraTicks);
+    if (tick === zoneTick && !action.released && zoneTick < action.started + holdTicks) action.heldTicks += 1;
+  }
+  // 기술을 쓰고 있지 않으면 가장 먼저 누른 것으로 시작한다(StartWaitingSkill). 마나가 모자란 누름은 버린다.
+  while (!pilot.action && pilot.waiting.length > 0) {
+    const first = pilot.waiting.shift()!;
+    const skill = rules.slots[first.slot - 1];
+    if (pilot.mana < skill.mana) continue;
+    pilot.mana -= skill.mana;
+    const released = !first.held || pilot.waiting.some(waiting => waiting.held || waiting.fresh);
+    const heading = skill.dashStep > 0 ? dashDirection(input.moveX, input.moveY, input.aim) : { x: 0, y: 0 };
+    pilot.action = { slot: first.slot, started: tick, heldTicks: 0, released, direction: heading };
+  }
+  // 뗀 누름은 한 번 더 보고 버린다.
+  for (let i = pilot.waiting.length - 1; i >= 0; i--) {
+    const waiting = pilot.waiting[i];
+    if (!waiting.held && !waiting.fresh) { pilot.waiting.splice(i, 1); continue; }
+    waiting.fresh = false;
+  }
+  // 움직인다(MovePlayer). 대시하는 중이면 대시의 방향과 거리로, 아니면 이동 입력으로 걷는다.
+  let delta = scaleVector(moveDirection(input.moveX, input.moveY), playerStep(rules.speed));
+  if (pilot.action) {
+    const skill = rules.slots[pilot.action.slot - 1];
+    if (skill.dashStep > 0) delta = scaleVector(pilot.action.direction, skill.dashStep);
+  }
+  pilot.position = moveBody(terrain, bodies, pilot.position, delta, rules.radius);
 }

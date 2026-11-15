@@ -1,6 +1,9 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import { fromDouble, toDouble, type FixedVector } from './fixed';
-import { deployable, inputHoldTicks, stepPlayer, tickMilliseconds, ticksPerSecond, unknownTile, type Body, type Terrain } from './movement';
+import {
+  applyButtons, clonePilot, deployable, inputHoldTicks, slotSkill, stepPilot, tickMilliseconds, ticksPerSecond, toTicks, unknownTile,
+  type Body, type Pilot, type PilotAction, type PilotInput, type PilotRules, type SlotSkill, type Terrain,
+} from './movement';
 import { affinityNames, type Affinity, type CombatAction, type Control, type Position, type SkillDefinition, type Snapshot } from './types';
 // 색(상성 색, 지도 색, 대원 색, 적 몸 색)은 미니맵·CSS·검사가 함께 쓰도록 pixi 없는 palette.ts에 둔다.
 import { affinityColors, bodyColor, colors, extractionRadius, facilityColor, supplyColor, supplyShown, team } from './palette';
@@ -9,6 +12,10 @@ import type { Minimap, MinimapScene } from './minimap';
 // 효과 색이다. 방어 성공은 방어 상성 색이다. 피격·비김은 상성 색과 겹치지 않는 분홍이다(2026-11-08 사용자 결정). 예전 연어 빨강은
 // 새 타격 빨강과 거의 같아(적색약에게는 같은 색) 적 옆에 뜬 피격이 타격 예고로 읽혔다. 분홍은 빨강과 파랑을 섞은 색이라 3원색과
 // 겹치지 않는다. 완벽 대응은 라임, 부분 대응은 금색이고, 나머지(−1, 보급 완료, 투입)는 청록이다.
+// 서버가 정의를 보내지 않은 기술이다. 마나가 모자란 누름처럼 버려져 예측에서는 시작하지 않는다.
+const unknownSkill: SlotSkill = { mana: Number.POSITIVE_INFINITY, auraTicks: 0, durationTicks: 0, dashStep: 0 };
+// 대시하는 대원 뒤에 그리는 꼬리의 길이(월드 단위)다.
+const dashTrail = 30;
 const effectColors: Record<string, number> = { guard: affinityColors.block, hurt: colors.pink, draw: colors.pink, break: colors.lime, partial: colors.gold };
 const unitOutline = { color: colors.outline, width: 2.5 };
 
@@ -29,7 +36,9 @@ const maxPending = 60;
 
 // 보냈지만 서버가 아직 확인하지 않은 입력이다. ticks는 이 입력이 쓰일 것으로 보는 틱 수다. 보통 1이고, 다음 입력을
 // 제때 보내지 못하면(타이머가 늦게 깸) 서버처럼 이 입력을 그만큼 더 쓴 것으로 친다.
-type PendingInput = { seq: number; x: number; y: number; at: number; ticks: number };
+// 보낸 입력 하나다. 이동과 조준, 누르고 있는 슬롯(비트 묶음)과 누른 슬롯까지 든다. 대시는 누름으로 시작해 몸을 움직이므로
+// 버튼도 서버처럼 따라가야 내 위치를 맞출 수 있다. at은 보낸 시각(화면 계산용), ticks는 서버가 이 입력을 쓰는 틱 수다.
+type PendingInput = PilotInput & { seq: number; at: number; ticks: number };
 
 export class World {
   readonly app = new Application();
@@ -71,7 +80,10 @@ export class World {
   // 서버가 보낸 내 위치(Raw)와, 그 위에 남은 입력을 서버와 같은 계산으로 적용한 위치(Raw)다.
   // tip은 입력을 모두 적용한 곳이고, previous는 마지막 입력 하나를 빼고 적용한 곳이다.
   private base?: FixedVector;
-  private forecast?: { previous: FixedVector; tip: FixedVector };
+  // tip은 내 대원의 예측 상태다. 위치와 함께 마나, 쓰는 중인 기술, 기다리는 누름을 서버처럼 따라간다(movement.ts의 Pilot).
+  private forecast?: { previous: FixedVector; tip: Pilot };
+  // 예측에 쓰는 규칙이다. 내 장비 칸의 기술마다 틱 수와 대시 거리를 구해 둔다.
+  private pilotRules?: PilotRules;
   // 서버 위치로 예측을 바로잡을 때 그림이 튀지 않게 남겨 두는 차이(월드 단위)다. 시간이 지나며 0으로 줄어든다.
   private correction: Position = { x: 0, y: 0 };
   private predicting = false;
@@ -114,6 +126,7 @@ export class World {
     this.bodies = [];
     this.base = undefined;
     this.forecast = undefined;
+    this.pilotRules = undefined;
     this.predicted = undefined;
     this.pending = [];
     this.ack = -1;
@@ -156,6 +169,14 @@ export class World {
       .map(enemy => ({ x: enemy.rawX, y: enemy.rawY, radius: fromDouble(enemy.radius) }));
     const me = snapshot.players.find(p => p.id === snapshot.you);
     this.base = me ? { x: me.rawX, y: me.rawY } : undefined;
+    this.pilotRules = me ? {
+      speed: snapshot.rules.speed, radius: fromDouble(snapshot.rules.playerRadius), maxAuraTicks: toTicks(snapshot.rules.maxAuraSeconds),
+      slots: me.slots.map(id => {
+        const definition = snapshot.rules.skills.find(skill => skill.id === id);
+        // 정의를 모르는 기술은 시작하지 않는 것으로 본다. 그 기술을 서버가 시작하면 다음 스냅샷이 바로잡는다.
+        return definition ? slotSkill(definition) : unknownSkill;
+      }),
+    } : undefined;
     this.ack = me?.ack ?? -1;
     const reset = me !== undefined && (me.state !== this.oldState || changedRoom);
     if (me && reset) {
@@ -184,9 +205,11 @@ export class World {
   mePosition() { return this.predicted; }
 
   // 보낸 입력을 서버가 확인할 때까지 보관한다. 시각은 화면 계산에만 쓰며 서버로 보내지 않는다.
-  recordInput(seq: number, x: number, y: number, at = performance.now()) {
+  // buttons는 함께 보낸 조준과 버튼이다. held는 누르고 있는 슬롯의 비트 묶음, pressed는 지난 입력 뒤에 누른 슬롯이다(서버에 보낸 그대로).
+  // 빠뜨리면 대시의 예측이 서버와 어긋나므로 기본값을 두지 않는다.
+  recordInput(seq: number, moveX: number, moveY: number, buttons: { aim: number; held: number; pressed: readonly number[] }, at = performance.now()) {
     const before = this.target(at);
-    const input = { seq, x, y, at, ticks: 1 };
+    const input: PendingInput = { seq, moveX, moveY, ...buttons, at, ticks: 1 };
     this.pending.push(input);
     if (this.pending.length > maxPending) {
       // 버리는 입력은 서버가 이미 처리했지만 아직 확인이 오지 않았을 수 있다. 빼고 다시 걸으면 그 틱만큼 뒤처지므로,
@@ -194,8 +217,8 @@ export class World {
       this.droppedSeq = this.pending.shift()!.seq;
       this.resimulate();
     } else {
-      // 새 입력은 마지막 예측 위치에서 한 틱만 더 걸으면 된다.
-      this.advance(input, 1);
+      // 새 입력은 마지막 예측 상태에서 버튼의 변화를 적고 한 틱만 더 가면 된다.
+      this.advance(input, 1, true);
     }
     // 직전 입력이 한 틱을 다 채우기 전에 새 입력이 오면 목표가 앞으로 건너뛴다. 그 차이도 보정 차이로 옮긴다.
     this.keepDrawn(before, at);
@@ -210,52 +233,83 @@ export class World {
     if (extra <= 0) return;
     const before = this.target(at);
     last.ticks += extra;
-    this.advance(last, extra);
+    // 같은 입력을 더 쓰는 것이라 버튼의 변화는 다시 적지 않는다.
+    this.advance(last, extra, false);
     this.keepDrawn(before, at);
   }
 
-  // 서버 재조정: 서버가 보낸 내 위치(Raw)에서 출발해, 서버가 아직 처리하지 않은 입력을 보낸 순서대로 다시 적용한다.
+  // 서버 재조정: 서버가 보낸 내 상태에서 출발해, 서버가 아직 처리하지 않은 입력을 보낸 순서대로 다시 적용한다.
   // 입력 하나는 보통 한 틱이다. 계산은 서버와 같은 고정소수점이라, 서버가 입력을 같은 틱에 받고 막는 몸이 그대로면
   // 서버와 Raw까지 같은 곳에 이른다. 서버가 같은 틱에 입력 둘을 받거나(나중 것만 쓴다) 한 틱 동안 입력을 받지 못하면
   // (앞 입력을 한 틱 더 쓴다) 그만큼 어긋나고, 다음 스냅샷에서 서버 위치로 바로잡힌다.
+  // 대시는 누름으로 시작해 몸을 움직이므로 버튼과 기술 차례도 함께 따라간다. 전투 판정으로 기술이 일찍 끝나거나 끊긴 것,
+  // 보급으로 마나가 찬 것은 미리 알 수 없어, 그때의 대시는 다음 스냅샷에서 바로잡힌다.
   private resimulate() {
-    if (!this.snapshot || !this.base || !this.terrain || this.droppedSeq > this.ack) { this.forecast = undefined; return; }
-    this.forecast = { previous: this.base, tip: this.base };
-    for (const input of this.pending) this.advance(input, input.ticks);
+    const start = this.droppedSeq > this.ack ? undefined : this.serverPilot();
+    if (!start) { this.forecast = undefined; return; }
+    this.forecast = { previous: start.position, tip: start };
+    for (const input of this.pending) this.advance(input, input.ticks, true);
+  }
+
+  // 마지막 스냅샷의 내 상태를 예측의 출발점으로 옮긴다. 쓰는 중인 기술의 틱은 서버가 보낸 시각에서 되돌린다
+  // (틱으로 된 시각은 30을 곱해 반올림하면 틱 번호다).
+  private serverPilot(): Pilot | undefined {
+    const s = this.snapshot;
+    const me = s?.players.find(player => player.id === s.you);
+    if (!s || !me || !this.base || !this.terrain || !this.pilotRules) return undefined;
+    let action: PilotAction | undefined;
+    const current = me.actions[0];
+    if (current) {
+      const started = Math.round(current.startedAt * ticksPerSecond);
+      const skill = this.pilotRules.slots[current.slot - 1];
+      action = {
+        slot: current.slot, started,
+        // 장판이 나가는 틱은 시작 + 가장 짧은 기운 시간 + 누르고 있어 밀린 틱 수다.
+        heldTicks: Math.round(current.contactAt * ticksPerSecond) - started - skill.auraTicks,
+        // 기운을 잇는 중이 아니면 버튼을 놓았거나 더 이을 수 없는 것이다. 어느 쪽이든 기운은 더 이어지지 않는다.
+        released: !(current.phase === 'aura' && current.held === true),
+        direction: { x: current.dashX ?? 0, y: current.dashY ?? 0 },
+      };
+    }
+    // 기다리는 누름은 그 버튼을 누르고 있는 동안만 남으므로 누르고 있는 것으로 둔다. 뗐다면 다음 입력의 held가 바로잡는다.
+    const waiting = (s.waiting ?? []).map(slot => ({ slot, held: true, fresh: false }));
+    return { position: this.base, mana: me.mana, tick: Math.round(s.now * ticksPerSecond), action, waiting };
   }
 
   // 서버가 마지막 스냅샷 뒤로 ticks틱 동안 내 입력을 쓴 뒤의 내 자리(Raw)다. resimulate와 같은 계산을 앞부분만 한다.
   // 보낸 입력보다 더 걸어야 하면 서버처럼 마지막 입력을 inputHoldTicks틱이 될 때까지만 이어 쓴다.
   // 예측을 끈 동안(forecast가 없음)에는 없다. 서버가 입력을 한 틱에 하나씩 받으면 서버와 같은 자리다.
   private serverSpotAfter(ticks: number): FixedVector | undefined {
-    const s = this.snapshot;
-    if (!s || !this.base || !this.terrain || !this.forecast) return undefined;
-    const radius = fromDouble(s.rules.playerRadius);
-    let spot = this.base;
+    if (!this.terrain || !this.pilotRules || !this.forecast) return undefined;
+    const pilot = this.serverPilot();
+    if (!pilot) return undefined;
     let left = ticks;
     for (const input of this.pending) {
-      if (left <= 0) return spot;
+      if (left <= 0) return pilot.position;
+      applyButtons(pilot, input.held, input.pressed);
       const use = Math.min(left, input.ticks);
-      for (let i = 0; i < use; i++) spot = stepPlayer(this.terrain, this.bodies, spot, input.x, input.y, s.rules.speed, radius);
+      for (let i = 0; i < use; i++) stepPilot(this.terrain, this.bodies, pilot, input, this.pilotRules);
       left -= use;
     }
     const last = this.pending[this.pending.length - 1];
     if (last && left > 0) {
       const extra = Math.min(left, inputHoldTicks - last.ticks);
-      for (let i = 0; i < extra; i++) spot = stepPlayer(this.terrain, this.bodies, spot, last.x, last.y, s.rules.speed, radius);
+      for (let i = 0; i < extra; i++) stepPilot(this.terrain, this.bodies, pilot, last, this.pilotRules);
     }
-    return spot;
+    return pilot.position;
   }
 
-  // 마지막 예측 위치(tip)에서 input을 ticks틱 더 쓴다. previous는 마지막 한 틱 전의 위치로, 그리기 보간에 쓴다.
-  private advance(input: PendingInput, ticks: number) {
-    const s = this.snapshot;
-    if (!s || !this.terrain || !this.forecast) return;
-    const radius = fromDouble(s.rules.playerRadius);
-    let { previous, tip } = this.forecast;
+  // 마지막 예측 상태(tip)에서 input을 ticks틱 더 쓴다. arrives면 이 입력이 막 도착한 것이라 버튼의 변화를 먼저 적는다.
+  // previous는 마지막 한 틱 전의 위치로, 그리기 보간에 쓴다.
+  private advance(input: PendingInput, ticks: number, arrives: boolean) {
+    if (!this.terrain || !this.pilotRules || !this.forecast) return;
+    let { previous } = this.forecast;
+    // 다시 걸을 때 출발점(서버 상태)을 바꾸지 않도록 복사해서 진행한다.
+    const tip = clonePilot(this.forecast.tip);
+    if (arrives) applyButtons(tip, input.held, input.pressed);
     for (let i = 0; i < ticks; i++) {
-      previous = tip;
-      tip = stepPlayer(this.terrain, this.bodies, tip, input.x, input.y, s.rules.speed, radius);
+      previous = tip.position;
+      stepPilot(this.terrain, this.bodies, tip, input, this.pilotRules);
     }
     this.forecast = { previous, tip };
   }
@@ -271,7 +325,8 @@ export class World {
   private target(now: number): Position | undefined {
     if (!this.base) return undefined;
     if (!this.predicting || !this.forecast) return { x: toDouble(this.base.x), y: toDouble(this.base.y) };
-    const { previous, tip } = this.forecast;
+    const previous = this.forecast.previous;
+    const tip = this.forecast.tip.position;
     const last = this.pending[this.pending.length - 1];
     const progress = last ? Math.min(1, Math.max(0, (now - last.at) / tickMilliseconds)) : 1;
     return { x: toDouble(previous.x + (tip.x - previous.x) * progress), y: toDouble(previous.y + (tip.y - previous.y) * progress) };
@@ -298,11 +353,34 @@ export class World {
   // 스냅샷의 시각은 서버가 지금 정해 둔 틱 그대로다. 대원이 버튼을 누르고 있어 기운이 이어지는 중(held)이면 contactAt은
   // 지금 놓았을 때의 시각이라 곧 지나가는데, 그때도 장판은 나가지 않는다. 그래서 held인 기운은 다음 스냅샷이 올 때까지,
   // 늦어도 장판이 나가는 시각(holdUntil)까지 기운으로 그린다. 그러지 않으면 스냅샷 사이에 장판을 그렸다가 기운으로 되돌린다.
+  // 대시하는 몸 뒤의 꼬리다. along은 대시가 가는 방향(길이 1)이고, 꼬리는 그 반대쪽으로 몸 가장자리에서 dashTrail만큼이다.
+  private drawDashTrail(g: Graphics, p: Position, along: Position, radius: number) {
+    g.moveTo(p.x - along.x * radius, p.y - along.y * radius).lineTo(p.x - along.x * (radius + dashTrail), p.y - along.y * (radius + dashTrail))
+      .stroke({ color: 0xffffff, width: radius * 1.4, alpha: .22, cap: 'round' });
+  }
+
+  // 내 예측 상태가 대시하는 중이면 그 꼬리를 그린다. 내 몸은 누른 순간부터 움직여 보이는데, 꼬리를 스냅샷의 기술 객체로 그리면
+  // 다음 스냅샷이 올 때까지(0.1초까지) 꼬리가 없다. 대시는 0.17초뿐이라 절반이 넘게 빈다. 그래서 내 대시만은 예측 상태로 그린다.
+  // 예측이 대시를 마쳤으면 서버가 아직 대시 중이라고 알려도 그리지 않는다.
+  private drawPredictedDash(g: Graphics, p: Position, pilot: Pilot, radius: number) {
+    const action = pilot.action;
+    const skill = action && this.pilotRules?.slots[action.slot - 1];
+    if (!action || !skill || skill.dashStep <= 0 || pilot.tick >= action.started + skill.durationTicks) return;
+    this.drawDashTrail(g, p, { x: toDouble(action.direction.x), y: toDouble(action.direction.y) }, radius);
+  }
+
   private drawAction(g: Graphics, p: Position, action: CombatAction, now: number, player: boolean, radius: number) {
-    const wait = action.held && action.holdUntil !== undefined ? Math.max(0, action.holdUntil - action.contactAt) : 0;
-    if (now >= action.activeUntil + wait) return;
     // 기술별 그림은 id가 아니라 서버가 보낸 기술 속성으로 정한다. 적의 행동에는 기술 정의가 없다.
     const definition = player ? this.snapshot!.rules.skills.find(d => d.id === action.skill) : undefined;
+    // 대시는 기운도 장판도 없다. 가는 반대쪽으로 짧은 꼬리를 그려 빠르게 움직이는 중임을 알린다.
+    if (definition && definition.dashDistance > 0) {
+      if (now < action.endsAt && action.dashX !== undefined && action.dashY !== undefined) {
+        this.drawDashTrail(g, p, { x: toDouble(action.dashX), y: toDouble(action.dashY) }, radius);
+      }
+      return;
+    }
+    const wait = action.held && action.holdUntil !== undefined ? Math.max(0, action.holdUntil - action.contactAt) : 0;
+    if (now >= action.activeUntil + wait) return;
     const aura = now < action.contactAt + wait;
     // 기운의 색은 기술의 종류다. 스냅샷의 kind는 지금 단계의 종류라 받아치기의 반격 중에는 none이다. 화면 시계는 스냅샷보다
     // 앞서 가므로, 대원의 기술은 정의의 종류로 기운을 칠하고 상성 없는 장판(plainZone)은 none 색으로 칠한다.
@@ -607,7 +685,13 @@ export class World {
       const color = team[index % team.length];
       minimapPlayers.push({ x: p.x, y: p.y, color, me: isMe });
       const aim = isMe ? this.control.aim : player.aim;
-      for (const action of player.actions) this.drawAction(u, p, { ...action, aim }, now, true, s.rules.playerRadius);
+      // 내 대시는 예측 상태로 그린다(drawPredictedDash). 예측을 끈 동안에는 다른 대원처럼 스냅샷의 기술 객체로 그린다.
+      const mine = isMe && this.predicting && this.forecast ? this.forecast.tip : undefined;
+      for (const action of player.actions) {
+        if (mine && (s.rules.skills.find(d => d.id === action.skill)?.dashDistance ?? 0) > 0) continue;
+        this.drawAction(u, p, { ...action, aim }, now, true, s.rules.playerRadius);
+      }
+      if (mine) this.drawPredictedDash(u, p, mine, s.rules.playerRadius);
       // 면과 테두리, 두 손만으로 몸체와 방향을 표시한다.
       for (const sign of [-1, 1]) {
         const x = p.x + Math.cos(aim) * 16 - Math.sin(aim) * 8 * sign;
@@ -621,7 +705,7 @@ export class World {
     for (const effect of s.effects) {
       const remain = Math.max(0, effect.until - (s.now + elapsed));
       if (!remain) continue;
-      const text: Record<string, string> = { break: '완벽 대응', partial: '부분 대응', draw: '비김', guard: '방어', hit: '−1', hurt: '피격', heal: '보급 완료', deploy: '투입' };
+      const text: Record<string, string> = { break: '완벽 대응', partial: '부분 대응', draw: '비김', guard: '방어', hit: '−1', hurt: '피격', heal: '보급 완료', deploy: '투입', evade: '회피' };
       const color = effectColors[effect.kind] ?? colors.teal;
       u.circle(effect.x, effect.y, Math.max(3, 30 * (1 - remain / .65))).stroke({ color, alpha: Math.min(1, remain * 2), width: 2 });
       this.label(`effect-${effect.id}`, text[effect.kind] ?? '', effect.x, effect.y - 48 - (1 - remain / .65) * 15, color, 13);

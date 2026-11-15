@@ -9,9 +9,12 @@ export const kindSlots: { kind: Exclude<Affinity, 'none'>; title: string; beats:
   { kind: 'block', title: '방어 칸', beats: '타격을 파훼', skills: ['parry', 'spinblock'] },
   { kind: 'channel', title: '잡기 칸', beats: '방어를 파훼', skills: ['grab', 'spingrab'] },
 ];
-export const freeSkills: Skill[] = ['strike', 'parry', 'grab', 'spin', 'spinblock', 'spingrab'];
+export const freeSkills: Skill[] = ['strike', 'parry', 'grab', 'spin', 'spinblock', 'spingrab', 'dash'];
 // 조준하지 않는 둘레 기술이다(서버 기술 정의의 around).
 export const aroundSkills: Skill[] = ['spin', 'spinblock', 'spingrab'];
+// 터치 로비가 내놓는 기술이다. 마우스 없이 버튼만으로 쓸 수 있는 것들이다. 둘레 기술은 조준이 필요 없고,
+// 대시는 걷던 쪽으로 간다(서 있으면 마지막으로 움직인 쪽이다. 터치 화면은 그 방향을 조준으로 보낸다).
+export const touchSkills: Skill[] = [...aroundSkills, 'dash'];
 // 기술의 종류다. 종류 칸의 목록에서 찾는다. 종류 칸에 없는 기술(앞으로 넣을 상성 없는 기술 등)은 none이다.
 // none이면 손 그림만 빠지고 로비는 그대로 뜬다.
 export const kindOfSkill = (skill: Skill): Affinity => kindSlots.find(slot => slot.skills.includes(skill))?.kind ?? 'none';
