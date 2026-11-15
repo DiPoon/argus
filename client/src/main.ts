@@ -37,7 +37,8 @@ document.body.classList.toggle('touch', touchMode);
 // 터치 화면에서는 마우스가 아닌 포인터(손가락·펜)를 손가락처럼 다룬다. 지도에서 기술을 내지 않고 조준에도 쓰지 않는다.
 // PC 화면에는 터치 조작이 없으므로, 터치스크린 노트북의 손가락은 마우스 구실을 한다.
 const fingerLike = (event: PointerEvent) => touchMode && event.pointerType !== 'mouse';
-// 터치 기기의 로비에서는 둘레 기술만 고른다. 손가락으로는 조준하면서 기술을 쓰기 어렵다(2026-11-03 휴대폰 시험).
+// 터치 기기의 로비에서는 조준하지 않아도 되는 기술(둘레 기술과 대시, loadout.ts의 touchSkills)만 고른다.
+// 손가락으로는 조준하면서 기술을 쓰기 어렵다(2026-11-03 휴대폰 시험).
 // 화면에서 고를 수 있는 기술만 줄인다. 서버는 어느 기기에서 온 참가든 같은 규칙(Rules.ValidSlots)으로 받는다.
 const offered = (skills: Skill[]) => touchMode ? skills.filter(skill => touchSkills.includes(skill)) : skills;
 // 명단에 보이는 장비다. 종류 칸은 기본 기술과 다르게 고른 것만 적고, 자유 칸은 늘 적는다.
@@ -86,7 +87,7 @@ const desktopLobby = `  <main id="lobby" class="lobby">
     <footer class="lobby-footer"><span>4명까지 함께하는 협동 전투</span><span>PC 브라우저 · 키보드 + 마우스</span></footer>
   </main>`;
 // 터치 기기의 로비다. 휴대폰 가로 화면 한 장에 들어오도록 왼쪽에 참가, 오른쪽에 장비 칸만 둔다. 입력의 id는 PC 로비와 같다.
-// 장비 칸 위의 한 줄이 둘레 기술만 고르는 까닭을 알린다.
+// 장비 칸 위의 한 줄이 둘레 기술을 고르는 까닭을 알린다. 대시의 설명은 그 선택지 옆에 보인다.
 const touchLobby = `<main id="lobby" class="lobby touch-lobby">
     <section class="loadout-panel">
       <div class="touch-entry">

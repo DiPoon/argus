@@ -18,6 +18,8 @@ v5 → v6(2026-11-12, 병합 전인 11-13에 리뷰를 반영해 입력과 기�
 - `rules.parryFollowupSeconds`를 없애고 `rules.maxAuraSeconds`를 더했다.
 - `rules.skills`에서 `contactAfter`·`activeSeconds`·`guardsFront`·`hasFollowup`·`followupBreaksStructures`를 없애고 `auraSeconds`·`zoneSeconds`·`plainZone`을 더했다.
 
+v6 안에서 추가(2026-11-15): 대시가 늘었다. `rules.skills`에 기술 `dash`(종류 `none`)와 기술별 값 `dashDistance`·`evades`가 늘었고, 자유 슬롯이 `dash`를 받는다. 대원 기술 객체의 `phase`에 `dash`가, 그 기술 객체에 방향 `dashX`·`dashY`가 늘었다. `effects.kind`에 `evade`가 늘었다. 입력 형식은 그대로다. 대시는 다른 기술처럼 `pressed`로 시작하고, 방향은 서버가 그 틱의 이동 입력과 조준으로 정한다. 기술과 값이 추가되기만 해서 버전은 그대로 6이다.
+
 v5 안에서 바뀜(2026-11-08): 적의 기술 객체 `aim`이 예고 동안 노린 대원 쪽으로 바뀔 수 있다. 이전에는 기술 시작 시 고정했다. 적의 기술 객체에 노린 대원 `target`이 늘었다. 필드를 더하기만 해서 버전은 그대로 5다.
 
 v5 안에서 추가(2026-11-06): 입력에 지난 입력 뒤에 누른 슬롯 `press`가 늘었다. `slot`은 쥐고 있는 슬롯만 뜻한다. `press`를 보내지 않는 클라이언트도 그대로 동작하므로 버전은 그대로 5다.
@@ -58,7 +60,7 @@ v1 → v2: 총기·탄창·재장전·보조 장비·패시브 필드를 제거�
 
 방은 모두 생성 작전이라 방마다 맵의 크기와 모양이 다르다(스냅샷의 `map`·`walls`로 받는다). 방을 만들 때 `"layout":"handmade"`를 주면 손으로 만든 40×30 맵의 방이 된다. `"layout":"quiet"`는 같은 맵에 처음 적도 증원도 없는 조용한 방이다. 둘 다 검사용이다. 앞의 것은 정해진 맵이 필요한 검사(임무 봇), 뒤의 것은 적이 없어야 하는 검사(조작과 화면)가 쓴다. 서버 설정 `Argus:Missions:AllowHandmade`가 켜져 있지 않거나 다른 값이면 HTTP 403이다. 참가할 때는 쓰지 않는다. 공식 클라이언트는 주소에 `?layout=…`이 있으면 방을 만들 때 그 값을 보낸다.
 
-slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 4다. 앞의 세 슬롯은 차례로 타격(strike·spin), 방어(parry·spinblock), 잡기(grab·spingrab) 종류의 기술 가운데 하나이고, 자유 슬롯은 여섯 기술 가운데 하나다. 잘못된 조합은 HTTP 400이다. 이름은 최대 16 UTF-16 문자, 방당 최대 4명, 진행 중 난입 가능, 종료된 방에는 새 참가 불가. 방은 서버 전체에 32개까지이며 가득 차면 방 생성이 HTTP 503이다. 한 주소가 동시에 가질 수 있는 방은 4개이고 넘으면 HTTP 429다. 같은 기계와 사설망에서 온 접속은 이 상한에서 뺀다. IPv6는 /64 대역을 한 주소로 센다. 오류 응답 본문은 `{"error":"…"}`다. 실패하면 장비가 잘못된 경우 400, 참가할 수 없는 방(없음·가득 참·종료)이면 409, 주소별 상한이면 429, 서버가 가득 차면 503이다.
+slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 4다. 앞의 세 슬롯은 차례로 타격(strike·spin), 방어(parry·spinblock), 잡기(grab·spingrab) 종류의 기술 가운데 하나이고, 자유 슬롯은 그 여섯 기술이나 대시(dash) 가운데 하나다. 대시는 상성 종류가 없어 앞의 세 슬롯에는 들 수 없다. 잘못된 조합은 HTTP 400이다. 이름은 최대 16 UTF-16 문자, 방당 최대 4명, 진행 중 난입 가능, 종료된 방에는 새 참가 불가. 방은 서버 전체에 32개까지이며 가득 차면 방 생성이 HTTP 503이다. 한 주소가 동시에 가질 수 있는 방은 4개이고 넘으면 HTTP 429다. 같은 기계와 사설망에서 온 접속은 이 상한에서 뺀다. IPv6는 /64 대역을 한 주소로 센다. 오류 응답 본문은 `{"error":"…"}`다. 실패하면 장비가 잘못된 경우 400, 참가할 수 없는 방(없음·가득 참·종료)이면 409, 주소별 상한이면 429, 서버가 가득 차면 503이다.
 
 ```json
 {"room":"ABC234","id":"public-player-id","token":"private-recovery-token"}
@@ -82,6 +84,7 @@ slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 
 
 - `seq`: 증가하는 정수, 0~9,000,000,000,000. 과거·중복 순번은 무시한다. 숫자가 아니면 그 입력을 무시한다. 재접속 시 snapshot의 ack보다 큰 값으로 이어간다.
 - 공식 클라이언트는 `ack`로 서버 재조정을 한다. 입력을 서버의 틱과 같은 빠르기(평균 초당 30번)로 보내고, 보낸 입력을 순번과 함께 보관한다. 스냅샷이 오면 `ack` 이하의 입력을 버린 뒤, 남은 입력을 내 대원의 `rawX`, `rawY` 위에 하나에 한 틱씩 서버와 같은 고정소수점 계산으로 다시 적용해 그린다. 서버는 틱마다 마지막으로 받은 입력을 쓰므로, 입력이 한 틱에 하나씩 들어가면 예측은 서버와 Raw까지 같다. 같은 틱에 둘이 들어가거나 한 틱 동안 들어가지 않으면 그만큼 어긋나고 다음 스냅샷에서 바로잡힌다. 클라이언트 시각은 서버로 보내지 않으며 서버는 판정에 클라이언트 시각을 쓰지 않는다.
+  - 대시는 누름으로 시작해 몸을 움직인다. 그래서 공식 클라이언트는 보낸 입력의 `aim`·`held`·`pressed`도 함께 보관하고, 어느 틱에 무슨 기술이 시작하는지까지 서버와 같은 차례로 따라간다(기다리는 누름, 마나, 기운 잇기, 기술이 끝나는 틱). 출발점은 스냅샷의 내 `mana`·`actions`·`waiting`이다. 전투 판정은 따라 하지 않는다. 쓰던 기술이 완벽 대응이나 피격으로 일찍 끝난 것, 보급으로 마나가 찬 것은 미리 알 수 없어, 그때 누른 대시는 다음 스냅샷에서 바로잡힌다.
 - `moveX`, `moveY`: 유한수, 각 절댓값 1.01 이하. 벡터 길이가 1을 넘으면 서버가 정규화한다. 실제 이동 거리는 서버 시간과 몸·벽 충돌로 결정한다.
 - `aim`: 유한 라디안. 현재 방향이며 동작 중에도 변경 가능하다. 서버는 한 바퀴를 65536칸(한 칸은 약 0.0055°)으로 나눈 가장 가까운 방향으로 바꿔 다룬다. 스냅샷의 `aim`도 그 방향을 -π 이상 π 미만의 라디안으로 보낸다.
 - `pressed`: 슬롯 번호(1~4의 정수)의 배열. 없어도 되고 없으면 빈 배열이다. 지난 입력을 보낸 뒤에 누른 슬롯을 **누른 차례대로** 적는다. 같은 슬롯이 거듭 나와도 된다(떼었다 다시 누름). 여덟 개까지다. **기술은 `pressed`로만, 누를 때 한 번 시작한다.**
@@ -98,6 +101,8 @@ slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 
   - 새 누름(`pressed`)이 오면 쓰던 기술의 버튼은 놓은 것으로 본다. 다른 슬롯의 누름이든 같은 슬롯의 누름이든 같다. 그 버튼을 계속 `held`에 넣고 있어도, 그 누름이 한 틱 안에 지나가도 같다. 같은 슬롯을 새로 눌렀다면 그 사이에 뗀 것이고, 새 누름은 새 시전이다.
   - 기다리던 누름으로 시작한 기술은, 그 뒤에 아직 살아 있는 누름(그 버튼을 누르고 있거나 방금 도착한 누름)이 있으면 기운을 잇지 않는다. 뒤의 버튼을 누른 것은 앞의 버튼을 놓은 것이다. 뗀 지 한 틱이 지나 그 틱에 버려질 누름은 세지 않는다.
   - 누르고 있다고 기술이 끝날 때마다 다시 시작하지는 않는다. 다시 쓰려면 다시 누른다(`pressed`).
+  - 대시처럼 기운이 없는 기술은 누르고 있어도 이을 것이 없다. 길어지지도 다시 나가지도 않는다.
+- 대시(`rules.skills`의 `dashDistance`가 0보다 큰 기술)의 방향은 서버가 그 기술을 시작하는 틱에 정한다. 그때 쓰고 있는 이동 입력(`moveX`, `moveY`) 쪽이고, 이동 입력이 없으면 `aim` 쪽이다. 누름이 기다렸다가 나중에 시작하면 그 나중 틱의 입력으로 정한다. 대시하는 동안에는 `moveX`·`moveY`가 이동에 쓰이지 않고, 방향도 바뀌지 않는다. 클라이언트가 방향이나 거리를 따로 보낼 수는 없다.
 - `held`나 `pressed`가 배열이 아니거나, 1~4의 정수가 아닌 값이 들어 있거나, `held`에 같은 슬롯이 두 번 있거나, 너무 길면(`held` 넷, `pressed` 여덟을 넘음) 그 입력을 통째로 받지 않는다. 이동과 순번도 반영하지 않는다.
 - 기술 시작 시 서버가 마나를 소비한다. 실제로 맞히지 않아도 환불하지 않는다. 같은 기술을 여러 메시지로 요청해도 한 틱에 여러 번 발동하지 않는다.
 - 입력이 0.35초 이상 없거나 연결이 끊기면 이동을 멈추고, 누르고 있던 버튼은 모두 뗀 것으로 본다. 그 뒤 입력이 돌아와 다시 누르고 있다고 알려도, 쓰던 기술의 버튼은 이미 놓은 것이다. 연결이 끊기면 기다리던 누름도 버린다. 이미 시작한 기술의 시간은 계속 흐른다.
@@ -145,7 +150,7 @@ slots를 생략하면 `["strike","parry","grab","strike"]`. 길이는 정확히 
 | extraction | x, y, progress, duration, unlocked. 분대가 그 칸을 보기 전에는 null |
 | notices | 최근 안내 최대 6개: id, at(나온 시각, 초), text. id는 방마다 1부터 늘어나는 순번이라 같은 틱에 같은 문구가 와도 다르다. 클라이언트는 id로 새 안내를 가린다 |
 
-`rules.skills`는 기술별 `id, kind, mana, auraSeconds, zoneSeconds, duration, range, halfWidth, plainZone, singleTarget, breaksStructures, around`를 제공한다. 기술은 strike, parry, grab, spin, spinblock, spingrab 여섯이다. kind는 strike / block / channel이고 기운과 장판의 상성 종류다. `auraSeconds`는 기운이 도는 가장 짧은 시간, `zoneSeconds`는 장판이 깔려 있는 시간, `duration`은 버튼을 짧게 눌렀을 때 기술 전체의 길이다. `range`와 `halfWidth`는 장판의 크기다. 뒤의 네 값은 기술별 동작이다. `plainZone`은 장판에 상성이 없음(받아치기의 반격. 기운을 두른 적에게 닿아도 일반 피해만 주고, 적의 방어 기운이 향한 쪽에서는 막힘), `singleTarget`은 한 시전에 적 하나만 판정, `breaksStructures`는 장판이 시설과 벽을 부숨, `around`는 조준하지 않는 둘레 기술(기운이 모든 방향으로 돌고, 장판이 대원 둘레 반지름 `range`의 원이며 `halfWidth`는 쓰지 않음, 벽은 치지 않음)을 뜻한다. `around`가 아닌 기술의 기운은 조준 방향의 앞 `guardHalfAngle` × 2(120°)로 돈다. 동작은 id가 아니라 이 값으로 정해진다. `rules.maxAuraSeconds`는 버튼을 누르고 있을 때 기운이 도는 가장 긴 시간이다. 이 수치를 클라이언트가 돌려보내도 서버 설정을 바꾸지 않는다.
+`rules.skills`는 기술별 `id, kind, mana, auraSeconds, zoneSeconds, duration, range, halfWidth, plainZone, singleTarget, breaksStructures, around, dashDistance, evades`를 제공한다. 기술은 strike, parry, grab, spin, spinblock, spingrab, dash 일곱이다. kind는 strike / block / channel이고 기운과 장판의 상성 종류다. 대시는 기운도 장판도 없어 kind가 none이다. `auraSeconds`는 기운이 도는 가장 짧은 시간, `zoneSeconds`는 장판이 깔려 있는 시간, `duration`은 버튼을 짧게 눌렀을 때 기술 전체의 길이다. `range`와 `halfWidth`는 장판의 크기다. 뒤의 네 값은 기술별 동작이다. `plainZone`은 장판에 상성이 없음(받아치기의 반격. 기운을 두른 적에게 닿아도 일반 피해만 주고, 적의 방어 기운이 향한 쪽에서는 막힘), `singleTarget`은 한 시전에 적 하나만 판정, `breaksStructures`는 장판이 시설과 벽을 부숨, `around`는 조준하지 않는 둘레 기술(기운이 모든 방향으로 돌고, 장판이 대원 둘레 반지름 `range`의 원이며 `halfWidth`는 쓰지 않음, 벽은 치지 않음)을 뜻한다. `around`가 아닌 기술의 기운은 조준 방향의 앞 `guardHalfAngle` × 2(120°)로 돈다. `dashDistance`가 0보다 크면 대시다. 기술을 쓰는 동안(`duration`) 몸이 한 방향으로 모두 그만큼 움직인다. 한 틱에 가는 거리는 `dashDistance`를 `duration`의 틱 수로 나눈 값이다(150을 5틱에 가므로 틱마다 30). 걷는 것과 같은 몸 충돌이라 벽과 적의 몸은 지나가지 못하고, 막히면 그만큼 덜 간다. 대시의 `auraSeconds`·`zoneSeconds`·`range`·`halfWidth`는 0이다. `evades`는 그 기술을 쓰는 동안 적의 나간 장판에 맞지 않음을 뜻한다. 동작은 id가 아니라 이 값으로 정해진다. `rules.maxAuraSeconds`는 버튼을 누르고 있을 때 기운이 도는 가장 긴 시간이다. 이 수치를 클라이언트가 돌려보내도 서버 설정을 바꾸지 않는다.
 
 대원:
 
@@ -170,10 +175,10 @@ tiers([타격, 방어, 채널]), action(null 또는 기술 객체)
 
 ```text
 id, skill, kind, slot, tier, phase,
-aim, startedAt, contactAt, activeUntil, endsAt, held, holdUntil, range, halfWidth, target
+aim, startedAt, contactAt, activeUntil, endsAt, held, holdUntil, range, halfWidth, dashX, dashY, target
 ```
 
-`held`와 `holdUntil`은 대원의 기술 객체에만 있다.
+`held`와 `holdUntil`은 대원의 기술 객체에만 있다. `dashX`, `dashY`는 대시하는 중인 대원의 기술 객체에만 있다. 대시가 가는 방향(길이 1)을 좌표의 `rawX`처럼 4096분의 1 단위 정수로 적은 것이다. 공식 클라이언트는 이 방향으로 내 대시를 서버와 같은 계산으로 이어 그린다.
 
 적의 기술 객체에는 그 행동이 노린 대원의 id `target`이 있다. 대원의 기술 객체와 노린 대원이 없는 행동에는 빠진다. 적의 `aim`은 예고(`telegraph`) 동안 그 대원 쪽으로 바뀔 수 있고, 공격 창(`active`)부터는 바뀌지 않는다. 공식 클라이언트는 나를 노린 예고를 내 예측 위치 쪽으로 그린다. 서버가 마지막으로 도는 틱(`contactAt`의 한 틱 전)이 지나면, 그 틱에 서버가 본 내 자리(마지막 스냅샷의 내 위치에 확인받지 않은 입력을 그 틱까지만 다시 적용한 자리) 쪽으로 굳혀 그린다. 전송 형식에 따로 더한 값은 없다.
 
@@ -186,11 +191,12 @@ aim, startedAt, contactAt, activeUntil, endsAt, held, holdUntil, range, halfWidt
   - 버튼을 놓았거나 `contactAt`이 `holdUntil`에 닿았으면 `held`는 false다. 그때의 `contactAt`은 장판이 나가는 시각이다(그 전에 완벽 대응을 내거나 끊기면 기술이 `actions`에서 빠진다).
   - `held`는 서버가 그때까지 받은 입력으로 아는 값이다. 짧게 누른 기술도 뗀 입력이 닿기 전의 스냅샷에서는 `held`가 true일 수 있다. 그때도 `contactAt`은 가장 짧은 기운 시간 뒤다.
   - 공식 클라이언트는 `held`인 기운을 `contactAt`이 지나도 다음 스냅샷이 올 때까지, 늦어도 `holdUntil`까지 기운으로 그린다. 기운이 남은 시간은 `holdUntil`까지를 한 바퀴로 그리고, 가장 짧은 기운 시간이 끝나는 자리에 눈금을 둔다. 호의 길이는 `held`에 기대지 않는다.
+- 대시의 `phase`는 시작부터 끝까지 dash다. 기운과 장판이 없으므로 `contactAt`·`activeUntil`·`holdUntil`은 `startedAt`과 같고 `held`는 false다. `startedAt`의 틱부터 `endsAt`의 한 틱 전까지 틱마다 움직이고, 그동안 적의 나간 장판에 맞지 않는다. 피한 장판마다 대원 자리에 `evade` 효과가 한 번 나온다. 대시는 맞아서 끊기지 않으므로 `endsAt`은 바뀌지 않는다.
 - 적 행동의 `phase`는 telegraph / active / recovery다. telegraph 동안 기운이 돌고 장판이 깔릴 자리가 보인다. active(공격 창)에 장판이 나가고 기운은 없다. recovery에도 기운이 없다.
 
 `slot`은 플레이어 1~4, 적은 0이다. 적이 다음 행동에서 노릴 대원(미래 표적)이나 숨겨진 적의 좌표는 기술 객체에 넣지 않는다. 적의 `target`은 보이는 적의 지금 행동이 이미 향한 대원이다.
 
-상성·합산·피해 규칙은 [전투 명세](combat.md)에 있다. 클라이언트는 모양·진행률·예고를 그리며 판정 결과를 결정하지 않는다. `effects.kind`는 break / partial / draw / guard / hit / hurt / heal / deploy이며 표시용이다.
+상성·합산·피해 규칙은 [전투 명세](combat.md)에 있다. 클라이언트는 모양·진행률·예고를 그리며 판정 결과를 결정하지 않는다. `effects.kind`는 break / partial / draw / guard / hit / hurt / heal / deploy / evade이며 표시용이다.
 
 시야에서 사라진 적은 죽었거나 시야를 벗어났을 수 있다. 현재 목록에 없는 적의 위치와 기술 예고를 이전 스냅샷으로 계속 보여주지 않는다. 사망·대기 대원은 추가 시야를 제공하지 않는다. 분대가 본 칸의 지형·시설·보급 상태는 이와 별개로, 지금 보이지 않아도 계속 보낸다.
 
