@@ -307,6 +307,19 @@ public sealed partial class Match
         return _sight;
     }
 
+    // 대원이 지금 적의 나간 장판에 맞지 않는 중인지다. 회피하는 기술(대시)을 쓰는 동안이다.
+    private bool Evading(Player player)
+    {
+        for (int i = 0; i < player.Actions.Count; i++)
+        {
+            if (player.Actions[i].Evading(Tick))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // 대원에게 지금 기운이 도는 기술이 있는지다.
     private bool HasAura(Player player)
     {
@@ -515,6 +528,15 @@ public sealed partial class Match
             }
             if (!engaged)
             {
+                continue;
+            }
+            // 대시하는 동안에는 적의 나간 장판에 맞지 않는다(SkillDefinition.Evades). 피한 장판은 이 대원에게 다시 닿지 않는다.
+            // 그래서 대시가 끝난 뒤에도 그 장판 안에 남아 있어도 맞지 않는다. 회피하는 기술에는 기운도 장판도 없어 대응(best)은 없다.
+            // 완벽 대응으로 처치된 적의 장판은 위에서 이미 끝났고, 상성 없는 타격으로 쓰러진 적의 장판도 여기까지 오지 않는다.
+            if (Evading(player))
+            {
+                attack.HitPlayers.Add(player.Id);
+                Effect(player.Position, "evade", 0.4);
                 continue;
             }
             attack.HitPlayers.Add(player.Id);

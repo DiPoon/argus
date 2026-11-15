@@ -551,7 +551,7 @@ internal static class LifecycleTests
             Equal(rules.GetProperty("maxAuraSeconds").GetDouble(), match.Rules.MaxAuraSeconds);
             Check(!rules.TryGetProperty("parryFollowupSeconds", out JsonElement _), "없앤 parryFollowupSeconds가 담겼습니다");
             JsonElement strike = Find(rules.GetProperty("skills"), "id", "strike");
-            Equal(PropertyNames(strike), "id,kind,mana,auraSeconds,zoneSeconds,duration,range,halfWidth,plainZone,singleTarget,breaksStructures,around");
+            Equal(PropertyNames(strike), "id,kind,mana,auraSeconds,zoneSeconds,duration,range,halfWidth,plainZone,singleTarget,breaksStructures,around,dashDistance,evades");
         }
 
         // 적의 행동에는 held와 holdUntil이 없다. 적은 버튼을 누르지 않는다.

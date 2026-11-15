@@ -94,6 +94,7 @@ public sealed class ActionSnapshot
     public int Slot { get; set; }
     public int Tier { get; set; } = 1;
     // 대원의 기술은 aura(기운) → zone(장판) → recovery, 적의 행동은 telegraph(예고, 기운이 돈다) → active(공격 창, 장판이 나감) → recovery다.
+    // 대원의 대시는 기운도 장판도 없이 시작부터 끝까지 dash다.
     public string Phase { get; set; } = "";
     public double Aim { get; set; }
     public double StartedAt { get; set; }
@@ -114,6 +115,11 @@ public sealed class ActionSnapshot
     public double? HoldUntil { get; set; }
     public double Range { get; set; }
     public double HalfWidth { get; set; }
+    // 대시가 가는 방향(길이 1)의 고정소수점 Raw다. 대원의 대시에만 있다. 화면이 내 대시를 서버와 같은 계산으로 이어 그리는 데 쓴다.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? DashX { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? DashY { get; set; }
     // 적의 행동이 노린 대원의 id다. 화면이 나를 노린 예고를 내 예측 위치 쪽으로 그리는 데 쓴다.
     // 대원의 행동과 노린 대원이 없는 행동에는 빠진다. 보이는 적의 행동이 이미 그 대원을 향하므로 숨은 정보가 아니다.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

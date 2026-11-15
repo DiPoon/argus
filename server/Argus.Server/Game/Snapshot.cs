@@ -307,6 +307,12 @@ public static class Snapshot
                     display.Kind = "none";
                 }
             }
+            if (action.Dashing(match.Tick))
+            {
+                display.Phase = "dash";
+                display.DashX = action.Direction.X.Raw;
+                display.DashY = action.Direction.Y.Raw;
+            }
             entry.Actions.Add(display);
             if (action.EndsTick > busyUntil)
             {

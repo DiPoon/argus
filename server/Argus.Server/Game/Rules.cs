@@ -85,11 +85,18 @@ public sealed class Rules
         new SkillDefinition("spingrab", "channel", 1, 0.18, 0.24, 0.66, 48, 0,
             plainZone: false, singleTarget: false, breaksStructures: true, around: true);
 
+    // 대시: 누르면 걷던 쪽으로(서 있으면 조준한 쪽으로) 150(세 칸 남짓)을 0.15초(5틱)에 간다(2026-11-15 사용자 요청).
+    // 상성이 없는 기술이라 타격·방어·잡기 칸에는 들 수 없고 넷째 자유 칸에만 든다. 기운도 장판도 없다.
+    // 대시하는 동안에는 적의 나간 장판에 맞지 않는다. 벽과 적의 몸은 지나가지 못한다. 마나는 다른 기술처럼 1이다.
+    private static readonly SkillDefinition DashSkill =
+        new SkillDefinition("dash", "none", 1, 0, 0, 0.15, 0, 0,
+            plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 150, evades: true);
+
     // 모든 대원 기술이다. 규칙을 보낼 때 이 순서로 보낸다. 새 기술을 만들면 여기에 넣는다.
     // 정적 필드는 적힌 순서대로 만들어지므로 위의 정의들보다 뒤에 둔다.
     public static readonly IReadOnlyList<SkillDefinition> AllSkills = Array.AsReadOnly(new SkillDefinition[]
     {
-        StrikeSkill, ParrySkill, GrabSkill, SpinSkill, SpinBlockSkill, SpinGrabSkill
+        StrikeSkill, ParrySkill, GrabSkill, SpinSkill, SpinBlockSkill, SpinGrabSkill, DashSkill
     });
 
     public SkillDefinition Strike { get; } = StrikeSkill;

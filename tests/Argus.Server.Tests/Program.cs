@@ -22,6 +22,7 @@ internal static class Program
             EquipmentTests.Register(tests);
             CombatTests.Register(tests);
             AuraTests.Register(tests);
+            DashTests.Register(tests);
             EncounterTests.Register(tests);
             DeterminismTests.Register(tests);
             RecordingTests.Register(tests);

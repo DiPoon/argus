@@ -84,9 +84,13 @@ internal static class ClientParityTests
         AppendRows(text, "fromDouble", FromDoubleRows());
         AppendRows(text, "vectors", VectorRows());
         AppendRows(text, "throws", ThrowRows());
+        AppendRows(text, "angles", AngleRows());
+        AppendRows(text, "ticks", TickRows());
         AppendMap(text);
         AppendDeploy(text);
         AppendScenarios(text);
+        AppendSkills(text);
+        AppendPilots(text);
         text.Append("}\n");
         return text.ToString();
     }
@@ -514,7 +518,462 @@ internal static class ClientParityTests
             }
             text.Append('\n');
         }
+        text.Append("  ],\n");
+    }
+
+    // 라디안을 방향으로 바꾼 값이다. 줄마다 [라디안, 칸 수, 방향 벡터의 Raw x, Raw y]다. 서 있는 대원의 대시가 조준한 쪽으로 가므로,
+    // 클라이언트도 보낸 조준에서 같은 방향 벡터를 얻어야 한다. 축 방향, 사분면 경계, 한 바퀴를 넘는 값, 음수, 아주 작은 값과
+    // 정해진 수열로 고른 값을 본다.
+    private static List<string> AngleRows()
+    {
+        List<double> values = new List<double>();
+        double[] edges = new double[]
+        {
+            0, Math.PI / 2, Math.PI, -Math.PI / 2, -Math.PI, Math.Tau, -Math.Tau, Math.PI / 4, 3 * Math.PI / 4, -Math.PI / 4,
+            1e-9, -1e-9, 0.000047936899, 0.00009587379924285257, 1, -1, 2.5, -2.5, 7, -7, 100, -100, 12345.678, 1e6, -1e6,
+            Math.Atan2(1, 2), Math.Atan2(-3, 1), Math.Atan2(0.01, -1), Math.Atan2(-0.01, -1)
+        };
+        for (int i = 0; i < edges.Length; i++)
+        {
+            values.Add(edges[i]);
+        }
+        // 칸의 경계(칸 수 + 0.5)에 걸리는 값과 그 양옆이다. 반올림이 갈리는 자리다.
+        for (int units = 0; units < Angle.UnitsPerTurn; units += 4099)
+        {
+            double middle = (units + 0.5) / Angle.UnitsPerTurn * Math.Tau;
+            values.Add(middle);
+            values.Add(Math.BitDecrement(middle));
+            values.Add(Math.BitIncrement(middle));
+        }
+        NumberSequence numbers = new NumberSequence(20261115);
+        for (int i = 0; i < 300; i++)
+        {
+            values.Add(numbers.Between(8_000_000) / 1_000_000.0);
+        }
+        List<string> rows = new List<string>();
+        for (int i = 0; i < values.Count; i++)
+        {
+            Angle angle = Angle.FromRadians(values[i]);
+            FixedVector direction = angle.Direction();
+            rows.Add("[" + Number(values[i]) + ", " + Number(angle.Units) + ", " + Number(direction.X.Raw) + ", " + Number(direction.Y.Raw) + "]");
+        }
+        return rows;
+    }
+
+    // 초로 정한 기간을 틱 수로 올린 값이다(Rules.ToTicks). 줄마다 [초, 틱 수]다. 클라이언트는 기술의 초를 같은 식으로 틱으로 바꾼다.
+    // 30을 곱하면 정수에서 실수 오차만큼 넘치는 값과 틱의 배수, 그 사이의 값을 넣는다. 31틱을 초로 적은 값(31 / 30)은 30을 곱하면
+    // 31.000000000000004이고 8.3초는 249.00000000000003이다. 아주 작은 여유를 빼지 않고 올리면 32틱과 250틱이 된다.
+    private static List<string> TickRows()
+    {
+        List<double> values = new List<double>();
+        double[] edges = new double[] { 0, 0.001, 0.0333, 0.034, 0.1, 0.12, 0.15, 0.18, 0.2, 0.24, 0.3, 0.42, 0.55, 0.66, 0.7, 0.73, 0.85, 0.95, 0.98, 1, 1.1, 1.2, 1.7, 1.9, 2.2, 2.3, 4.35, 5, 8.3, 8.9, 16.1, 16.6 };
+        for (int i = 0; i < edges.Length; i++)
+        {
+            values.Add(edges[i]);
+        }
+        for (int ticks = 1; ticks <= 90; ticks++)
+        {
+            values.Add(ticks / 30.0);
+            values.Add(ticks * (1.0 / 30));
+        }
+        for (int hundredths = 1; hundredths <= 300; hundredths += 7)
+        {
+            values.Add(hundredths / 100.0);
+        }
+        List<string> rows = new List<string>();
+        for (int i = 0; i < values.Count; i++)
+        {
+            rows.Add("[" + Number(values[i]) + ", " + Number(Rules.ToTicks(values[i])) + "]");
+        }
+        return rows;
+    }
+
+    // 대원 기술의 정의 가운데 예측에 쓰는 값과 최대 기운 시간이다. 클라이언트는 스냅샷의 규칙에서 같은 값을 받는다.
+    private static void AppendSkills(StringBuilder text)
+    {
+        Rules rules = new Rules();
+        text.Append("  \"maxAuraSeconds\": ").Append(Number(rules.MaxAuraSeconds)).Append(",\n");
+        text.Append("  \"skills\": [\n");
+        for (int i = 0; i < Rules.AllSkills.Count; i++)
+        {
+            SkillDefinition skill = Rules.AllSkills[i];
+            text.Append("    { \"id\": \"").Append(skill.Id).Append("\", \"mana\": ").Append(Number(skill.Mana));
+            text.Append(", \"auraSeconds\": ").Append(Number(skill.AuraSeconds));
+            text.Append(", \"duration\": ").Append(Number(skill.Duration));
+            text.Append(", \"dashDistance\": ").Append(Number(skill.DashDistance));
+            // 클라이언트가 초에서 구한 틱 수와 한 틱의 대시 거리가 서버와 같은지 본다.
+            text.Append(", \"auraTicks\": ").Append(Number(Rules.ToTicks(skill.AuraSeconds)));
+            text.Append(", \"durationTicks\": ").Append(Number(Rules.ToTicks(skill.Duration)));
+            text.Append(", \"dashStep\": ").Append(Number(skill.DashStep.Raw)).Append(" }");
+            if (i < Rules.AllSkills.Count - 1)
+            {
+                text.Append(',');
+            }
+            text.Append('\n');
+        }
+        text.Append("  ],\n");
+    }
+
+    // 버튼까지 실은 입력 하나다. 이동, 조준(라디안), 누르고 있는 슬롯, 지난 입력 뒤에 누른 슬롯이다.
+    private sealed class PilotInput
+    {
+        public double MoveX;
+        public double MoveY;
+        public double Aim;
+        public int[] Held = new int[0];
+        public int[] Pressed = new int[0];
+    }
+
+    // 같은 입력을 count틱 동안 틱마다 보낸다. 누름(pressed)은 첫 입력에만 싣는다.
+    private static void AddPilotInputs(List<PilotInput?> inputs, int count, double moveX, double moveY, double aim, int[] held, int[] pressed)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            PilotInput input = new PilotInput();
+            input.MoveX = moveX;
+            input.MoveY = moveY;
+            input.Aim = aim;
+            input.Held = held;
+            if (i == 0)
+            {
+                input.Pressed = pressed;
+            }
+            inputs.Add(input);
+        }
+    }
+
+    private static readonly int[] None = new int[0];
+    private static readonly int[] DashHeld = new int[] { 4 };
+    private static readonly string[] DashSlots = new string[] { "strike", "spinblock", "grab", "dash" };
+
+    // 기술 차례와 대시가 든 시나리오다. 내 위치를 예측하려면 누름이 어느 틱에 무슨 기술로 시작하는지도 서버와 같아야 한다.
+    // 적의 행동이 없는 방이라 전투 판정으로 기술이 끝나거나 끊기는 일은 없다(그것은 클라이언트가 미리 알 수 없다).
+    private static void AppendPilots(StringBuilder text)
+    {
+        double diagonal = 1 / Math.Sqrt(2);
+        List<string> pilots = new List<string>();
+        List<FixedVector> noBodies = new List<FixedVector>();
+        List<EnemyDefinition> noKinds = new List<EnemyDefinition>();
+        // 캠프 북쪽의 빈 땅이다. 캠프 옆의 보급 상자(370, 770)에서 멀어, 시나리오가 그 둘레 35 안을 지나지 않는다.
+        // 보급 상자 옆을 지나면 마나가 차는데 클라이언트는 보급을 따라 하지 않는다(RunPilot이 확인한다).
+        FixedVector field = FixedVector.FromInt(300, 400);
+
+        // 걷다가 대시한다. 대시하는 동안에는 이동 입력을 바꿔도 방향이 그대로다.
+        List<PilotInput?> walking = new List<PilotInput?>();
+        AddPilotInputs(walking, 3, 1, 0, 0, None, None);
+        AddPilotInputs(walking, 1, 1, 0, 0, None, DashHeld);
+        AddPilotInputs(walking, 6, 0, 1, 0, None, None);
+        AddPilotInputs(walking, 1, diagonal, -diagonal, 2, DashHeld, DashHeld);
+        AddPilotInputs(walking, 7, -1, 0, 2, DashHeld, None);
+        AddPilotInputs(walking, 1, 0.6, -0.8, 0, None, DashHeld);
+        AddPilotInputs(walking, 6, 0.6, -0.8, 0, None, None);
+        // 살살 걷던(이동 입력의 길이가 절반) 대원도 대시는 그 방향으로 다 간다.
+        AddPilotInputs(walking, 1, 0.3, 0.4, 0, None, DashHeld);
+        AddPilotInputs(walking, 6, 0.3, 0.4, 0, None, None);
+        pilots.Add(RunPilot("걷다가 대시", field, noBodies, noKinds, DashSlots, 24, walking));
+
+        // 서서 대시하면 조준한 쪽으로 간다. 조준을 여러 각도로 바꿔 가며 한 번씩 대시한다. 아주 짧은 이동 입력도 서 있는 것으로 본다.
+        // 각도마다 반대쪽으로 한 번 더 대시해 출발한 자리 둘레에 머문다. 멀리 가면 보급 상자 옆을 지나 마나가 찬다
+        // (클라이언트는 보급을 따라 하지 않는다).
+        List<PilotInput?> standing = new List<PilotInput?>();
+        double[] aims = new double[] { 0, 0.3, 1.2, Math.PI / 2, 2.5, -2.2, -0.05, 4, 100.25 };
+        for (int i = 0; i < aims.Length; i++)
+        {
+            double tiny = 0;
+            if (i % 3 == 1)
+            {
+                tiny = 0.0001;
+            }
+            AddPilotInputs(standing, 1, tiny, 0, aims[i], None, DashHeld);
+            AddPilotInputs(standing, 6, tiny, 0, aims[i], None, None);
+            AddPilotInputs(standing, 1, 0, tiny, aims[i] + Math.PI, None, DashHeld);
+            AddPilotInputs(standing, 6, 0, tiny, aims[i] + Math.PI, None, None);
+        }
+        pilots.Add(RunPilot("서서 조준한 쪽으로 대시", field, noBodies, noKinds, DashSlots, 24, standing));
+
+        // 서 있는 것으로 보는 기준의 양쪽이다. 이동 입력의 길이가 Raw 119(길이의 제곱이 Raw 3)면 서 있는 것이라 조준한 쪽으로 가고,
+        // Raw 120(제곱이 Raw 4)이면 걷는 것이라 그 방향으로 간다. 아래 → 오른쪽 → 왼쪽 → 위로 한 번씩 가서 출발한 자리로 돌아온다.
+        double below = 119 / 4096.0;
+        double above = 120 / 4096.0;
+        List<PilotInput?> faint = new List<PilotInput?>();
+        AddPilotInputs(faint, 1, below, 0, Math.PI / 2, None, DashHeld);
+        AddPilotInputs(faint, 6, 0, 0, Math.PI / 2, None, None);
+        AddPilotInputs(faint, 1, above, 0, -Math.PI / 2, None, DashHeld);
+        AddPilotInputs(faint, 6, 0, 0, -Math.PI / 2, None, None);
+        AddPilotInputs(faint, 1, 0, -below, Math.PI, None, DashHeld);
+        AddPilotInputs(faint, 6, 0, 0, Math.PI, None, None);
+        AddPilotInputs(faint, 1, 0, -above, 0, None, DashHeld);
+        AddPilotInputs(faint, 6, 0, 0, 0, None, None);
+        pilots.Add(RunPilot("아주 짧은 이동 입력", field, noBodies, noKinds, DashSlots, 24, faint));
+
+        // 벽 모서리와 벽 면에 닿는 대시다. 가로와 세로를 따로 움직여 막힌 쪽만 멈춘다.
+        List<PilotInput?> walls = new List<PilotInput?>();
+        AddPilotInputs(walls, 1, 1, 0.35, 0, None, DashHeld);
+        AddPilotInputs(walls, 6, 1, 0.35, 0, None, None);
+        AddPilotInputs(walls, 1, 0.2, -1, 0, None, DashHeld);
+        AddPilotInputs(walls, 6, 0.2, -1, 0, None, None);
+        AddPilotInputs(walls, 1, -1, 1, 0, None, DashHeld);
+        AddPilotInputs(walls, 6, -1, 1, 0, None, None);
+        pilots.Add(RunPilot("벽에 닿는 대시", FixedVector.FromInt(440, 452), noBodies, noKinds, DashSlots, 24, walls));
+
+        // 멈춘 적의 몸에 막히는 대시다.
+        List<FixedVector> bodies = new List<FixedVector>();
+        List<EnemyDefinition> kinds = new List<EnemyDefinition>();
+        bodies.Add(field + FixedVector.FromInt(80, 12));
+        kinds.Add(EnemyDefinition.Warden);
+        bodies.Add(field + FixedVector.FromInt(0, -90));
+        kinds.Add(EnemyDefinition.Grunt);
+        List<PilotInput?> blocked = new List<PilotInput?>();
+        AddPilotInputs(blocked, 1, 1, 0, 0, None, DashHeld);
+        AddPilotInputs(blocked, 6, 1, 0, 0, None, None);
+        AddPilotInputs(blocked, 1, 0, 0, -Math.PI / 2, None, DashHeld);
+        AddPilotInputs(blocked, 6, 0, 0, -Math.PI / 2, None, None);
+        AddPilotInputs(blocked, 1, 0.3, 1, 0, None, DashHeld);
+        AddPilotInputs(blocked, 6, 0.3, 1, 0, None, None);
+        pilots.Add(RunPilot("적의 몸에 막히는 대시", field, bodies, kinds, DashSlots, 24, blocked));
+
+        // 쓰던 기술이 끝날 때까지 기다린다. 근접 타격(20틱)을 짧게 누른 뒤 대시를 누르고 있으면 타격이 끝나는 틱에 나간다.
+        // 대시를 짧게 눌렀다 떼면 버려진다. 그 뒤 다시 눌러 누르고 있으면 나간다.
+        int[] strikeTap = new int[] { 1 };
+        List<PilotInput?> queued = new List<PilotInput?>();
+        AddPilotInputs(queued, 1, 1, 0, 0, None, strikeTap);
+        AddPilotInputs(queued, 3, 1, 0, 0, None, None);
+        AddPilotInputs(queued, 1, 1, 0, 0, None, DashHeld);
+        AddPilotInputs(queued, 5, 1, 0, 0, None, None);
+        AddPilotInputs(queued, 1, 0, 1, 0, DashHeld, DashHeld);
+        AddPilotInputs(queued, 18, 0, 1, 0, DashHeld, None);
+        AddPilotInputs(queued, 4, 0, 1, 0, None, None);
+        pilots.Add(RunPilot("쓰던 기술 뒤에서 기다리는 대시", field, noBodies, noKinds, DashSlots, 24, queued));
+
+        // 기운을 잇던 기술(회전 방어를 누르고 있음)은 대시를 누르면 놓은 것이 된다. 장판이 나가고, 기술이 끝나면 대시가 나간다.
+        // 누르고 있어 길어진 만큼 끝도 밀린다.
+        int[] blockHeld = new int[] { 2 };
+        int[] both = new int[] { 2, 4 };
+        List<PilotInput?> aura = new List<PilotInput?>();
+        AddPilotInputs(aura, 1, 0, 0, 1, blockHeld, blockHeld);
+        AddPilotInputs(aura, 13, 0, 0, 1, blockHeld, None);
+        AddPilotInputs(aura, 1, 0, 0, 1, both, DashHeld);
+        AddPilotInputs(aura, 20, 0, 0, 1, both, None);
+        AddPilotInputs(aura, 3, 0, 0, 1, None, None);
+        pilots.Add(RunPilot("기운을 잇던 기술 뒤의 대시", field, noBodies, noKinds, DashSlots, 24, aura));
+
+        // 기운을 잇던 버튼을 다른 버튼을 누르지 않고 그냥 놓으면 그 틱에 장판이 나간다. 누르고 있어 길어진 만큼(네 틱) 끝도 밀려
+        // 24틱 뒤에 끝나고, 그 사이에 눌러 누르고 있는 대시는 그 끝에 나간다.
+        List<PilotInput?> letGo = new List<PilotInput?>();
+        AddPilotInputs(letGo, 1, 1, 0, 0, blockHeld, blockHeld);
+        AddPilotInputs(letGo, 9, 1, 0, 0, blockHeld, None);
+        AddPilotInputs(letGo, 2, 1, 0, 0, None, None);
+        AddPilotInputs(letGo, 1, 1, 0, 0, DashHeld, DashHeld);
+        AddPilotInputs(letGo, 18, 1, 0, 0, DashHeld, None);
+        pilots.Add(RunPilot("기운을 잇다가 놓은 뒤의 대시", field, noBodies, noKinds, DashSlots, 24, letGo));
+
+        // 누르고만 있는 기운은 최대 기운 시간(30틱)에 장판이 나가고, 그 뒤에 누른 대시는 기술이 끝난 다음에 나간다.
+        List<PilotInput?> longest = new List<PilotInput?>();
+        AddPilotInputs(longest, 1, 0, 0, 0, blockHeld, blockHeld);
+        AddPilotInputs(longest, 34, 0, 0, 0, blockHeld, None);
+        AddPilotInputs(longest, 1, -1, 0, 0, both, DashHeld);
+        AddPilotInputs(longest, 16, -1, 0, 0, both, None);
+        pilots.Add(RunPilot("최대 기운 시간 뒤의 대시", field, noBodies, noKinds, DashSlots, 24, longest));
+
+        // 한 입력에 누름이 둘이면 누른 차례대로 나간다. [대시, 타격]은 대시가 먼저 나가고, 누르고 있는 타격이 대시가 끝나는 틱에 나간다.
+        // [타격, 대시]는 타격이 먼저 나가고, 누르고 있는 대시가 타격이 끝나는 틱에 나간다.
+        int[] dashThenStrike = new int[] { 4, 1 };
+        int[] strikeThenDash = new int[] { 1, 4 };
+        int[] strikeHeld = new int[] { 1 };
+        List<PilotInput?> pairs = new List<PilotInput?>();
+        AddPilotInputs(pairs, 1, 0, -1, 0, strikeHeld, dashThenStrike);
+        AddPilotInputs(pairs, 8, 0, -1, 0, strikeHeld, None);
+        AddPilotInputs(pairs, 21, 0, -1, 0, None, None);
+        AddPilotInputs(pairs, 1, 1, 0, 0, DashHeld, strikeThenDash);
+        AddPilotInputs(pairs, 26, 1, 0, 0, DashHeld, None);
+        AddPilotInputs(pairs, 3, 1, 0, 0, None, None);
+        pilots.Add(RunPilot("한 입력에 누름 둘", field, noBodies, noKinds, DashSlots, 24, pairs));
+
+        // 마나가 모자라면 대시가 나가지 않는다. 마나 1로 시작해 한 번 대시한 뒤의 누름은 버려진다.
+        List<PilotInput?> empty = new List<PilotInput?>();
+        AddPilotInputs(empty, 1, 1, 0, 0, None, DashHeld);
+        AddPilotInputs(empty, 6, 1, 0, 0, None, None);
+        AddPilotInputs(empty, 1, 1, 0, 0, DashHeld, DashHeld);
+        AddPilotInputs(empty, 6, 1, 0, 0, DashHeld, None);
+        pilots.Add(RunPilot("마나가 모자란 대시", field, noBodies, noKinds, DashSlots, 1, empty));
+
+        // 대시하는 중에 입력이 끊겨도 대시는 이어지고, 그 뒤에는 마지막 입력으로 걷는다.
+        List<PilotInput?> gaps = new List<PilotInput?>();
+        AddPilotInputs(gaps, 2, 0, 1, 0, None, None);
+        AddPilotInputs(gaps, 1, 0, 1, 0, None, DashHeld);
+        for (int i = 0; i < 8; i++)
+        {
+            gaps.Add(null);
+        }
+        AddPilotInputs(gaps, 3, 1, 0, 0, None, None);
+        pilots.Add(RunPilot("대시 중에 입력이 끊김", field, noBodies, noKinds, DashSlots, 24, gaps));
+
+        // 대시하는 중에 다시 눌러 누르고 있으면 앞의 대시가 끝나는 틱에 다음 대시가 나간다. 방향은 그 틱에 걷던 쪽이다.
+        // 둘째 대시 중에 짧게 눌렀다 뗀 것은 버려져, 대시가 끝나면 걷는다.
+        List<PilotInput?> chained = new List<PilotInput?>();
+        AddPilotInputs(chained, 1, 1, 0, 0, None, DashHeld);
+        AddPilotInputs(chained, 1, 1, 0, 0, DashHeld, DashHeld);
+        AddPilotInputs(chained, 2, 1, 0, 0, DashHeld, None);
+        AddPilotInputs(chained, 4, 0, -1, 0, DashHeld, None);
+        AddPilotInputs(chained, 1, 0, -1, 0, None, DashHeld);
+        AddPilotInputs(chained, 6, -1, 0, 0, None, None);
+        pilots.Add(RunPilot("이어지는 대시", field, noBodies, noKinds, DashSlots, 24, chained));
+
+        // 한 입력에 누른 두 버튼을 모두 누르고 있다. 앞의 기술(회전 방어)은 뒤에 기다리는 누름이 있어 기운을 잇지 않는다.
+        // 가장 짧은 기운 뒤에 장판이 나가고, 그 기술이 끝나는 틱(20틱 뒤)에 대시가 나간다.
+        int[] blockThenDash = new int[] { 2, 4 };
+        List<PilotInput?> together = new List<PilotInput?>();
+        AddPilotInputs(together, 1, 1, 0, 0, both, blockThenDash);
+        AddPilotInputs(together, 27, 1, 0, 0, both, None);
+        pilots.Add(RunPilot("누르고 있는 두 버튼", field, noBodies, noKinds, DashSlots, 24, together));
+
+        // 쓰던 기술이 끝나기 두 틱 전에 짧게 눌렀다 뗀 대시는 버려지고, 한 틱 전에 누른 것은 나간다.
+        // 뗀 누름도 그다음 틱까지는 남기 때문이다(뗀 누름은 한 번만 더 본다).
+        List<PilotInput?> lastTick = new List<PilotInput?>();
+        AddPilotInputs(lastTick, 1, 0, 1, 0, None, strikeTap);
+        AddPilotInputs(lastTick, 17, 0, 1, 0, None, None);
+        AddPilotInputs(lastTick, 1, 0, 1, 0, None, DashHeld);
+        AddPilotInputs(lastTick, 2, 0, 1, 0, None, None);
+        AddPilotInputs(lastTick, 1, 0, 1, 0, None, strikeTap);
+        AddPilotInputs(lastTick, 18, 0, 1, 0, None, None);
+        AddPilotInputs(lastTick, 1, 0, 1, 0, None, DashHeld);
+        AddPilotInputs(lastTick, 7, 0, 1, 0, None, None);
+        pilots.Add(RunPilot("기술이 끝나기 직전에 짧게 누른 대시", field, noBodies, noKinds, DashSlots, 24, lastTick));
+
+        // 기다리던 버튼을 쓰던 기술이 끝나기 전에 떼면 그 누름은 버려진다. 근접 타격(20틱)을 쓰는 중에 대시를 눌러 일곱 틱을 누르고
+        // 있다가 뗀다. 타격이 끝나도 대시는 나가지 않고 계속 걷는다.
+        List<PilotInput?> givenUp = new List<PilotInput?>();
+        AddPilotInputs(givenUp, 1, -1, 0, 0, None, strikeTap);
+        AddPilotInputs(givenUp, 2, -1, 0, 0, None, None);
+        AddPilotInputs(givenUp, 1, -1, 0, 0, DashHeld, DashHeld);
+        AddPilotInputs(givenUp, 6, -1, 0, 0, DashHeld, None);
+        AddPilotInputs(givenUp, 16, -1, 0, 0, None, None);
+        pilots.Add(RunPilot("기다리다 뗀 대시", field, noBodies, noKinds, DashSlots, 24, givenUp));
+
+        text.Append("  \"pilots\": [\n");
+        for (int i = 0; i < pilots.Count; i++)
+        {
+            text.Append(pilots[i]);
+            if (i < pilots.Count - 1)
+            {
+                text.Append(',');
+            }
+            text.Append('\n');
+        }
         text.Append("  ]\n");
+    }
+
+    private static string SlotList(int[] slots)
+    {
+        long[] values = new long[slots.Length];
+        for (int i = 0; i < slots.Length; i++)
+        {
+            values[i] = slots[i];
+        }
+        return Row(values);
+    }
+
+    // 버튼까지 실은 입력으로 실제 Match를 한 틱씩 진행해, 틱마다의 위치와 마나, 쓰는 중인 기술의 슬롯을 적는다.
+    private static string RunPilot(string name, FixedVector start, List<FixedVector> bodies, List<EnemyDefinition> kinds,
+        string[] slots, int mana, List<PilotInput?> inputs)
+    {
+        Rules rules = new Rules { MaxEnemies = 0 };
+        Match match = new Match("PARITY", rules, 73);
+        Player player = match.Join("p", "pilot")!;
+        player.Connected = true;
+        Check(match.SetLoadout(player, slots), $"{name}: 장비를 받지 않았습니다");
+        Check(match.Deploy(player, match.Layout.Camp.X.ToDouble(), match.Layout.Camp.Y.ToDouble()));
+        Advance(match, rules.DeploySeconds + 0.01);
+        Equal(player.State, "alive");
+        player.Position = start;
+        player.Mana = mana;
+        for (int i = 0; i < bodies.Count; i++)
+        {
+            EnemyDefinition kind = kinds[i];
+            EnemyDefinition still = new EnemyDefinition(kind.Id, kind.Name, kind.Radius, kind.Health, 0, kind.Skills);
+            Enemy enemy = new Enemy(9000 + i, bodies[i], still);
+            enemy.NextActionTick = long.MaxValue;
+            match.Enemies.Add(enemy);
+        }
+
+        StringBuilder text = new StringBuilder();
+        text.Append("    {\n");
+        text.Append("      \"name\": \"").Append(name).Append("\",\n");
+        text.Append("      \"speed\": ").Append(Number(rules.PlayerSpeed)).Append(",\n");
+        text.Append("      \"radius\": ").Append(Number(Rules.PlayerRadius.Raw)).Append(",\n");
+        text.Append("      \"start\": ").Append(Row(start.X.Raw, start.Y.Raw)).Append(",\n");
+        text.Append("      \"mana\": ").Append(Number(mana)).Append(",\n");
+        text.Append("      \"slots\": [");
+        for (int i = 0; i < slots.Length; i++)
+        {
+            if (i > 0)
+            {
+                text.Append(", ");
+            }
+            text.Append('"').Append(slots[i]).Append('"');
+        }
+        text.Append("],\n");
+        text.Append("      \"bodies\": [");
+        for (int i = 0; i < match.Enemies.Count; i++)
+        {
+            Enemy enemy = match.Enemies[i];
+            if (i > 0)
+            {
+                text.Append(", ");
+            }
+            text.Append(Row(enemy.Position.X.Raw, enemy.Position.Y.Raw, enemy.Definition.Radius.Raw));
+        }
+        text.Append("],\n");
+        // 한 줄이 한 틱이다. 그 틱 전에 보낸 입력(없으면 null)과, 그 틱을 진행한 뒤의 위치(Raw)·마나·쓰는 중인 기술의 슬롯(없으면 0)이다.
+        // 입력은 [이동 x, 이동 y, 조준, 누르고 있는 슬롯들, 누른 슬롯들]이다.
+        text.Append("      \"ticks\": [\n");
+        long sequence = 0;
+        int dashes = 0;
+        // 이어지는 대시는 사이에 서 있는 틱이 없으므로, 대시를 시작한 틱이 바뀌는 것으로 센다.
+        long lastDashStart = -1;
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            PilotInput? input = inputs[i];
+            text.Append("        [");
+            if (input == null)
+            {
+                text.Append("null, ");
+            }
+            else
+            {
+                Check(match.Input(player, sequence, input.MoveX, input.MoveY, input.Aim, input.Held, input.Pressed), $"{name}: {i}번째 틱의 입력을 받지 않았습니다");
+                sequence++;
+                text.Append('[').Append(Number(input.MoveX)).Append(", ").Append(Number(input.MoveY)).Append(", ").Append(Number(input.Aim));
+                text.Append(", ").Append(SlotList(input.Held)).Append(", ").Append(SlotList(input.Pressed)).Append("], ");
+            }
+            int manaBefore = player.Mana;
+            match.Step();
+            // 보급 상자 옆을 지나면 마나가 찬다. 클라이언트는 보급을 따라 하지 않으므로 그런 시나리오는 대조할 수 없다.
+            Check(player.Mana <= manaBefore, $"{name}: {i}번째 틱에 보급으로 마나가 찼습니다. 보급 상자에서 떨어진 자리로 옮기세요");
+            int slot = 0;
+            if (player.Actions.Count > 0)
+            {
+                PlayerAction action = player.Actions[0];
+                slot = action.Slot;
+                if (action.Dashing(match.Tick) && action.StartedTick != lastDashStart)
+                {
+                    dashes++;
+                    lastDashStart = action.StartedTick;
+                }
+            }
+            text.Append(Number(player.Position.X.Raw)).Append(", ").Append(Number(player.Position.Y.Raw));
+            text.Append(", ").Append(Number(player.Mana)).Append(", ").Append(Number(slot)).Append(']');
+            if (i < inputs.Count - 1)
+            {
+                text.Append(',');
+            }
+            text.Append('\n');
+        }
+        text.Append("      ],\n");
+        // 이 시나리오에서 실제로 시작한 대시의 수다. 시나리오가 보려는 장면이 성립했는지 클라이언트 검사가 함께 본다.
+        text.Append("      \"dashes\": ").Append(Number(dashes)).Append('\n');
+        text.Append("    }");
+        return text.ToString();
     }
 
     // 멈춘 적 둘에 막혔다가 돌아가는 시나리오다. 첫 구간에서 병사에, 셋째 구간(오른쪽)에서 철위병에 막힌다.

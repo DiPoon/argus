@@ -35,10 +35,20 @@ public sealed class SkillDefinition
     // 조준하지 않는 둘레 기술이다. 기운은 모든 방향으로 돈다. 장판은 조준 방향의 사각형이 아니라 대원 둘레의 원이고,
     // 사거리가 그 반지름이다(반폭은 쓰지 않는다). 벽은 조준 방향으로만 치므로 둘레 기술은 벽을 치지 않는다.
     public bool Around { get; }
+    // 대시다. 0보다 크면 기술을 쓰는 동안(Duration) 몸이 한 방향으로 모두 이만큼 움직인다. 0이면 대시가 아니다.
+    // 방향은 기술을 시작한 틱에 걷던 쪽이고, 서 있었으면 조준한 쪽이다(Match.StartWaitingSkill). 대시하는 동안에는 이동 입력을 쓰지 않는다.
+    // 걷는 것과 같은 몸 충돌이라 벽과 적의 몸은 지나가지 못한다. 대시는 기운도 장판도 없는 기술이어야 한다.
+    public double DashDistance { get; }
+    // 한 틱에 대시로 움직이는 거리다. 대시 거리를 기술의 틱 수로 나눈 값이다. 통신과 상태 요약의 JSON에는 넣지 않는다.
+    [JsonIgnore]
+    public Fixed DashStep { get; }
+    // 이 기술을 쓰는 동안에는 적의 나간 장판에 맞지 않는다(회피). 피한 장판은 그 대원에게 다시 닿지 않는다.
+    public bool Evades { get; }
 
     public SkillDefinition(string id, string kind, int mana, double auraSeconds,
         double zoneSeconds, double duration, double range, double halfWidth,
-        bool plainZone, bool singleTarget, bool breaksStructures, bool around)
+        bool plainZone, bool singleTarget, bool breaksStructures, bool around,
+        double dashDistance = 0, bool evades = false)
     {
         // 틀린 값마다 그 값의 이름으로 알린다. 정적 기술 정의에서 나면 형식 초기화 예외 안에 이 이름과 값만 남는다.
         if (auraSeconds < 0)
@@ -55,6 +65,23 @@ public sealed class SkillDefinition
         {
             throw new ArgumentOutOfRangeException(nameof(duration), duration, "기술의 길이가 기운과 장판을 합친 시간보다 짧습니다");
         }
+        if (dashDistance < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dashDistance), dashDistance, "대시 거리는 0 이상이어야 합니다");
+        }
+        if (dashDistance > 0)
+        {
+            // 대시는 기술을 쓰는 동안 내내 움직인다. 기운이나 장판이 있으면 어느 단계에 움직이는지부터 정해야 한다.
+            if (auraSeconds > 0 || zoneSeconds > 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(dashDistance), dashDistance, "대시는 기운과 장판이 없는 기술이어야 합니다");
+            }
+            // 길이가 0이면 움직일 틱이 없다.
+            if (Rules.ToTicks(duration) < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(duration), duration, "대시는 한 틱 이상 이어져야 합니다");
+            }
+        }
         Id = id;
         Kind = kind;
         Mana = mana;
@@ -69,6 +96,13 @@ public sealed class SkillDefinition
         SingleTarget = singleTarget;
         BreaksStructures = breaksStructures;
         Around = around;
+        DashDistance = dashDistance;
+        if (dashDistance > 0)
+        {
+            // 초당 거리를 틱당 거리로 바꿀 때처럼 정수 틱 수로 나눈다.
+            DashStep = Fixed.FromDouble(dashDistance) / (int)Rules.ToTicks(duration);
+        }
+        Evades = evades;
     }
 }
 
