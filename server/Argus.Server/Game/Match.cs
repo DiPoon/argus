@@ -90,6 +90,8 @@ public sealed partial class Match
     // 이번 틱에 움직이는 적들의 이동 계획이다. 앞선 차례로 늘어놓는다(0번이 가장 앞선 적). 틱마다 UpdateEnemies가 다시 채운다.
     // 틱 안에서만 쓰는 임시 값이라 상태 요약에는 넣지 않는다.
     private readonly List<EnemyPlan> _moving = new List<EnemyPlan>();
+    // 그 가운데 막혀 선 적들이다(MarkHalted). 차례는 뜻이 없다. 이것도 틱 안에서만 쓰는 임시 값이다.
+    private readonly List<EnemyPlan> _halted = new List<EnemyPlan>();
     private static readonly int[] NeighborX = new int[] { 1, -1, 0, 0 };
     private static readonly int[] NeighborY = new int[] { 0, 0, 1, -1 };
 

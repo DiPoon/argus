@@ -275,7 +275,13 @@ public sealed class EnemyPlan
     public FixedVector Step;
     // 이번 틱에 앞선 적에게 길을 내주고 있는지다. 길을 내주는 걸음은 가려는 방향과 다르므로, 움직이던 쪽을 지키는 규칙에서 뺀다.
     public bool Yielding;
-    // 더 갈 수 없어 기다리는 적인지다. 이번 틱에 서 있는 적, 대원에게 다 온 적, 행동 중인 적이나 기다리는 앞선 적의 뒤에 선 적이다.
+    // 가려는 방향으로 한 걸음 간 자리다. 막혀 선 적을 가릴 때 쓴다(Match.MarkHalted).
+    public FixedVector Ahead;
+    // 막혀 선 적인지다. 가려는 방향으로 한 걸음 간 자리가 대원의 몸, 행동 중인 적의 몸, 다른 막혀 선 적의 몸과 겹치는 적이다.
+    // 앞선 차례와 관계없이 정한다(Match.MarkHalted).
+    public bool Halted;
+    // 더 갈 수 없어 기다리는 적인지다. 이번 틱에 서 있는 적, 대원에게 다 온 적, 행동 중인 적이나 기다리는 앞선 적의 뒤에 선 적,
+    // 막혀 선 적의 몸에 막힌 적이다(Match.Stuck).
     public bool Waiting;
 
     public EnemyPlan(Enemy enemy, FixedVector heading, FixedVector toward, int cost, Fixed closest)

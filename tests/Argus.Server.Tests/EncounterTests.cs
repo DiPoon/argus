@@ -28,6 +28,7 @@ internal static class EncounterTests
         tests.Add(new TestCase("Enemies that have reached the player, or wait behind those who have, stand still instead of trembling", CrowdSettles));
         tests.Add(new TestCase("Enemies waiting behind others that are attacking stand still instead of milling about", WaitersBehindAttackers));
         tests.Add(new TestCase("An enemy waiting behind others does not turn back the way it came, so it stands instead of pacing in place", KeepsCourse));
+        tests.Add(new TestCase("An enemy stuck behind one that already stands by the player waits whatever their order, so nobody paces beside it", StuckBehindLaterEnemy));
         tests.Add(new TestCase("Enemies in reach that are blocked keep their place between attacks instead of shifting back and forth", HoldsPlaceBetweenAttacks));
         tests.Add(new TestCase("An enemy that cannot go round another on the player's side goes round the other side", TurnsOtherWay));
         tests.Add(new TestCase("A telegraphing enemy turns toward its target, so stepping aside does not leave the attack", TelegraphTracksTarget));
@@ -709,7 +710,9 @@ internal static class EncounterTests
         CheckSurrounds("다 온 적", 744, 312, "b:396,296 g:434,440 b:437,351", 6.5);
 
         // 다 온 적 뒤에 막혀 선 적도 기다리는 적이다. 대원이 틈 남동쪽의 벽 가까이에 있다(지금 5.1초). 그 적에게도 길을 내주면
-        // 셋이 대원에게 붙기는 하지만, 서로 비켜 주느라 자리를 잡지 못하고 계속 움직인다.
+        // 셋이 대원에게 붙기는 하지만, 서로 비켜 주느라 자리를 잡지 못하고 계속 움직인다(뒤에 선 병사가 10틱마다 19를 오간다).
+        // 2026-11-15의 재리뷰 반영 뒤로는 이것을 두 곳이 본다. 기다리는 앞선 적의 몸(Match.Stuck)과 막혀 선 적의 몸
+        // (Match.MarkHalted)이다. 이 장면은 둘 가운데 하나만 있어도 통과하고, 둘을 함께 빼야 흔든 열두 가지 모두에서 실패한다.
         CheckSurrounds("다 온 적 뒤에 선 적", 581, 405, "w:313,320 g:304,98 g:246,446", 8);
 
         // 기다리는지를 아예 보지 않으면, 대원 앞에 모이던 병사 셋 가운데 하나가 공격 거리 밖(거리 92)으로 밀려난다(지금 4.0초).
@@ -782,21 +785,26 @@ internal static class EncounterTests
     {
         // 앞선 적은 대원까지 가는 길이 더 짧은 적이고, 길의 칸 수가 같으면 대원에게 더 가까운 적이다. 적 목록의 차례와는 관계없다.
         // 장면은 2026-11-15에 다시 골랐다(셋째는 그대로). 움직이던 쪽을 지키는 규칙과 반대쪽으로 도는 규칙이 들어간 뒤로,
-        // 예전 장면 둘은 차례를 틀리게 바꿔도 결과가 같거나 흔든 열두 가지 가운데 둘에서만 달라졌다.
+        // 예전 장면 둘은 차례를 틀리게 바꿔도 결과가 같거나 흔든 열두 가지 가운데 둘에서만 달라졌다. 둘째 장면은 같은 날
+        // 재리뷰 반영(막혀 선 적) 뒤에 한 번 더 바꿨다. 그 전의 장면은 곧은 거리만 보게 바꿔도 열두 가지 가운데 열하나가 통과했다.
 
         // 같은 칸의 적들 사이에서는 대원에게 더 가까운 적이 앞선다(지금 5.9초). 대원이 틈 북쪽의 벽 가까이에 있고 병사 셋이 온다.
         // 길의 칸 수만 보면 같은 칸에서는 id 차례가 되어, 앞에 있는 적이 뒤에 있는 적에게 길을 내주기도 한다.
-        // 그러면 병사 하나가 공격 거리 밖(거리 78)에 선다.
+        // 그러면 병사 하나가 공격 거리 밖(거리 81)에 선다.
         CheckSurrounds("같은 칸에서는 가까운 적부터", 562, 279, "g:238,343 g:77,510 g:113,136", 9);
 
-        // 대원이 틈에서 멀리 북동쪽에 있어, 벽 서쪽의 적에게는 곧은 거리와 길의 거리가 어긋난다. 틈에 더 가까운 적이 길이 더 짧다.
-        // 곧은 거리만 보면 틈에서 멀지만 대원 쪽 벽에 가까운 적이 앞서, 틈 어귀의 적이 그 적에게 길을 내준다.
-        // 그러면 넷 가운데 철위병 하나가 공격 거리 밖(거리 81)에 선다(지금은 9.9초 안에 넷이 모두 든다).
-        CheckSurrounds("곧은 거리보다 길의 거리", 789, 176, "w:199,196 b:297,291 w:358,265 g:230,280", 15);
+        // 대원이 틈 남쪽에서 벽 동쪽 면 가까이에 서 있어, 벽 서쪽의 적에게는 곧은 거리와 길의 거리가 어긋난다. 틈에 더 가까운
+        // 적이 길이 더 짧다. 대원 둘레가 벽에 막혀 넷이 다 붙지는 못한다. 셋이 공격 거리 안에 서고 철위병 하나는 틈 안에서 기다린다.
+        // 곧은 거리만 보면 벽 너머에서 대원과 같은 높이에 있는 적이 앞서, 틈을 먼저 지난 적이 그 적에게 길을 내준다.
+        // 그러면 둘만 든다. 병사는 대원에게 닿지 못하고 거리 46에 서고, 철위병 둘이 공격 거리 밖(거리 77, 81)에 선다.
+        CheckReachCount("곧은 거리보다 길의 거리", 543, 392, "w:125,240 g:253,342 w:323,388 w:336,124", 3, 25);
 
-        // 이 장면은 목록의 차례(분쇄자, 병사, 분쇄자)가 틈에 가까운 차례와 다르다(지금 6.4초).
-        // 목록 차례대로 앞선다고 치면 틈 어귀에 먼저 온 적이 뒤에 오는 적에게 길을 내주려다, 셋이 틈 서쪽에서 서로 막고 멈춘다.
-        CheckSurrounds("목록 차례와 다른 앞선 차례", 744, 312, "b:201,314 g:222,468 b:260,340", 9.5);
+        // 이 장면은 목록의 차례(철위병, 분쇄자, 철위병, 철위병)가 틈에 가까운 차례와 다르다(지금 9.0초).
+        // 목록 차례대로 앞선다고 치면 틈에 가장 가까운 셋째 철위병만 틈을 지나 대원에게 붙는다. 나머지 셋은 틈 어귀에 먼저 온
+        // 적이 뒤에 오는 적에게 길을 내주려다 틈 서쪽에서 서로 막고, 그 자리를 오가며 끝내 지나지 못한다.
+        // 이 장면도 재리뷰 반영 뒤에 바꿨다. 그 전의 장면은 그렇게 바꾼 코드가 흔든 마흔여덟 가지 가운데 서른다섯에서 통과했다
+        // (지금 장면은 마흔여덟 가지 모두에서 실패한다).
+        CheckSurrounds("목록 차례와 다른 앞선 차례", 744, 312, "w:214,490 b:213,183 w:417,186 w:376,536", 13.5);
     }
 
     // 장면의 적들이 seconds초 뒤에 가만히 서 있는지만 본다(모두 공격 거리 안에 드는지는 보지 않는다).
@@ -826,11 +834,12 @@ internal static class EncounterTests
         List<Enemy> wardens = GapScene(out second, 496, 319, "w:125,240 g:253,342 w:323,388");
         CheckSettles("대원 쪽으로 먼저 돎(나)", second, wardens, 7, 30);
 
-        // 두 몸에 함께 막히면 더 깊이 겹친 몸을 끼고 돈다(지금 7.9초). 대원이 틈 남쪽의 벽 가까이에 있고 다섯이 온다.
-        // 깊이를 보지 않고 아무 몸이나 고르면 병사 둘이 앞줄 뒤에서 돌아 들어가지 못하고 공격 거리 밖(거리 81, 100)에 선다.
+        // 두 몸에 함께 막히면 더 깊이 겹친 몸을 끼고 돈다(지금 9.6초). 대원이 틈 남쪽의 벽 가까이에 있고 다섯이 온다.
+        // 깊이를 보지 않고 아무 몸이나 고르면 분쇄자와 병사 하나가 앞줄 뒤에서 돌아 들어가지 못하고 틈 어귀의 공격 거리 밖
+        // (거리 78, 104)에 선다. 장면은 2026-11-15의 재리뷰 반영(막혀 선 적) 뒤에 다시 골랐다. 그 전의 장면은 그렇게 바꿔도 통과했다.
         Match crowded;
-        List<Enemy> five = GapScene(out crowded, 583, 388, "g:361,147 g:257,293 g:258,502 b:372,300 b:337,209");
-        CheckSettles("두 몸에 막힌 적", crowded, five, 12, 30);
+        List<Enemy> five = GapScene(out crowded, 572, 364, "b:126,149 g:299,517 g:94,83 g:254,236 w:200,194");
+        CheckSettles("두 몸에 막힌 적", crowded, five, 14.5, 30);
 
         // 대원의 몸은 옆으로 돌지 않는다(지금 10.6초). 대원에게 닿은 적은 다 온 것이다.
         // 대원의 몸까지 옆으로 돌면, 셋이 대원에게 닿은 뒤에도 자리를 잡지 못하고 대원 둘레에서 계속 움직인다.
@@ -850,6 +859,25 @@ internal static class EncounterTests
         EnemyDefinition[] kinds = new EnemyDefinition[] { grunt, breaker, warden, grunt, breaker, warden };
         List<Enemy> crowd = Crowd(match, kinds, new int[] { 380, 320, 250, 180, 380, 300 }, new int[] { 312, 250, 312, 380, 420, 180 });
         CheckStands("여섯", match, crowd, 43);
+    }
+
+    // 틈 맵의 장면에서 seconds초 뒤에 모두 가만히 서 있고, 그 가운데 expected마리 이상이 공격 거리 안에 있는지 본다.
+    // 대원 둘레에 자리가 모자라 모두 붙지는 못하는 장면에 쓴다.
+    private static void CheckReachCount(string name, int playerX, int playerY, string spots, int expected, double seconds)
+    {
+        Match match;
+        List<Enemy> crowd = GapScene(out match, playerX, playerY, spots);
+        SceneRun run = RunScene(match, crowd, seconds);
+        int reached = 0;
+        for (int i = 0; i < crowd.Count; i++)
+        {
+            CheckStill(name, crowd[i], run.Travelled[i]);
+            if (InReach(match, crowd[i]))
+            {
+                reached++;
+            }
+        }
+        Check(reached >= expected, $"{name}: 공격 거리 안에 든 적이 {reached}마리뿐입니다({expected}마리 이상이어야 함)");
     }
 
     // 틈 맵의 장면에서 seconds초 뒤에 모두 가만히 서 있는지 본다(CheckStands). 대원에게 붙지 못하고 기다리는 적이 있어도 된다.
@@ -884,6 +912,40 @@ internal static class EncounterTests
         // 거스르는 걸음은 움직이던 쪽과 120° 넘게 벌어진 걸음이다. 거의 정반대(151° 넘게)만 거스른다고 보면, 철위병 뒤의 병사가
         // 비스듬히 꺾기를 거듭해 여섯 틱마다 제자리로 돌아온다.
         CheckWaits("비스듬히 되돌아가는 걸음", 549, 317, "w:268,312 g:65,253 g:372,321", 30);
+    }
+
+    private static void StuckBehindLaterEnemy()
+    {
+        // 뒤 차례인데 이미 대원 앞에 선 적에게 막힌 적도 기다리는 적이다(Match.MarkHalted). 기다리는지는 앞선 적부터 정하는데,
+        // 앞선 차례는 길의 칸 수로 먼저 가려, 대각선 칸의 적(두 칸)이 곧은 칸의 적(한 칸)보다 뒤 차례다. 그래서 대원에게 먼저
+        // 닿아 선 적이 그 옆에서 아직 닿지 못한 적보다 뒤 차례일 때가 있다. 그 몸과 벽 사이에 끼인 적이 움직이는 적으로 남으면,
+        // 그 적은 움직이던 쪽을 지키지 않고(KeepsCourse), 둘레의 뒤선 적들은 가지도 못하는 그 적에게 길을 내주려 한다.
+        // 어느 쪽이든 제자리를 끝없이 오간다(2026-11-15 재리뷰가 생성 맵에서 찾은 것: 끼인 철위병 옆의 병사가 5초마다 495를
+        // 움직이고 자리는 그대로였다).
+        // 장면은 모두 대원이 벽 서쪽 면 옆 칸에 서 있고 적들이 같은 쪽에서 온다. 저장소 밖 실험 도구로 그런 장면 9,000개
+        // (적 여섯에서 열둘)를 돌려 골랐다. 지금 코드는 9,000개 모두에서 30초 뒤에 가만히 서고, 막혀 선 적의 몸을 차례와
+        // 관계없이 보지 않게 바꾸면 72개에서 누군가 오간다. 끼이는 자리는 한두 단위 차이로 갈린다. 그래서 처음 자리를 ±2씩
+        // 흔들면 바꾼 코드에서도 오가지 않는 가짓수가 섞인다(장면마다 적었다). 지금 코드는 흔든 가짓수 모두에서 가만히 선다.
+
+        // 분쇄자가 대원의 북서쪽 대각선 칸에서 대원에게 닿아 서고, 철위병이 대원의 바로 위 칸으로 내려오다 그 분쇄자와 벽 면
+        // 사이에 끼인다. 철위병이 앞선 차례다. 분쇄자의 몸을 보지 않으면 철위병이 분쇄자의 겉을 따라 북서로 갔다가 남동으로
+        // 돌아오기를 되풀이한다(마지막 5초 동안 334를 움직이고 자리는 1.5 바뀐다. 흔든 열두 가지 가운데 열하나에서).
+        CheckWaits("분쇄자와 벽 면 사이의 철위병", 439, 265, "g:412,437 w:289,172 w:320,430 w:258,407 g:232,260 b:292,318 b:343,138", 30);
+
+        // 틈 쪽도 같다. 철위병이 대원의 남서쪽 대각선 칸에서 대원에게 닿아 서고, 분쇄자가 대원의 바로 아래 칸에서 그 철위병과
+        // 틈 아래쪽 벽 모서리 (480, 336) 사이에 끼인다(372를 움직이고 자리는 3.5 바뀐다. 열두 가지 가운데 아홉에서).
+        CheckWaits("철위병과 벽 모서리 사이의 분쇄자", 435, 262, "w:280,251 b:297,400 b:231,432 w:259,174 g:235,266 w:300,350", 30);
+
+        // 막혀 선 적 뒤에 선 적도 막혀 선 적이다. 대원에게 닿은 적에서 그 뒤의 적으로 이어진다.
+        // 병사들이 대원에게 닿아 서고, 철위병 하나가 그 뒤 대각선 칸에 선다(대원에게는 닿지 못했다. 거리 47). 다른 철위병이
+        // 대원의 바로 아래 칸에서 올라오다 그 철위병과 틈 아래쪽 벽 모서리 사이에 끼인다. 대원에게 닿은 적만 막혀 선 적으로
+        // 치면 끼인 철위병이 움직이는 적으로 남아, 그 뒤의 철위병이 길을 내주려고 한 틱은 물러나고 다음 틱은 돌아오기를
+        // 되풀이한다(350을 움직이고 자리는 1.5 바뀐다). 적들이 가까이에서 출발해 흔들 수 있는 가짓수가 여섯뿐이고 그 가운데 셋에서 그렇다.
+        CheckWaits("둘째 줄 철위병에 막힌 철위병", 456, 262, "w:245,403 w:313,365 w:377,434 g:242,351 w:277,325 g:274,362 g:268,241 g:233,291", 30);
+
+        // 같은 꼴의 다른 장면이다. 분쇄자가 병사 뒤 대각선 칸에 서고(거리 38), 다른 분쇄자가 그 분쇄자와 틈 위쪽 벽 모서리
+        // (480, 288) 사이에 끼인다. 그 뒤의 병사가 길을 내주려고 오간다(386을 움직이고 자리는 3.3 바뀐다. 흔들 수 있는 다섯 가지 가운데 둘에서).
+        CheckWaits("둘째 줄 분쇄자에 막힌 분쇄자", 441, 267, "w:281,210 w:300,167 g:249,417 b:321,385 g:275,292 g:266,319 b:296,339 g:277,401 w:231,180 w:250,360", 30);
     }
 
     private static void TurnsOtherWay()

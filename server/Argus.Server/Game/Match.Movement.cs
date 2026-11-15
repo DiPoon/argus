@@ -624,8 +624,10 @@ public sealed partial class Match
     }
 
     // 앞선 적부터 이번 틱의 이동을 정한다. 뒤선 적의 이동은 앞선 적이 움직이는지 기다리는지에 달려 있으므로 앞선 적부터 정해야 한다.
+    // 막혀 선 적은 앞선 차례와 관계없이 먼저 가려 둔다(MarkHalted).
     private void PlanMoves()
     {
+        MarkHalted();
         for (int rank = 0; rank < _moving.Count; rank++)
         {
             EnemyPlan plan = _moving[rank];
@@ -638,17 +640,63 @@ public sealed partial class Match
         }
     }
 
-    // position으로 가려는 적이 더 갈 수 없어 기다리게 되는지다. 그 자리의 몸이 아래 셋 가운데 하나와 겹치면 그렇다.
-    // - 살아 있는 대원의 몸: 대원에게 다 온 적이다.
-    // - 행동 중인 적의 몸: 예고하고 공격하는 적은 그 자리에 서 있다. 그 뒤에 선 적이다.
-    // - 기다리는 앞선 적의 몸: rank는 이 적의 앞선 차례다. 앞선 적들이 기다리는지는 이미 정해져 있으므로,
-    //   다 온 적 뒤에 선 적, 그 뒤에 선 적으로 차례로 이어진다.
-    // 뒤 차례의 기다리는 적에게 막힌 적은 여기에 들지 않는다. 앞선 차례는 길의 칸 수로 먼저 가리는데 대각선 칸은 두 칸으로 세므로,
-    // 대원에게 닿아 선 적이 그 옆에서 아직 닿지 못한 적보다 뒤 차례일 때가 있다. 그 몸과 벽 사이에 끼인 적은 움직이는 적으로 남아
-    // 뒤의 적들이 길을 내주려 한다(2026-11-14 리뷰). 대원에게 닿은 적의 몸을 차례와 관계없이 보게도 해 봤는데(2026-11-15), 잰 장면
-    // 전체의 결과가 같았고 리뷰의 두 장면에서는 오히려 한 마리씩 덜 붙었다. 막힌 적이 반대쪽으로 돌게 된 뒤로는(Slide) 그런 적이
-    // 남아도 뒤의 적이 돌아 들어가고, 아무 데나 놓은 장면 수천 판의 끝에는 끼인 채 남는 적이 없어 그대로 두었다.
-    private bool Stuck(Enemy enemy, FixedVector position, int rank)
+    // 막혀 선 적을 가린다(EnemyPlan.Halted). 가려는 방향으로 한 걸음 간 자리가 서 있는 몸과 겹치는 적이다. 서 있는 몸은
+    // 살아 있는 대원의 몸, 행동 중인 적의 몸, 그리고 다른 막혀 선 적의 몸이다. 대원에게 다 온 적, 그 뒤에 선 적, 또 그 뒤에 선
+    // 적으로 대원 쪽에서부터 이어진다. 앞선 차례와 관계없이 정한다.
+    // 기다리는지는 앞선 적부터 정하므로(PlanMoves), 이것이 없으면 뒤 차례의 선 적에게 막힌 적이 움직이는 적으로 남는다.
+    // 앞선 차례는 길의 칸 수로 먼저 가리는데 대각선 칸은 두 칸으로 세어, 대원에게 닿아 선 적이 그 옆에서 아직 닿지 못한 적보다
+    // 뒤 차례일 때가 있다. 그 몸과 벽 사이에 끼인 적은 한 걸음도 못 가는데 움직이는 적으로 쳐져서, 둘레의 뒤선 적들이 길을
+    // 내주려고 한 틱은 물러나고 다음 틱은 돌아오기를 끝없이 되풀이했다(2026-11-15 재리뷰: 생성 맵 시드 97에서 병사가 5초마다
+    // 495를 움직이고 자리는 그대로였다). 길을 내주는 적은 움직이던 쪽을 지키는 규칙에서 빠지므로(KeepsCourse) 그 규칙으로는 막지 못한다.
+    // 끼인 적 자신도 기다리는 적이 아니라 움직이던 쪽을 지키지 않아, 막은 몸의 겉을 따라 갔다가 돌아오기를 되풀이했다
+    // (대원이 벽 모서리 옆에 선 틈 맵 장면 9,000개 가운데 72개).
+    // - 가려는 방향(Heading)으로 본다. 이번 틱의 이동(Step)은 길을 내주는 방향이 섞이는데, 그것은 누가 기다리는지가 정해져야 구한다.
+    // - 표시는 대원이나 행동 중인 적의 몸에서 시작해서만 이어진다. 그래서 길 한가운데에서 서로 막은 두 적이 서로를 서 있는
+    //   몸으로 보고 함께 멈추는 일은 없다. 틱마다 다시 정하므로 막은 몸이 사라지면 바로 풀린다.
+    //   "길을 내주려 했는데도 못 움직인 적을 다시 움직일 때까지 서 있는 몸으로 본다"는 안도 재 봤는데, 틈 맵에 적 60마리를 몬
+    //   장면에서 틈이 막힌 채 풀리지 않았다(20판 가운데 2판에서 38마리와 39마리가 틈 서쪽에 갇혔다).
+    // - 대원에게 닿은 적만 보고 그 뒤로 잇지 않으면, 대원에게 닿지 못한 둘째 줄의 적에게 막힌 적이 같은 꼴로 남는다
+    //   (같은 60마리 20판 가운데 4판에서 끝까지 오가는 적 여덟).
+    // - 막혀 선 적도 옆으로 돌아 움직일 수 있다(Slide). 기다리는 적이 그렇듯, 서 있다는 뜻이 아니라 가려는 쪽이 서 있는 몸에
+    //   막혔다는 뜻이다.
+    private void MarkHalted()
+    {
+        _halted.Clear();
+        for (int i = 0; i < _moving.Count; i++)
+        {
+            EnemyPlan plan = _moving[i];
+            Enemy enemy = plan.Enemy;
+            plan.Ahead = enemy.Position + plan.Heading * enemy.Definition.StepPerTick;
+            plan.Halted = MeetsStandingBody(enemy, plan.Ahead);
+            if (plan.Halted)
+            {
+                _halted.Add(plan);
+            }
+        }
+        // 막혀 선 적의 몸에 막힌 적도 막혀 선 적이다. 표시한 적마다 아직 표시하지 않은 적을 한 번씩 본다.
+        // 새로 표시한 적은 목록 끝에 붙어 뒤에서 다시 보므로, 더 늘지 않을 때까지 이어진다. 결과는 보는 차례와 관계없다.
+        for (int next = 0; next < _halted.Count; next++)
+        {
+            Enemy standing = _halted[next].Enemy;
+            for (int i = 0; i < _moving.Count; i++)
+            {
+                EnemyPlan plan = _moving[i];
+                if (plan.Halted)
+                {
+                    continue;
+                }
+                if (BodiesOverlap(plan.Ahead, plan.Enemy.Definition.Radius, standing.Position, standing.Definition.Radius))
+                {
+                    plan.Halted = true;
+                    _halted.Add(plan);
+                }
+            }
+        }
+    }
+
+    // enemy의 몸이 position에 서면, 틱 안에서 움직이지 않는 몸과 겹치는지다. 살아 있는 대원의 몸과 행동 중인 적의 몸이다.
+    // 예고하고 공격하는 적은 그 자리에 서 있다.
+    private bool MeetsStandingBody(Enemy enemy, FixedVector position)
     {
         for (int i = 0; i < Players.Count; i++)
         {
@@ -674,6 +722,24 @@ public sealed partial class Match
                 return true;
             }
         }
+        return false;
+    }
+
+    // position으로 가려는 적이 더 갈 수 없어 기다리게 되는지다. 그 자리의 몸이 아래 넷 가운데 하나와 겹치면 그렇다.
+    // - 살아 있는 대원의 몸: 대원에게 다 온 적이다.
+    // - 행동 중인 적의 몸: 그 뒤에 선 적이다.
+    // - 기다리는 앞선 적의 몸: rank는 이 적의 앞선 차례다. 앞선 적들이 기다리는지는 이미 정해져 있으므로,
+    //   다 온 적 뒤에 선 적, 그 뒤에 선 적으로 차례로 이어진다.
+    // - 막혀 선 적의 몸: 앞선 차례와 관계없이 본다(MarkHalted). 뒤 차례인데 이미 대원 앞에 선 적에게 막힌 적이다.
+    private bool Stuck(Enemy enemy, FixedVector position, int rank)
+    {
+        if (MeetsStandingBody(enemy, position))
+        {
+            return true;
+        }
+        // 기다리는 앞선 적의 몸이다. 막혀 선 적이 들어간 뒤로는(2026-11-15) 대부분 그것과 겹치지만, 이번 틱에 서 있는 적처럼
+        // 막혀 선 적이 아닌 기다리는 적도 있다. 이것만 빼고 재면 틈 맵에 60마리가 몰려 행동하는 20판에서 끝까지 오가는 적이
+        // 0에서 6으로 늘었다. 작은 장면 하나로는 가르지 못해 검사로 묶지 않았다(막혀 선 적과 함께 빼면 검사가 잡는다).
         for (int ahead = 0; ahead < rank; ahead++)
         {
             EnemyPlan other = _moving[ahead];
@@ -682,6 +748,22 @@ public sealed partial class Match
                 continue;
             }
             if (BodiesOverlap(position, enemy.Definition.Radius, other.Enemy.Position, other.Enemy.Definition.Radius))
+            {
+                return true;
+            }
+        }
+        for (int i = 0; i < _halted.Count; i++)
+        {
+            Enemy halted = _halted[i].Enemy;
+            // 제 몸은 보지 않는다. 막혀 선 적이라도 앞선 적에게 길을 내주느라 다른 쪽으로 걷는 틱에는 움직이는 적이다.
+            // 그래야 그 뒤의 적이 또 길을 내줘, 길을 내주는 일이 뒤로 이어진다. 제 몸까지 보게 하고 재면(막혀 선 적은 모두
+            // 기다리는 적) 틈 맵 60마리 20판에서 끼인 적이 0에서 1, 길을 내주느라 밖에 선 적이 0에서 3으로 늘었다(2026-11-15).
+            // 이것도 작은 장면 하나로는 가르지 못해 검사로 묶지 않았다.
+            if (halted == enemy)
+            {
+                continue;
+            }
+            if (BodiesOverlap(position, enemy.Definition.Radius, halted.Position, halted.Definition.Radius))
             {
                 return true;
             }
