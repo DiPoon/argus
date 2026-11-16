@@ -177,7 +177,9 @@ export const distanceSquared = (a: FixedVector, b: FixedVector) => lengthSquared
 // 아래는 서버의 방향(server/Argus.Server/Game/Angle.cs) 가운데 클라이언트 예측에 필요한 부분을 옮긴 것이다.
 // 서 있는 대원의 대시는 조준한 쪽으로 가므로(Match.DashDirection), 보낸 조준(라디안)에서 서버와 같은 방향 벡터를 구해야 한다.
 // 방향은 한 바퀴를 65536칸으로 나눈 정수(칸 수)다. 사인은 2^30을 1로 보는 정수 급수로 구하는데 중간값이 2^62까지 커져서
-// BigInt로 계산한다. 대시를 시작할 때 한 번만 부르므로 느려도 된다.
+// BigInt로 계산한다. 예측이 서서 누른 대시를 시작하는 틱을 지날 때마다 부른다. 새 입력에는 한 번이고, 스냅샷이 올 때마다
+// 확인받지 않은 입력을 다시 걸으며 그 틱을 또 지난다. 나를 노린 예고를 굳히는 자리(world.ts의 serverSpotAfter)도 같은 틱을 지나지만
+// 한 번 구한 답을 기억해 두므로 그리기마다 부르지는 않는다. 한 번에 BigInt 곱셈 스무 번쯤이라 그 횟수로는 부담이 없다.
 export const unitsPerTurn = 65536;
 const quarterTurn = 16384;
 const angleOne = 1n << 30n;

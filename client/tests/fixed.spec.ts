@@ -4,7 +4,7 @@ import {
   angleUnits, ceilingDivide, direction, divide, divideInt, floorDivide, fromDouble, length, lengthSquared, multiply, normalize, roundedSqrt,
 } from '../src/fixed';
 import {
-  applyButtons, deployable, inputHoldTicks, slotMask, slotSkill, stepPilot, stepPlayer, ticksPerSecond, toTicks,
+  deployable, inputHoldTicks, receiveInput, slotMask, slotSkill, stepPilot, stepPlayer, ticksPerSecond, toTicks,
   type Body, type Pilot, type PilotInput, type PilotRules, type Terrain,
 } from '../src/movement';
 import { applyWallChanges } from '../src/types';
@@ -190,22 +190,27 @@ test('presses start the same skills on the same ticks as the server, and dashes 
   };
   const found: string[] = [];
   let dashes = 0;
+  let longestGap = 0;
   for (const scenario of vectors.pilots) {
     const bodies: Body[] = scenario.bodies.map(([x, y, radius]) => ({ x, y, radius }));
     const rules: PilotRules = {
       speed: scenario.speed, radius: scenario.radius, maxAuraTicks: toTicks(vectors.maxAuraSeconds),
       slots: scenario.slots.map(id => slotSkill(vectors.skills.find(skill => skill.id === id)!)),
     };
-    const pilot: Pilot = { position: { x: scenario.start[0], y: scenario.start[1] }, mana: scenario.mana, tick: 0, waiting: [] };
-    // 서버처럼 입력이 없는 틱에는 마지막 입력을 계속 쓴다. 이 시나리오들은 끊긴 틱이 입력을 버리는 한도(inputHoldTicks)보다 짧다.
+    // 막 착지한 대원은 아직 입력을 받은 적이 없다(서버의 Player.NoInputTick).
+    const pilot: Pilot = { position: { x: scenario.start[0], y: scenario.start[1] }, mana: scenario.mana, tick: 0, lastInput: -1_000_000, waiting: [] };
+    // 입력이 없는 틱에도 서버가 마지막으로 받은 입력을 그대로 넘긴다. 그 입력을 몇 틱까지 쓰고 언제 멈추는지는 stepPilot이 서버처럼 정한다.
     let current: PilotInput = { moveX: 0, moveY: 0, aim: 0, held: 0, pressed: [] };
-    // 이어지는 대시는 사이에 서 있는 틱이 없으므로, 대시를 시작한 틱이 바뀌는 것으로 센다(서버의 자료도 그렇게 센다).
+    // 이어지는 대시는 사이에 서 있는 틱이 없으므로, 대시가 끝나는 틱이 바뀌는 것으로 센다(서버의 자료는 시작한 틱으로 센다).
     let lastDash = -1;
+    let gap = 0;
     scenario.ticks.forEach(([input, x, y, mana, slot], tick) => {
+      gap = input ? 0 : gap + 1;
+      longestGap = Math.max(longestGap, gap);
       if (input) {
         const [moveX, moveY, aim, held, pressed] = input;
         current = { moveX, moveY, aim, held: slotMask(held), pressed };
-        applyButtons(pilot, current.held, current.pressed);
+        receiveInput(pilot, current.held, current.pressed);
       }
       stepPilot(terrain, bodies, pilot, current, rules);
       const actual = [pilot.position.x, pilot.position.y, pilot.mana, pilot.action?.slot ?? 0];
@@ -213,13 +218,12 @@ test('presses start the same skills on the same ticks as the server, and dashes 
         found.push(`${scenario.name} ${tick}틱: (${actual.join(', ')}), 서버는 (${x}, ${y}, ${mana}, ${slot})`);
       }
       const action = pilot.action;
-      if (action && rules.slots[action.slot - 1].dashStep > 0 && action.started !== lastDash) { dashes++; lastDash = action.started; }
+      if (action && rules.slots[action.slot - 1].dashStep > 0 && action.ends !== lastDash) { dashes++; lastDash = action.ends; }
     });
-    // 끊긴 틱이 한도를 넘는 시나리오를 넣으면 위의 단순한 "마지막 입력을 계속 쓴다"가 서버와 달라진다.
-    let gap = 0;
-    for (const [input] of scenario.ticks) { gap = input ? 0 : gap + 1; expect(gap).toBeLessThan(inputHoldTicks); }
   }
   expect(found.slice(0, 5)).toEqual([]);
+  // 입력이 끊긴 틱이 서버가 입력 하나를 쓰는 한도를 넘는 시나리오가 들어 있어야, 그 뒤의 진행(멈춤과 버튼 뗌)을 본다.
+  expect(longestGap).toBeGreaterThan(inputHoldTicks);
   // 시나리오가 보려는 장면(대시가 실제로 시작함)이 성립했는지도 본다.
   expect(dashes).toBe(vectors.pilots.reduce((sum, scenario) => sum + scenario.dashes, 0));
   expect(dashes).toBeGreaterThan(20);

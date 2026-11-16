@@ -850,6 +850,62 @@ internal static class ClientParityTests
         AddPilotInputs(givenUp, 16, -1, 0, 0, None, None);
         pilots.Add(RunPilot("기다리다 뗀 대시", field, noBodies, noKinds, DashSlots, 24, givenUp));
 
+        // 아래 넷은 입력이 0.35초(11틱) 넘게 끊기는 시나리오다(PR #30 리뷰 1번). 서버는 마지막 입력을 받은 다음 틱부터 10틱까지 쓰고,
+        // 그 뒤로는 틱마다 대원을 멈추고 버튼을 모두 뗀 것으로 본다. 클라이언트는 스스로 입력을 보내지 못한 틱을 이렇게 따라간다.
+
+        // 쥐고 기다리던 대시는 입력이 끊기면 버려진다. 근접 타격(20틱)을 쓰는 중에 대시를 눌러 쥐고 있다가 입력이 14틱 끊긴다.
+        // 끊긴 지 11틱째에 서버가 버튼을 뗀 것으로 보고 그 누름을 버린다. 타격이 끝나도 대시는 나가지 않는다.
+        // 입력이 돌아와 대시 버튼을 쥐고 있다고 알려도(새 누름은 없다) 나가지 않는다. 걷기도 11틱째부터 멈췄다가 입력이 돌아오면 다시 걷는다.
+        List<PilotInput?> dropped = new List<PilotInput?>();
+        AddPilotInputs(dropped, 1, 1, 0, 0, None, strikeTap);
+        AddPilotInputs(dropped, 1, 1, 0, 0, None, None);
+        AddPilotInputs(dropped, 1, 1, 0, 0, DashHeld, DashHeld);
+        AddPilotInputs(dropped, 2, 1, 0, 0, DashHeld, None);
+        for (int i = 0; i < 14; i++)
+        {
+            dropped.Add(null);
+        }
+        AddPilotInputs(dropped, 8, 1, 0, 0, DashHeld, None);
+        pilots.Add(RunPilot("기다리다 입력이 끊긴 대시", field, noBodies, noKinds, DashSlots, 24, dropped));
+
+        // 대시하는 중에 입력이 오래 끊겨도 대시는 끝까지 간다. 그 뒤에는 마지막 입력으로 걷다가, 그 입력을 받은 지 11틱째부터 선다.
+        List<PilotInput?> coasting = new List<PilotInput?>();
+        AddPilotInputs(coasting, 1, 0, -1, 0, None, None);
+        AddPilotInputs(coasting, 1, 0, -1, 0, None, DashHeld);
+        for (int i = 0; i < 16; i++)
+        {
+            coasting.Add(null);
+        }
+        AddPilotInputs(coasting, 3, 1, 0, 0, None, None);
+        pilots.Add(RunPilot("대시 중에 입력이 오래 끊김", field, noBodies, noKinds, DashSlots, 24, coasting));
+
+        // 쥐고 있던 기운은 입력이 끊기면 장판이 나간다. 회전 방어를 눌러 쥔 채 입력이 끊긴다. 서버가 버튼을 뗀 것으로 보는 틱에
+        // 장판이 나가고, 그때까지 이은 만큼(일곱 틱) 끝이 밀린다. 그 뒤에 눌러 쥔 대시는 그 끝에 조준한 쪽으로 나간다.
+        List<PilotInput?> slipped = new List<PilotInput?>();
+        AddPilotInputs(slipped, 1, 0, 0, 1, blockHeld, blockHeld);
+        AddPilotInputs(slipped, 3, 0, 0, 1, blockHeld, None);
+        for (int i = 0; i < 18; i++)
+        {
+            slipped.Add(null);
+        }
+        AddPilotInputs(slipped, 1, 0, 0, 1, DashHeld, DashHeld);
+        AddPilotInputs(slipped, 10, 0, 0, 1, DashHeld, None);
+        pilots.Add(RunPilot("기운을 쥔 채 입력이 끊김", field, noBodies, noKinds, DashSlots, 24, slipped));
+
+        // 쓰던 기술이 끝나는 바로 그 틱에 입력 끊김 처리가 걸리면, 뗀 것으로 본 누름이 그 틱에 시작한다. 그 틱에는 이동도 멈춘 것이라
+        // 대시는 걷던 쪽(오른쪽)이 아니라 조준한 쪽(아래)으로 간다. 근접 타격을 누른 지 열 틱 뒤에 대시를 눌러 쥐고 입력이 끊긴다.
+        // 타격이 끝나는 틱이 마지막 입력을 받은 지 꼭 11틱째다.
+        List<PilotInput?> sameTick = new List<PilotInput?>();
+        AddPilotInputs(sameTick, 1, 1, 0, Math.PI / 2, None, strikeTap);
+        AddPilotInputs(sameTick, 9, 1, 0, Math.PI / 2, None, None);
+        AddPilotInputs(sameTick, 1, 1, 0, Math.PI / 2, DashHeld, DashHeld);
+        for (int i = 0; i < 16; i++)
+        {
+            sameTick.Add(null);
+        }
+        AddPilotInputs(sameTick, 3, -1, 0, Math.PI / 2, None, None);
+        pilots.Add(RunPilot("기술이 끝나는 틱에 입력 끊김이 걸림", field, noBodies, noKinds, DashSlots, 24, sameTick));
+
         text.Append("  \"pilots\": [\n");
         for (int i = 0; i < pilots.Count; i++)
         {

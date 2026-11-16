@@ -20,8 +20,8 @@ interface TestWorld {
   recordInput(seq: number, x: number, y: number, buttons: { aim: number; held: number; pressed: number[] }, at?: number): void;
   holdLastInput(missed: number, at?: number): void;
   // 서버 위치(Raw)에 확인받지 않은 입력을 하나에 한 틱씩 적용한 예측 위치(Raw)다.
-  // tip은 내 대원의 예측 상태다. 위치(Raw)와 마나, 쓰는 중인 기술의 슬롯을 본다.
-  forecast?: { previous: Position; tip: { position: Position; mana: number; action?: { slot: number } } };
+  // tip은 내 대원의 예측 상태다. 위치(Raw)와 마나, 틱, 쓰는 중인 기술의 슬롯, 기다리는 누름을 본다.
+  forecast?: { previous: Position; tip: { position: Position; mana: number; tick: number; action?: { slot: number }; waiting: { slot: number; held: boolean }[] } };
   pending: unknown[];
   mePosition(): Position | undefined;
   screenToWorld(clientX: number, clientY: number): Position;
@@ -289,6 +289,65 @@ test('a telegraph aimed at me freezes toward where the server saw me in the midd
     return Math.atan2(eye.data[1] - 730, eye.data[0] - 460);
   }, [scene(10.8), scene(10.9)] as const);
   expect(drawn).toBeCloseTo(Math.atan2(60, -60), 2);
+});
+
+test('the spot a telegraph freezes toward is kept between frames and worked out again after another input or a snapshot', async ({ page }) => {
+  // 나를 노린 예고가 공격 직전이면 그리기마다 "서버가 마지막으로 도는 틱에 본 내 자리"를 묻는다. 답은 스냅샷과 확인받지 않은 입력이
+  // 그대로면 같으므로 기억해 두고, 그리기마다 확인받지 않은 입력을 처음부터 다시 걷지 않는다(PR #30 리뷰 4번).
+  // 입력을 더 보내거나 스냅샷이 오면 다시 구한다. 마지막 스냅샷은 327틱(10.9초)이고 서버가 마지막으로 도는 틱은 329틱이다.
+  const action: CombatAction = { id: 921, skill: 'strike', kind: 'strike', slot: 0, tier: 1, phase: 'telegraph', aim: Math.PI,
+    startedAt: 9.5, contactAt: 11, activeUntil: 11.25, endsAt: 12, range: 82, halfWidth: 24, target: 'pilot' };
+  const scene = (now: number, y = 730, ack = 0): Snapshot => {
+    const state = { ...snapshot(), now, enemies: [{ ...elite(920), action }] };
+    state.players[0] = { ...state.players[0], y, rawY: y * 4096, ack };
+    return state;
+  };
+  const drawn = await page.evaluate(([first, second, lower, settled]) => {
+    const world = window.testWorld as unknown as DrawnWorld & {
+      recordInput(seq: number, x: number, y: number, buttons: object, at?: number): void; serverPilot(): unknown;
+    };
+    let clock = 1000;
+    performance.now = () => clock;
+    // 예측의 출발점을 새로 만든 횟수다. 굳힌 자리를 다시 걸을 때마다 한 번씩 만든다.
+    let walks = 0;
+    const original = world.serverPilot.bind(world);
+    world.serverPilot = () => { walks++; return original(); };
+    const look = () => {
+      world.draw(1 / 60);
+      const eye = world.units.context.instructions.flatMap(i => i.data.path?.instructions ?? [])
+        .find(step => step.action === 'circle' && step.data[2] === 3)!;
+      return { angle: Math.atan2(eye.data[1] - 730, eye.data[0] - 460), walks };
+    };
+    const idle = { aim: 0, held: 0, pressed: [] };
+    world.update(first);
+    clock += 100;
+    world.update(second);
+    // 아래로 걷는 입력 하나를 보냈다. 서버는 그 입력을 두 틱 쓴다고 본다. 자리는 (400, 742)다.
+    world.recordInput(1, 0, 1, idle, clock);
+    clock += 80;
+    const one = look();
+    const again = look();
+    // 오른쪽으로 걷는 입력을 하나 더 보냈다. 이제 두 틱은 아래로 한 번, 오른쪽으로 한 번이다. 자리는 (406, 736)이다.
+    world.recordInput(2, 1, 0, idle, clock);
+    const two = look();
+    // 같은 틱의 스냅샷이 내 자리를 30 아래로 알려 온다(두 입력은 아직 확인받지 못했다). 자리는 (406, 766)이다.
+    world.update(lower);
+    clock += 80;
+    const three = look();
+    // 서버가 두 입력을 모두 확인하며 내 자리를 다시 알려 온다. 확인받지 않은 입력이 없으므로 그 자리 그대로다. 자리는 (400, 790)이다.
+    world.update(settled);
+    clock += 80;
+    const four = look();
+    return { one, again, two, three, four };
+  }, [scene(10.8), scene(10.9), scene(10.9, 760), scene(10.9, 790, 2)] as const);
+  expect(drawn.one.angle).toBeCloseTo(Math.atan2(12, -60), 2);
+  // 다시 그려도 방향이 같고, 출발점을 새로 만들지 않았다.
+  expect(drawn.again.angle).toBeCloseTo(drawn.one.angle, 6);
+  expect(drawn.again.walks).toBe(drawn.one.walks);
+  expect(drawn.two.angle).toBeCloseTo(Math.atan2(6, -54), 2);
+  expect(drawn.two.walks).toBe(drawn.one.walks + 1);
+  expect(drawn.three.angle).toBeCloseTo(Math.atan2(36, -54), 2);
+  expect(drawn.four.angle).toBeCloseTo(Math.atan2(60, -60), 2);
 });
 
 // 받아치기의 기술 정의다. 방어의 기운 0.55초 뒤 상성 없는 반격 장판이 0.18초 나간다.
@@ -686,14 +745,15 @@ test('a dash the server has already started is carried on from the snapshot, and
     empty.players[0] = { ...empty.players[0], mana: 0 };
     world.update(empty);
     const taken = { ...world.forecast!.tip.position };
-    // 그 뒤 서버가 입력 4까지 처리했고 대시가 나갔다고 알려 온다. 지금은 301틱(10.03초)이다. 대시는 298틱(9.93초)에 시작해 네 틱을 갔고
-    // 303틱(10.1초)에 끝난다. 시각은 소수 둘째 자리로 와서 30을 곱하면 300.9와 297.9다. 반올림해야 틱 번호가 된다.
+    // 그 뒤 서버가 입력 3까지 처리했고 대시가 나갔다고 알려 온다. 지금은 301틱(10.03초)이다. 대시는 299틱(9.97초)에 시작해 세 틱을 갔고
+    // 304틱(10.13초)에 끝난다. 시각은 소수 둘째 자리로 와서 30을 곱하면 300.9와 303.9다. 반올림해야 틱 번호가 된다.
+    // 내리면 지금 틱이 300이 되어 대시를 한 틱 더 가고, 끝나는 틱이 303이 되어 한 틱 덜 간다.
     const running = structuredClone(state);
     running.now = 10.03;
     running.players[0] = {
-      ...running.players[0], x: 520, rawX: 520 * 4096, ack: 4, mana: 11,
-      actions: [{ id: 1, skill: 'dash', kind: 'none', slot: 4, tier: 1, phase: 'dash', aim: 0, startedAt: 9.93, contactAt: 9.93,
-        activeUntil: 9.93, endsAt: 10.1, held: false, holdUntil: 9.93, range: 0, halfWidth: 0, dashX: 4096, dashY: 0 }],
+      ...running.players[0], x: 490, rawX: 490 * 4096, ack: 3, mana: 11,
+      actions: [{ id: 1, skill: 'dash', kind: 'none', slot: 4, tier: 1, phase: 'dash', aim: 0, startedAt: 9.97, contactAt: 9.97,
+        activeUntil: 9.97, endsAt: 10.13, held: false, holdUntil: 9.97, range: 0, halfWidth: 0, dashX: 4096, dashY: 0 }],
     };
     world.update(running);
     const carried = { ...world.forecast!.tip.position };
@@ -703,8 +763,8 @@ test('a dash the server has already started is carried on from the snapshot, and
   expect(result.guessed).toEqual({ x: 550 * 4096, y: 736 * 4096 });
   // 마나가 없으면 여섯 입력은 걷기만 한다. 오른쪽으로 한 번, 아래로 다섯 번이다.
   expect(result.taken).toEqual({ x: 406 * 4096, y: (730 + 30) * 4096 });
-  // 남은 두 입력 가운데 앞의 것은 대시의 마지막 틱이고 뒤의 것은 걷는다. 처음 짐작과 Raw까지 같다.
-  expect(result.left).toBe(2);
+  // 남은 세 입력 가운데 앞의 둘은 대시의 남은 틱이고 마지막 것은 걷는다. 처음 짐작과 Raw까지 같다.
+  expect(result.left).toBe(3);
   expect(result.carried).toEqual(result.guessed);
 });
 
@@ -736,35 +796,82 @@ test('a dash pressed during another skill is predicted to start on the tick that
   expect(result.walking).toEqual([526, 556, 562, 568].map(x => x * 4096));
 });
 
-test('a dash pressed over an aura the server still stretches is predicted from the ticks that skill has already been held', async ({ page }) => {
+// 서버에서 근접 타격의 버튼을 누르고 있어 기운이 도는 중이다. 298틱(9.93초)에 시작했고 지금은 301틱(10.03초)이다.
+// 지금 정해진 대로면 장판은 304틱(10.13초)에 나가고 기술은 318틱(10.6초)에 끝난다. 계속 누르고 있어도 328틱(10.93초)에는 장판이 나간다.
+// 시각은 소수 둘째 자리로 와서 30을 곱하면 300.9·303.9·327.9다. 반올림해야 틱 번호가 된다.
+function heldAura(): Snapshot {
+  const state = dashState();
+  state.now = 10.03;
+  state.players[0].actions = [{ id: 1, skill: 'strike', kind: 'strike', slot: 1, tier: 1, phase: 'aura', aim: 0, startedAt: 9.93, contactAt: 10.13,
+    activeUntil: 10.37, endsAt: 10.6, held: true, holdUntil: 10.93, range: 54, halfWidth: 10 }];
+  return state;
+}
+
+test('a dash pressed over an aura the server still stretches starts when that skill really ends', async ({ page }) => {
   const result = await page.evaluate(state => {
     const world = window.testWorld;
-    // 서버에서 근접 타격의 버튼을 누르고 있어 기운을 잇는 중이다. 290틱(9.67초)에 시작했고, 가장 짧은 기운(6틱)이 지난 뒤 여섯 틱을 더 이었다.
-    // 지금은 301틱(10.03초)이다. 지금 놓으면 302틱(10.07초)에 장판이 나가고 316틱(10.53초)에 끝난다.
-    const holding = structuredClone(state);
-    holding.now = 10.03;
-    holding.players[0] = {
-      ...holding.players[0],
-      actions: [{ id: 1, skill: 'strike', kind: 'strike', slot: 1, tier: 1, phase: 'aura', aim: 0, startedAt: 9.67, contactAt: 10.07,
-        activeUntil: 10.3, endsAt: 10.53, held: true, holdUntil: 10.67, range: 54, halfWidth: 10 }],
-    };
-    world.update(holding);
+    world.update(state);
     const spots: number[] = [];
     const send = (seq: number, held: number, pressed: number[]) => {
       world.recordInput(seq, 1, 0, { aim: 0, held, pressed });
       spots.push(world.forecast!.tip.position.x / 4096);
     };
-    // 오른쪽으로 걸으며 두 틱을 더 누르고 있다가(302·303틱), 타격 버튼(비트 1)을 놓으며 대시 버튼(비트 8)을 눌러 누르고 있는다.
-    send(1, 1, []);
-    send(2, 1, []);
-    send(3, 8, [4]);
-    for (let seq = 4; seq <= 18; seq++) send(seq, 8, []);
+    // 오른쪽으로 걸으며 다섯 틱을 더 누르고 있다(302~306틱). 장판이 나갈 틱이던 304·305·306틱마다 기운이 한 틱씩 이어진다.
+    for (let seq = 1; seq <= 5; seq++) send(seq, 1, []);
+    // 타격 버튼(비트 1)을 놓으며 대시 버튼(비트 8)을 눌러 누르고 있는다. 307틱에 장판이 나가고 타격은 321틱에 끝난다(318 + 3).
+    send(6, 8, [4]);
+    for (let seq = 7; seq <= 21; seq++) send(seq, 8, []);
     return spots;
-  }, dashState());
-  // 타격은 여덟 틱을 이은 것이 되어 318틱에 끝난다(290 + 20 + 8). 서버가 이미 이은 여섯 틱을 0으로 보면 310틱, 스냅샷 뒤의 두 틱을
-  // 잇지 않으면 316틱에 끝나는 것으로 잘못 짐작한다. 317틱까지 열여섯 틱은 걷고(6씩), 318틱과 319틱은 대시다(30씩).
-  expect(result.slice(0, 16)).toEqual(Array.from({ length: 16 }, (_, index) => 400 + 6 * (index + 1)));
-  expect(result.slice(16)).toEqual([526, 556]);
+  }, heldAura());
+  // 320틱까지 열아홉 틱은 걷고(6씩), 321틱과 322틱은 대시다(30씩). 장판이 나가는 틱을 내려서 구하면(303틱) 기운을 한 틱 더 이은
+  // 것이 되어 대시가 한 틱 늦는다. 스냅샷의 기술을 이미 놓은 것으로 보면 기운을 잇지 않아 대시가 세 틱 이르다.
+  expect(result.slice(0, 19)).toEqual(Array.from({ length: 19 }, (_, index) => 400 + 6 * (index + 1)));
+  expect(result.slice(19)).toEqual([544, 574]);
+});
+
+test('a skill the server says was let go keeps its end even while its button is held again', async ({ page }) => {
+  // 근접 타격(1번 칸)을 톡 눌렀다 떼고 곧바로 같은 버튼을 다시 눌러 쥐었다. 서버에서 앞의 타격은 놓은 기술이라(held가 꺼져 있다)
+  // 기운이 이어지지 않고, 다시 누른 것은 그 뒤에서 기다린다. 내 입력은 1번 버튼을 쥐고 있다고 알리지만, 그것은 기다리는 누름의 버튼이다.
+  const state = heldAura();
+  state.players[0].actions[0].held = false;
+  state.waiting = [1];
+  const manas = await page.evaluate(state => {
+    const world = window.testWorld;
+    world.update(state);
+    const manas: number[] = [];
+    // 1번 버튼(비트 1)을 쥔 채 스무 틱을 보낸다(302~321틱).
+    for (let seq = 1; seq <= 20; seq++) {
+      world.recordInput(seq, 0, 0, { aim: 0, held: 1, pressed: [] });
+      manas.push(world.forecast!.tip.mana);
+    }
+    return manas;
+  }, state);
+  // 앞의 타격은 서버가 정해 둔 318틱에 끝나고, 그 틱에 기다리던 타격이 시작해 마나 1을 쓴다(열일곱째 입력).
+  // 앞의 타격을 쥐고 있는 기술로 읽으면 기운을 328틱까지 이어 342틱에 끝나므로, 스무 틱 안에는 마나를 쓰지 않는다.
+  expect(manas.slice(0, 16)).toEqual(Array.from({ length: 16 }, () => 12));
+  expect(manas.slice(16)).toEqual([11, 11, 11, 11]);
+});
+
+test('an aura held all the way lets its zone go on the tick the server set, and a dash pressed after that waits for the skill to end', async ({ page }) => {
+  const result = await page.evaluate(state => {
+    const world = window.testWorld;
+    world.update(state);
+    const spots: number[] = [];
+    const send = (seq: number, held: number, pressed: number[]) => {
+      world.recordInput(seq, 1, 0, { aim: 0, held, pressed });
+      spots.push(world.forecast!.tip.position.x / 4096);
+    };
+    // 타격 버튼을 계속 누르고 있다(302~329틱). 304틱부터 장판이 나갈 틱마다 기운이 이어지다가, 늦어도 장판이 나가는 328틱에 나간다.
+    // 스물네 틱을 이었으므로 타격은 342틱에 끝난다(318 + 24).
+    for (let seq = 1; seq <= 28; seq++) send(seq, 1, []);
+    // 그 뒤 타격 버튼을 놓고 대시 버튼을 눌러 누르고 있는다.
+    send(29, 8, [4]);
+    for (let seq = 30; seq <= 42; seq++) send(seq, 8, []);
+    return spots;
+  }, heldAura());
+  // 341틱까지 마흔 틱은 걷고, 342틱과 343틱은 대시다. 늦어도 장판이 나가는 틱을 내려서 구하면(327틱) 타격이 한 틱 일찍 끝나 대시도 한 틱 이르다.
+  expect(result.slice(0, 40)).toEqual(Array.from({ length: 40 }, (_, index) => 400 + 6 * (index + 1)));
+  expect(result.slice(40)).toEqual([670, 700]);
 });
 
 test('ticks missed after a dash press keep the dash going without pressing it again', async ({ page }) => {
@@ -782,20 +889,105 @@ test('ticks missed after a dash press keep the dash going without pressing it ag
   expect(result.mana).toBe(11);
 });
 
+// 서버에서 근접 타격(1번 칸)을 쓰는 중인 300틱(10초)의 스냅샷이다. 타격은 started틱에 짧게 눌렀고 스무 틱 뒤에 끝난다.
+// 그 뒤에 누른 것들이 기다린다. 시각은 서버처럼 틱을 초로 바꿔 소수 둘째 자리로 반올림한다.
+function busyStrike(started: number, waiting: number[], waitingReleased?: number[]): Snapshot {
+  const seconds = (tick: number) => Math.round(tick / 30 * 100) / 100;
+  const phase = 300 < started + 6 ? 'aura' : 300 < started + 13 ? 'zone' : 'recovery';
+  const state = dashState();
+  state.players[0].actions = [{ id: 1, skill: 'strike', kind: 'strike', slot: 1, tier: 1, phase, aim: 0, startedAt: seconds(started),
+    contactAt: seconds(started + 6), activeUntil: seconds(started + 13), endsAt: seconds(started + 20), held: false, holdUntil: seconds(started + 30),
+    range: 54, halfWidth: 10 }];
+  state.waiting = waiting;
+  if (waitingReleased) state.waitingReleased = waitingReleased;
+  return state;
+}
+
+test('ticks missed past the time the server keeps an input drop a waiting dash and stop the walk', async ({ page }) => {
+  // PR #30 리뷰 1번. 서버는 입력이 0.35초(11틱) 동안 없으면 대원을 멈추고 버튼을 모두 뗀 것으로 본다. 쥐고 기다리던 누름은 그때 버려진다.
+  // 타이머가 늦어 스스로 입력을 보내지 못한 틱은 클라이언트가 알므로 서버처럼 따라간다.
+  const result = await page.evaluate(state => {
+    const world = window.testWorld;
+    // 타격은 300틱에 눌렀고 320틱에 끝난다. 대시(4번 칸)를 눌러 쥔 것은 서버가 받아 기다리는 중이다.
+    world.update(state);
+    // 대시 버튼(비트 8)을 쥔 채 오른쪽으로 걷는 입력을 보낸 뒤, 스물다섯 틱 동안 입력을 보내지 못했다(302~326틱).
+    world.recordInput(1, 1, 0, { aim: 0, held: 8, pressed: [] });
+    world.holdLastInput(25);
+    const quiet = world.forecast!.tip;
+    const after = { x: quiet.position.x / 4096, tick: quiet.tick, mana: quiet.mana, slot: quiet.action?.slot ?? 0, waiting: quiet.waiting.length };
+    // 입력이 돌아와 대시 버튼을 쥐고 있다고 알려도(새 누름은 없다) 버려진 누름은 되살아나지 않는다. 다시 걷기만 한다.
+    world.recordInput(2, 1, 0, { aim: 0, held: 8, pressed: [] });
+    const back = world.forecast!.tip;
+    return { after, back: { x: back.position.x / 4096, slot: back.action?.slot ?? 0, mana: back.mana } };
+  }, busyStrike(300, [4]));
+  // 입력을 받은 다음 틱부터 열 틱(301~310틱)은 걷고 311틱부터 선다. 그 틱에 기다리던 대시가 버려지고, 타격이 320틱에 끝나도
+  // 대시는 나가지 않는다. 예전에는 열 틱에서 예측을 멈춰, 기다리던 누름과 쓰던 기술이 그대로 남았다.
+  expect(result.after).toEqual({ x: 460, tick: 326, mana: 12, slot: 0, waiting: 0 });
+  expect(result.back).toEqual({ x: 466, slot: 0, mana: 12 });
+});
+
+test('a dash that starts just before the input goes quiet still runs to its end', async ({ page }) => {
+  // 타격은 289틱에 눌렀고 309틱에 끝난다. 대시 버튼을 쥔 채 오른쪽으로 걷는 입력을 보낸 뒤 스무 틱 동안 입력을 보내지 못했다(302~321틱).
+  const result = await page.evaluate(state => {
+    const world = window.testWorld;
+    world.update(state);
+    world.recordInput(1, 1, 0, { aim: 0, held: 8, pressed: [] });
+    world.holdLastInput(20);
+    const tip = world.forecast!.tip;
+    return { x: tip.position.x / 4096, mana: tip.mana, slot: tip.action?.slot ?? 0 };
+  }, busyStrike(289, [4]));
+  // 301~308틱은 걷는다(48). 309틱에 타격이 끝나며 기다리던 대시가 걷던 쪽으로 나간다. 311틱부터 서버는 버튼을 뗀 것으로 보고
+  // 걷기도 멈추지만, 이미 나간 대시는 313틱까지 다섯 틱을 다 간다(150). 예전에는 310틱에서 멈춰 대시의 두 틱만 갔다(508).
+  expect(result).toEqual({ x: 400 + 48 + 150, mana: 11, slot: 0 });
+});
+
+test('a waiting press the server says was already let go gives up its place when its button is pressed again', async ({ page }) => {
+  // PR #30 리뷰 2번의 장면이다. 근접 타격(1번 칸)을 쓰는 중에 대시(4번 칸)를 톡 눌렀다 떼고, 곧바로 2번 칸의 타격을 눌러 쥐었다.
+  // 서버의 기다리는 목록은 [대시(뗌), 2번(쥠)]이다. 뗀 대시는 방금 들어온 누름이라 한 틱 더 남아 스냅샷에 실렸다.
+  // 그 뒤 대시를 다시 눌러 쥔다. 서버는 뗀 누름을 버리고 새 누름을 맨 뒤에 넣는다. 그래서 1번 타격이 끝나면 2번 타격이 먼저 나간다.
+  const scene = async (released: number[] | undefined) => {
+    await page.goto(url);
+    await page.waitForFunction(() => window.testWorld !== undefined);
+    return page.evaluate(state => {
+      const world = window.testWorld;
+      // 1번 타격은 300틱에 눌렀고 320틱에 끝난다.
+      world.update(state);
+      const spots: number[] = [];
+      // 오른쪽으로 걸으며 대시를 다시 눌러 쥔 입력이다. 2번 칸(비트 2)과 대시(비트 8)를 함께 쥐고 있다.
+      world.recordInput(1, 1, 0, { aim: 0, held: 10, pressed: [4] });
+      spots.push(world.forecast!.tip.position.x / 4096);
+      for (let seq = 2; seq <= 22; seq++) {
+        world.recordInput(seq, 1, 0, { aim: 0, held: 10, pressed: [] });
+        spots.push(world.forecast!.tip.position.x / 4096);
+      }
+      const tip = world.forecast!.tip;
+      return { spots: spots.slice(18), slot: tip.action?.slot ?? 0, waiting: tip.waiting.map(press => press.slot) };
+    }, busyStrike(300, [4, 2], released));
+  };
+  // 서버가 대시를 뗀 누름이라고 알렸다. 320틱에 2번 타격이 나가고 대시는 그 뒤에서 기다린다. 대원은 내내 걷는다(6씩).
+  expect(await scene([4])).toEqual({ spots: [514, 520, 526, 532], slot: 2, waiting: [4] });
+  // 둘 다 쥐고 기다리는 누름이면(뗀 누름이 없다) 다시 누른 것은 겹쳐 누른 것이라 자리가 그대로다. 320틱에 대시가 먼저 나간다.
+  expect(await scene(undefined)).toEqual({ spots: [514, 544, 574, 604], slot: 4, waiting: [2] });
+});
+
 test('a dashing player draws a short trail behind them and neither an aura nor a zone', async ({ page }) => {
   const state = dashState();
   // 나는 (400, 730)에서 오른쪽으로, 동료는 (500, 730)에서 아래로 대시하는 중이다. 대시는 298틱(9.93초)에 시작해 303틱(10.1초)에 끝난다.
-  // 시각은 소수 둘째 자리로 와서 30을 곱하면 297.9다. 내 꼬리는 예측 상태로 그리므로, 시작한 틱을 내려서 구하면 마지막 틱에 꼬리가 빠진다.
+  // 스냅샷은 대시의 마지막 틱인 302틱(10.07초)의 것이다.
   const dash = (id: number, dashX: number, dashY: number): CombatAction => ({ id, skill: 'dash', kind: 'none', slot: 4, tier: 1, phase: 'dash', aim: 0,
     startedAt: 9.93, contactAt: 9.93, activeUntil: 9.93, endsAt: 10.1, held: false, holdUntil: 9.93, range: 0, halfWidth: 0, dashX, dashY });
+  state.now = 10.07;
   state.players[0].actions = [dash(950, 4096, 0)];
   state.players.push({ ...state.players[0], id: 'ally', name: 'Ally', x: 500, rawX: 500 * 4096, actions: [dash(951, 0, 4096)] });
   const drawn = await page.evaluate(state => {
     type Painted = { action: string; data: { style?: { width?: number }; path?: { instructions: { action: string; data: number[] }[] } } };
-    const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void; units: { context: { instructions: Painted[] } } };
-    const scene = (now: number) => {
-      world.update(structuredClone({ ...state, now })); world.draw(1 / 60);
-      const painted = world.units.context.instructions;
+    const world = window.testWorld;
+    const units = (world as unknown as { units: { context: { instructions: Painted[] } } }).units;
+    let clock = 1000;
+    performance.now = () => clock;
+    const look = () => {
+      world.draw(1 / 60);
+      const painted = units.context.instructions;
       // 꼬리는 몸 지름의 0.7배(18.2) 굵기로 그은 선분이다. [시작 x, 시작 y, 끝 x, 끝 y]로 모은다.
       const trails: number[][] = [];
       for (const item of painted) {
@@ -813,17 +1005,55 @@ test('a dashing player draws a short trail behind them and neither an aura nor a
       const zones = painted.filter(item => item.action === 'fill' && (item.data.path?.instructions ?? []).some(step => step.action === 'poly')).length;
       return { trails, glows, arcs, zones };
     };
-    // 302틱(10.07초)은 대시의 마지막 틱이고, 304틱(10.13초)은 대시가 끝난 뒤다.
-    return { during: scene(10.07), after: scene(10.13) };
+    world.update(state);
+    const during = look();
+    // 다음 스냅샷이 오기 전에 0.05초가 지나 화면 시계가 대시의 끝(10.1초)을 넘는다. 동료의 꼬리는 화면 시계로 끝난다.
+    // 내 꼬리는 예측 상태로 그리므로, 내가 다음 입력을 보내 예측이 303틱으로 가면 끝난다.
+    clock += 50;
+    const ally = look();
+    world.recordInput(1, 0, 0, { aim: 0, held: 0, pressed: [] }, clock);
+    const after = look();
+    return { during, ally, after };
   }, state);
   // 가는 반대쪽으로 몸 가장자리(13)에서 30만큼이다. 나는 왼쪽으로, 동료는 위쪽으로 꼬리가 난다.
-  const rounded = drawn.during.trails.map(trail => trail.map(value => Math.round(value)));
-  expect(rounded).toContainEqual([387, 730, 357, 730]);
-  expect(rounded).toContainEqual([500, 717, 500, 687]);
-  expect(rounded).toHaveLength(2);
+  const rounded = (trails: number[][]) => trails.map(trail => trail.map(value => Math.round(value)));
+  expect(rounded(drawn.during.trails)).toContainEqual([387, 730, 357, 730]);
+  expect(rounded(drawn.during.trails)).toContainEqual([500, 717, 500, 687]);
+  expect(drawn.during.trails).toHaveLength(2);
   expect([drawn.during.glows, drawn.during.arcs, drawn.during.zones]).toEqual([0, 0, 0]);
-  // 화면 시계가 대시의 끝을 지나면, 다음 스냅샷이 오기 전이라도 꼬리를 그리지 않는다.
+  // 화면 시계가 대시의 끝을 지나면 다음 스냅샷이 오기 전이라도 동료의 꼬리를 그리지 않는다. 내 꼬리는 예측이 아직 302틱이라 남아 있다.
+  expect(rounded(drawn.ally.trails)).toEqual([[387, 730, 357, 730]]);
+  // 내 예측이 대시를 마치면 내 꼬리도 없다.
   expect(drawn.after.trails).toEqual([]);
+});
+
+test('the skill table follows the rules the latest snapshot carries', async ({ page }) => {
+  // 그리기는 기술 정의를 id로 찾는 표에서 꺼낸다(PR #30 리뷰 6번). 표는 규칙 객체가 바뀔 때만 다시 만든다. 규칙은 새로 접속할 때
+  // 다시 오므로(다음 작전), 그때 표가 옛 정의로 남으면 안 된다. 동료가 (500, 730)에서 아래로 대시하는 중이다.
+  const state = dashState();
+  state.now = 10.03;
+  state.players.push({ ...state.players[0], id: 'ally', name: 'Ally', x: 500, rawX: 500 * 4096,
+    actions: [{ id: 951, skill: 'dash', kind: 'none', slot: 4, tier: 1, phase: 'dash', aim: 0, startedAt: 9.97, contactAt: 9.97,
+      activeUntil: 9.97, endsAt: 10.13, held: false, holdUntil: 9.97, range: 0, halfWidth: 0, dashX: 0, dashY: 4096 }] });
+  const trails = await page.evaluate(state => {
+    type Painted = { action: string; data: { style?: { width?: number } } };
+    const world = window.testWorld;
+    const units = (world as unknown as { units: { context: { instructions: Painted[] } } }).units;
+    // 꼬리는 몸 지름의 0.7배(18.2) 굵기로 그은 선분이다.
+    const count = () => {
+      world.draw(1 / 60);
+      return units.context.instructions.filter(item => item.action === 'stroke' && Math.abs((item.data.style?.width ?? 0) - 18.2) < .01).length;
+    };
+    // 처음 받은 규칙에는 대시의 정의가 없다. 정의를 모르는 기술은 대시로 그리지 않는다.
+    const bare = structuredClone(state);
+    bare.rules.skills = bare.rules.skills.filter(skill => skill.id !== 'dash');
+    world.update(bare);
+    const before = count();
+    // 대시의 정의가 든 규칙이 새로 왔다.
+    world.update(structuredClone(state));
+    return { before, after: count() };
+  }, state);
+  expect(trails).toEqual({ before: 0, after: 1 });
 });
 
 test('my own dash trail follows the prediction: it shows from the press and is gone once the predicted dash is over', async ({ page }) => {
