@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { handIcon, handOf } from '../src/rps';
-import { aroundSkills, freeSkills, kindOfSkill, kindSlots } from '../src/loadout';
+import { aroundSkills, freeSkills, kindOfSkill, kindSlots, touchSkills } from '../src/loadout';
 import { affinityColors } from '../src/palette';
 import type { Affinity, Skill, Snapshot } from '../src/types';
 
@@ -40,7 +40,7 @@ async function expectLobbyHands(page: Page, freeChoices: number) {
     const [legend] = await drawnIn(page, `.kind-slot.skill-${slot.kind} legend`);
     expect({ hand: legend.hand, color: legend.color }, slot.kind).toEqual({ hand: handFor(slot.kind), color: colorOf(slot.kind) });
   }
-  // 자유 칸은 아무 기술이나 고르므로 기술마다 그 종류의 손을 붙인다.
+  // 자유 칸은 아무 기술이나 고르므로 기술마다 그 종류의 손을 붙인다. 상성이 없는 기술(대시)에는 손이 없다.
   const free = await page.evaluate(() => [...document.querySelectorAll<HTMLInputElement>('input[name="free-slot"]')].map(input => {
     const svg = input.parentElement!.querySelector<SVGElement>('svg.rps');
     return { skill: input.value, hand: svg?.dataset.hand, color: svg ? getComputedStyle(svg).color : undefined };
@@ -48,8 +48,11 @@ async function expectLobbyHands(page: Page, freeChoices: number) {
   expect(free).toHaveLength(freeChoices);
   for (const { skill, hand, color } of free) {
     const kind = kindOfSkill(skill as Skill);
-    expect({ hand, color }, skill).toEqual({ hand: handFor(kind), color: colorOf(kind) });
+    const expected = kind === 'none' ? { hand: undefined, color: undefined } : { hand: handFor(kind), color: colorOf(kind) };
+    expect({ hand, color }, skill).toEqual(expected);
   }
+  // 손이 없는 선택지만 있으면 위의 확인이 아무것도 보지 않는다.
+  expect(free.filter(choice => choice.hand !== undefined).length).toBeGreaterThanOrEqual(3);
 }
 
 // 작전을 시작해 캠프에 투입한다. 첫 스냅샷이 오기 전의 캠프 선택은 아무 일도 하지 않으므로 투입 버튼이 풀릴 때까지 누른다.
@@ -89,7 +92,7 @@ test('the hands follow the affinity rules: strike is scissors, block is rock and
 });
 
 test('a skill outside the kind slots gets no hand instead of stopping the lobby', () => {
-  // 종류 칸에 없는 기술(예: 앞으로 넣을 상성 없는 대시)을 자유 칸에 넣어도 로비를 만들다 멈추지 않고 손 그림만 빠진다.
+  // 종류 칸에 없는 기술(상성 없는 대시)을 자유 칸에 넣어도 로비를 만들다 멈추지 않고 손 그림만 빠진다.
   expect(kindOfSkill('dash' as Skill)).toBe('none');
   expect(handIcon('none')).toBe('');
 });
@@ -136,7 +139,7 @@ test('the gaps between the fingers show whatever lies behind the hand', async ({
 
 test('the PC lobby slots and skill bar show the hand of each kind in its color', async ({ page }) => {
   await page.goto('/');
-  await expectLobbyHands(page, 6);
+  await expectLobbyHands(page, freeSkills.length);
   await deployAtCamp(page, false);
   await expect(page.locator('#combat-hud')).toBeVisible({ timeout: 8000 });
   // 기술 막대의 칸마다 그 기술 종류의 손이 있다. 기본 장비는 타격·방어·잡기·자유(타격)다.
@@ -187,8 +190,8 @@ test('the touch skill buttons show the hand of their kind in its color, inside t
   const page = await context.newPage();
   try {
     await page.goto('/');
-    // 터치 로비는 둘레 기술만 고른다. 자유 칸의 기술 셋도 기술마다 손이 있다.
-    await expectLobbyHands(page, 3);
+    // 터치 로비는 마우스 없이 쓸 수 있는 기술만 고른다. 자유 칸의 둘레 기술 셋에는 기술마다 손이 있고, 대시에는 없다.
+    await expectLobbyHands(page, touchSkills.length);
     await deployAtCamp(page, true);
     await expect(page.locator('#touch-controls')).toBeVisible({ timeout: 8000 });
     const buttons = await drawnIn(page, '.touch-skill');

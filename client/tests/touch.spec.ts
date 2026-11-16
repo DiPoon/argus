@@ -79,7 +79,7 @@ const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([x, y]) =>
 const lobbyChoices = (page: Page) => page.evaluate(() => Object.fromEntries(['slot-1', 'slot-2', 'slot-3', 'free-slot'].map(name =>
   [name, [...document.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)].map(input => input.value)])));
 
-test('a phone picks only around skills in a one-screen lobby and fights with the joystick and skill buttons', async ({ browser }) => {
+test('a phone picks only skills that need no aim in a one-screen lobby and fights with the joystick and skill buttons', async ({ browser }) => {
   const context = await browser.newContext(phone);
   const page = await context.newPage();
   const me = observe(page);
@@ -87,7 +87,8 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     await page.goto(quietRoom);
     await expect(page.locator('body')).toHaveClass(/\btouch\b/);
     // 로비는 휴대폰 가로 화면 한 장에 들어온다. 페이지도 장비 칸도 스크롤하지 않고 모든 버튼과 선택지가 보인다.
-    for (const size of [{ width: 844, height: 390 }, { width: 740, height: 320 }]) {
+    // 가장 낮고 좁은 가로 화면(568×320, 533×320)도 본다. 자유 칸이 두 줄이 된 뒤로는 여기가 가장 빠듯하다.
+    for (const size of [{ width: 844, height: 390 }, { width: 740, height: 320 }, { width: 568, height: 320 }, { width: 533, height: 320 }]) {
       await page.setViewportSize(size);
       const overflow = await page.evaluate(() => {
         const panel = document.querySelector('.loadout-panel')!;
@@ -103,7 +104,8 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     }
     await page.setViewportSize(phone.viewport);
     await page.screenshot({ path: 'test-results/argus-touch-lobby.png' });
-    // 터치 로비는 둘레 기술만 고르게 한다. 종류 칸은 그 종류의 둘레 기술 하나뿐이라 처음부터 골라 두고, 자유 칸에서 셋 가운데 하나를 고른다.
+    // 터치 로비는 마우스 없이 쓸 수 있는 기술만 고르게 한다. 종류 칸은 그 종류의 둘레 기술 하나뿐이라 처음부터 골라 두고,
+    // 자유 칸에서 둘레 기술 셋과 대시 가운데 하나를 고른다.
     const choices = await lobbyChoices(page);
     await page.locator('label:has(input[name="free-slot"][value="spingrab"])').tap();
     await page.getByRole('button', { name: '새 작전 시작' }).tap();
@@ -113,7 +115,10 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
     expect(around.length).toBeGreaterThan(0);
     ['strike', 'block', 'channel'].forEach((kind, index) =>
       expect(choices[`slot-${index + 1}`], kind).toEqual(around.filter(skill => skill.kind === kind).map(skill => skill.id)));
-    expect(choices['free-slot']).toEqual(around.map(skill => skill.id));
+    // 자유 칸에는 대시도 있다. 걷던 쪽으로 가는 기술이라 조준이 필요 없다.
+    const dashes = me.rules!.skills.filter(skill => skill.dashDistance > 0);
+    expect(dashes.length).toBeGreaterThan(0);
+    expect(choices['free-slot']).toEqual([...around, ...dashes].map(skill => skill.id));
 
     // 투입을 기다리는 동안 지도를 누르면 그 자리를 투입 위치로 고른다. 시작할 때 지도 가운데는 분대가 아직 보지 못한 곳이다.
     await expect(page.locator('#room-code')).not.toHaveText('------');
@@ -213,6 +218,90 @@ test('a phone picks only around skills in a one-screen lobby and fights with the
 type Box = { left: number; top: number; right: number; bottom: number } | null;
 // 두 상자가 겹치지 않는다. 숨은 요소(null)는 겹치지 않는 것으로 본다.
 const apart = (a: Box, b: Box) => !a || !b || a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+
+
+test('on a phone the dash goes the way the joystick is pushed, and the way it was last pushed once the joystick is let go', async ({ browser }) => {
+  const context = await browser.newContext(phone);
+  const page = await context.newPage();
+  const me = observe(page);
+  // 받은 스냅샷에서 내 대시(방향이 있는 기술)를 모은다. 대시는 0.17초뿐이라 스냅샷 한두 장에만 보이므로 지나간 것도 적어 둔다.
+  const dashes: { id: number; dashX: number; dashY: number }[] = [];
+  page.on('websocket', ws => ws.on('framereceived', frame => {
+    try {
+      const data = JSON.parse(frame.payload.toString());
+      if (data.type !== 'snapshot') return;
+      for (const action of data.players.find((p: { id: string }) => p.id === data.you)?.actions ?? []) {
+        if (action.dashX !== undefined && !dashes.some(dash => dash.id === action.id)) dashes.push({ id: action.id, dashX: action.dashX, dashY: action.dashY });
+      }
+    } catch { }
+  }));
+  try {
+    await page.goto(quietRoom);
+    await expect(page.locator('body')).toHaveClass(/\btouch\b/);
+    // 휴대폰 로비의 자유 칸에서 대시를 고른다. 조준 없이 버튼만 눌러 쓰는 기술이다.
+    // 둘레 기술의 설명은 위의 한 줄이 대신해 숨기지만, 대시는 설명이 달라 이름 옆에 보인다.
+    await expect(page.locator('label:has(input[name="free-slot"][value="dash"]) small')).toBeVisible();
+    await expect(page.locator('label:has(input[name="free-slot"][value="dash"]) small')).toHaveText('걷던 쪽으로 빠르게 · 가는 동안 안 맞음');
+    await expect(page.locator('label:has(input[name="free-slot"][value="spin"]) small')).toBeHidden();
+    await page.locator('label:has(input[name="free-slot"][value="dash"])').tap();
+    await page.getByRole('button', { name: '새 작전 시작' }).tap();
+    await deployAtCamp(page);
+    await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+    expect(me.player!.slots).toEqual(['spin', 'spinblock', 'spingrab', 'dash']);
+    const dashButton = page.locator('.touch-skill[data-slot="4"]');
+    await expect(dashButton.locator('b')).toHaveText('대시');
+    // 상성이 없어 손 그림이 없다. 다른 세 버튼에는 있다.
+    await expect(dashButton.locator('svg.rps')).toHaveCount(0);
+    await expect(page.locator('.touch-skill svg.rps')).toHaveCount(3);
+
+    const fingers = new Fingers(await context.newCDPSession(page));
+    const stick = (await page.locator('#touch-move').boundingBox())!;
+    const center = { x: stick.x + stick.width * .45, y: stick.y + stick.height * .6 };
+    // 캠프 보급 상자(캠프에서 (70, 40) 쪽)까지 걸어가 마나를 채운다.
+    await fingers.down(0, center.x, center.y);
+    await fingers.move(0, center.x + 44, center.y + 25);
+    await expect.poll(() => me.player?.mana, { timeout: 10000 }).toBe(24);
+    await fingers.up(0);
+
+    const button = (await dashButton.boundingBox())!;
+    const tapDash = async () => {
+      await fingers.down(1, button.x + button.width / 2, button.y + button.height / 2);
+      await page.waitForTimeout(60);
+      await fingers.up(1);
+    };
+    // 조이스틱을 위로 밀며 대시 버튼을 짧게 누른다. 조이스틱을 민 쪽(위)으로 간다. 방향은 길이 1의 벡터(Raw 4096)다.
+    await fingers.down(0, center.x, center.y);
+    await fingers.move(0, center.x, center.y - 50);
+    await page.waitForTimeout(200);
+    await tapDash();
+    await expect.poll(() => me.player?.mana).toBe(23);
+    await expect.poll(() => dashes.length).toBe(1);
+    expect(dashes[0].dashY).toBeLessThan(-4000);
+    expect(Math.abs(dashes[0].dashX)).toBeLessThan(100);
+    // 조이스틱을 왼쪽으로 돌렸다가 놓는다. 서 있을 때 누르면 마지막으로 움직인 쪽(왼쪽)으로 간다. 터치 화면의 조준이 그 방향이다.
+    await fingers.move(0, center.x - 50, center.y);
+    await page.waitForTimeout(200);
+    await fingers.up(0);
+    await expect(page.locator('#touch-base')).toBeHidden();
+    await page.waitForTimeout(300);
+    const standing = me.player!;
+    await page.waitForTimeout(200);
+    expect(me.player!.x).toBe(standing.x);
+    await tapDash();
+    await expect.poll(() => me.player?.mana).toBe(22);
+    await expect.poll(() => dashes.length).toBe(2);
+    expect(dashes[1].dashX).toBeLessThan(-4000);
+    expect(Math.abs(dashes[1].dashY)).toBeLessThan(100);
+    await expect.poll(() => me.player?.actions.length).toBe(0);
+    // 서 있던 자리에서 왼쪽으로 150을 갔다. 이 둘레에는 벽도 적도 없다.
+    await expect.poll(() => standing.x - me.player!.x).toBeGreaterThan(149);
+    expect(standing.x - me.player!.x).toBeLessThan(151);
+    expect(Math.abs(standing.y - me.player!.y)).toBeLessThan(1);
+    expect(me.errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
 
 test('the top row, notices and deploy buttons stay on screen and apart on short and narrow phones', async ({ browser }) => {
   const context = await browser.newContext(phone);
@@ -1009,8 +1098,8 @@ test('the style sheet does not use :has(), so older browsers keep every rule', (
 test('?touch shows the touch screen on a PC and the PC lobby keeps aimed skills', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('body')).not.toHaveClass(/\btouch\b/);
-  expect((await lobbyChoices(page))['free-slot']).toEqual(['strike', 'parry', 'grab', 'spin', 'spinblock', 'spingrab']);
+  expect((await lobbyChoices(page))['free-slot']).toEqual(['strike', 'parry', 'grab', 'spin', 'spinblock', 'spingrab', 'dash']);
   await page.goto('/?touch');
   await expect(page.locator('body')).toHaveClass(/\btouch\b/);
-  expect(await lobbyChoices(page)).toEqual({ 'slot-1': ['spin'], 'slot-2': ['spinblock'], 'slot-3': ['spingrab'], 'free-slot': ['spin', 'spinblock', 'spingrab'] });
+  expect(await lobbyChoices(page)).toEqual({ 'slot-1': ['spin'], 'slot-2': ['spinblock'], 'slot-3': ['spingrab'], 'free-slot': ['spin', 'spinblock', 'spingrab', 'dash'] });
 });

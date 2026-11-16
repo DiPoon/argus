@@ -2,6 +2,7 @@ import { test, expect, type Browser, type CDPSession, type Page } from '@playwri
 import { createServer, type ViteDevServer } from 'vite';
 import { affinityColors, bodyColor, colors, extractionRadius, team } from '../src/palette';
 import type { Snapshot } from '../src/types';
+import { quietRoom } from './rooms';
 
 // 미니맵이다(2026-11-09 사용자 결정). 맵 전체를 북쪽이 위인 채로 줄여 그린다. 그리는 것은 분대가 본 칸의 지형과 지금 시야, 대원, 본 목표
 // (캠프·시설·보급 상자·탈출 지점), 지금 보이는 적, 메인 화면이 보고 있는 범위다. 자리는 PC는 지도 오른쪽 위(경과 시간 아래),
@@ -516,7 +517,10 @@ async function phonePage(browser: Browser) {
   const context = await browser.newContext(phone);
   const page = await context.newPage();
   await keepNotice(page);
-  await page.goto('/');
+  // 적이 없는 조용한 방에서 잰다. 아래 검사는 착지한 뒤 15초쯤 걸리는데, 생성 작전에서는 캠프에 선 대원이 그 안에 쓰러질 수 있다.
+  // 혼자인 대원이 쓰러지면 작전이 끝나 미니맵이 숨는다. 2026-11-16에 시드 300개로 재니 착지 뒤 12초 안에 14판, 15초 안에 78판에서
+  // 쓰러졌고, 생성 작전에서 돌리던 이 검사가 실제로 그렇게 한 번 실패했다.
+  await page.goto(quietRoom);
   await page.getByRole('button', { name: '새 작전 시작' }).tap();
   // 터치 화면에서 작전을 시작하면 전체 화면이 켜진다. 전체 화면에서는 화면 크기를 바꿀 수 없으므로 끈다.
   await page.waitForFunction(() => document.fullscreenElement !== null);
@@ -532,61 +536,79 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
     await expect(page.locator('#minimap')).toBeVisible();
     await expect(page.locator('#toast')).toBeVisible();
     const fingers = new Fingers(await context.newCDPSession(page));
+    // 조용한 방의 맵은 늘 40×30칸(비율 1.33)이다. 생성 작전의 맵은 가로 50~70칸, 세로 38~52칸이라 비율이 0.96에서 1.84까지고,
+    // 미니맵의 폭이 그 비율을 따른다. 그래서 가장 좁은 맵과 가장 넓은 맵의 비율을 덮어써서도 잰다. minimap.ts가 body의 인라인 값으로
+    // 알리는 비율(--minimap-ratio)을 !important로 덮는다. 그림은 찌그러지지만 상자의 크기와 자리는 그 비율의 방과 같다.
+    // 생성 작전에서 돌릴 때는 방마다 다른 비율을 우연히 봤다. 이제는 양 끝을 늘 본다.
+    const ratios: [string, number | undefined][] = [['40×30칸', undefined], ['50×52칸', 50 / 52], ['70×38칸', 70 / 38]];
     // 가로 화면(넓은 것부터 높이 320px까지)과 세로 화면이다. 크기를 바꾸자마자 잰다. 자리와 크기는 CSS가 정하므로 프레임을 기다리지 않는다.
-    for (const [width, height] of [[844, 390], [740, 360], [667, 375], [640, 360], [658, 320], [568, 320], [533, 320], [390, 844], [390, 664], [320, 568], [320, 533]]) {
+    for (const [map, ratio] of ratios) for (const [width, height] of [[844, 390], [740, 360], [667, 375], [640, 360], [658, 320], [568, 320], [533, 320], [390, 844], [390, 664], [320, 568], [320, 533]]) {
+      await page.evaluate(ratio => {
+        document.getElementById('test-ratio')?.remove();
+        if (ratio === null) return;
+        const style = document.createElement('style');
+        style.id = 'test-ratio';
+        style.textContent = `body { --minimap-ratio:${ratio.toFixed(4)} !important }`;
+        document.head.append(style);
+      }, ratio ?? null);
       await page.setViewportSize({ width, height });
       const [minimap] = await boxes(page, ['#minimap']);
       const [row] = await boxes(page, ['.top-row']);
       const [toast] = await boxes(page, ['#toast']);
       const skills = await boxes(page, ['.touch-skill']);
       const others = await boxes(page, ['.touch-top', '.combat-hud', '.map-top']);
-      expect(minimap, `${width}×${height} 미니맵`).toBeDefined();
+      expect(minimap, `${map} ${width}×${height} 미니맵`).toBeDefined();
+      // 테두리(1px씩)를 뺀 그림 칸이 그 비율이다. 덮어쓴 비율이 실제로 상자에 닿았는지도 이것으로 안다.
+      expect(Math.abs((minimap.width - 2) / (minimap.height - 2) - (ratio ?? 40 / 30)), `${map} ${width}×${height} 미니맵의 비율`).toBeLessThan(.02);
       // 메뉴 버튼 줄 아래의 왼쪽이고 화면 안이다. 왼쪽 끝은 메뉴 버튼 줄과 같다.
-      expect(minimap.top, `${width}×${height} 위쪽 줄 아래`).toBeGreaterThanOrEqual(row.bottom);
-      expect(minimap.left >= 0 && minimap.right <= width && minimap.bottom <= height, `${width}×${height} 화면 안`).toBe(true);
-      expect(Math.abs(minimap.left - row.left), `${width}×${height} 왼쪽 끝`).toBeLessThanOrEqual(1);
-      for (const other of [...others, ...skills]) expect(apart(minimap, other), `${width}×${height} 미니맵과 ${other.name}`).toBe(true);
+      expect(minimap.top, `${map} ${width}×${height} 위쪽 줄 아래`).toBeGreaterThanOrEqual(row.bottom);
+      expect(minimap.left >= 0 && minimap.right <= width && minimap.bottom <= height, `${map} ${width}×${height} 화면 안`).toBe(true);
+      expect(Math.abs(minimap.left - row.left), `${map} ${width}×${height} 왼쪽 끝`).toBeLessThanOrEqual(1);
+      for (const other of [...others, ...skills]) expect(apart(minimap, other), `${map} ${width}×${height} 미니맵과 ${other.name}`).toBe(true);
       // 알림은 어느 크기에서도 기술 버튼을 덮지 않는다. 가로 화면은 미니맵과 기술 버튼 무리 사이에 둔다. 폭 600px 이하(좁은 가로 화면과
       // 세로 화면)는 미니맵 옆에 자리가 없어 알림이 미니맵을 잠시 덮는다. 그때는 알림이 미니맵 위에 그려진다.
-      for (const skill of skills) expect(apart(toast, skill), `${width}×${height} 알림과 기술 버튼`).toBe(true);
-      expect(await toastRoom(page), `${width}×${height} 알림 폭`).toBeGreaterThanOrEqual(200);
+      for (const skill of skills) expect(apart(toast, skill), `${map} ${width}×${height} 알림과 기술 버튼`).toBe(true);
+      expect(await toastRoom(page), `${map} ${width}×${height} 알림 폭`).toBeGreaterThanOrEqual(200);
       // 가로 화면(521px 이상)에서는 알림이 아무리 넓어져도 기술 버튼 무리의 왼쪽에서 끝난다. 폭 600px 이하에서 알림이 미니맵을 덮을 때도
       // 기술 버튼 쪽은 그대로 비운다. 위의 겹침 확인만으로는 알림이 버튼보다 위에 있을 때 버튼 쪽으로 넘어온 것을 잡지 못한다.
-      if (width > 520) expect(await toastReach(page), `${width}×${height} 알림의 오른쪽 끝`).toBeLessThanOrEqual(Math.min(...skills.map(skill => skill.left)) + .5);
+      if (width > 520) expect(await toastReach(page), `${map} ${width}×${height} 알림의 오른쪽 끝`).toBeLessThanOrEqual(Math.min(...skills.map(skill => skill.left)) + .5);
       // 비킬지는 화면 폭으로 정한다. 미니맵 폭이 맵 비율(방마다 다름)에 따라 달라, 가로로 긴 맵이면 폭 600px 이하에서 옆 자리가 150px 안팎이다.
       const shifted = await page.locator('#toast').evaluate(toast => parseFloat(getComputedStyle(toast).marginLeft) > 0);
-      expect(shifted, `${width}×${height} 알림이 미니맵 옆으로 비킴`).toBe(width > 600);
-      if (width > 600) expect(apart(minimap, toast), `${width}×${height} 미니맵과 알림`).toBe(true);
+      expect(shifted, `${map} ${width}×${height} 알림이 미니맵 옆으로 비킴`).toBe(width > 600);
+      if (width > 600) expect(apart(minimap, toast), `${map} ${width}×${height} 미니맵과 알림`).toBe(true);
       else expect(await page.evaluate(() => [getComputedStyle(document.getElementById('toast')!).zIndex, getComputedStyle(document.getElementById('minimap')!).zIndex])).toEqual(['1', '0']);
       // 미니맵은 누름을 받지 않는다. 조이스틱 자리(왼쪽 아래)와 겹치는 곳을 누르면 조이스틱이 생긴다. 세로 화면처럼 겹치지 않으면
       // 누를 곳이 없으므로 계산값만 본다.
       expect(await page.locator('#minimap').evaluate(element => getComputedStyle(element).pointerEvents)).toBe('none');
+      // 조이스틱은 이 방의 실제 비율에서만 눌러 본다. 덮어쓴 비율에서는 위의 자리만 잰다.
+      if (ratio !== undefined) continue;
       const [stick] = await boxes(page, ['#touch-move']);
       const shared = { left: Math.max(minimap.left, stick.left), top: Math.max(minimap.top, stick.top), right: Math.min(minimap.right, stick.right), bottom: Math.min(minimap.bottom, stick.bottom) };
       if (shared.right - shared.left > 4 && shared.bottom - shared.top > 4) {
         const x = (shared.left + shared.right) / 2, y = (shared.top + shared.bottom) / 2;
         const opacity = () => page.locator('#minimap').evaluate(element => getComputedStyle(element).opacity);
         await fingers.down(x, y);
-        await expect(page.locator('#touch-base'), `${width}×${height} 조이스틱`).toBeVisible();
+        await expect(page.locator('#touch-base'), `${map} ${width}×${height} 조이스틱`).toBeVisible();
         // 미니맵은 조이스틱보다 위에 그려진다. 겹치는 동안에는 미니맵이 옅어져 받침과 손잡이가 비쳐 보인다(2026-11-11 사용자 결정).
         // toBeVisible은 다른 요소에 가려진 것을 잡지 못하므로 미니맵의 투명도를 본다.
-        await expect(page.locator('body'), `${width}×${height} 겹침 표시`).toHaveClass(/stick-on-minimap/);
-        await expect.poll(opacity, `${width}×${height} 미니맵이 옅어짐`).toBe('0.3');
+        await expect(page.locator('body'), `${map} ${width}×${height} 겹침 표시`).toHaveClass(/stick-on-minimap/);
+        await expect.poll(opacity, `${map} ${width}×${height} 미니맵이 옅어짐`).toBe('0.3');
         await fingers.up(x, y);
         await expect(page.locator('#touch-base')).toBeHidden();
         await expect(page.locator('body')).not.toHaveClass(/stick-on-minimap/);
-        await expect.poll(opacity, `${width}×${height} 미니맵이 돌아옴`).toBe('1');
+        await expect.poll(opacity, `${map} ${width}×${height} 미니맵이 돌아옴`).toBe('1');
       }
       // 미니맵에서 먼 곳(조이스틱 자리의 왼쪽 아래)에서 쓰는 조이스틱은 미니맵을 옅게 하지 않는다. 받침과 손잡이는 누른 자리에서 80px까지 간다.
       const far = { x: stick.left + 40, y: stick.bottom - 30 };
       if (far.y - 80 > minimap.bottom || far.x - 80 > minimap.right) {
         await fingers.down(far.x, far.y);
-        await expect(page.locator('#touch-base'), `${width}×${height} 먼 조이스틱`).toBeVisible();
+        await expect(page.locator('#touch-base'), `${map} ${width}×${height} 먼 조이스틱`).toBeVisible();
         await expect(page.locator('body')).not.toHaveClass(/stick-on-minimap/);
         await fingers.up(far.x, far.y);
         await expect(page.locator('#touch-base')).toBeHidden();
       }
     }
+    await page.evaluate(() => document.getElementById('test-ratio')?.remove());
     // 가로 화면에서는 미니맵이 조이스틱 자리와 겹친다. 위의 누름 확인이 적어도 한 번은 돈다.
     await page.setViewportSize(phone.viewport);
     const [minimap] = await boxes(page, ['#minimap']);

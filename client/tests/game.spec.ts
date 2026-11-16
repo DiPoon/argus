@@ -377,6 +377,53 @@ test('a skill key pressed and released between two input sends still casts once'
   expect(me.errors).toEqual([]);
 });
 
+test('a dash picked for the free slot carries the player three tiles at once and costs one mana', async ({ page }) => {
+  const me = observe(page);
+  const seen = seenActions(page);
+  await page.goto(quietRoom);
+  // 자유 칸에서 대시를 고른다. 상성이 없는 기술이라 타격·방어·잡기 칸에는 없다.
+  await expect(page.locator('input[value="dash"]')).toHaveCount(1);
+  await page.locator('label:has(input[name="free-slot"][value="dash"])').click();
+  await page.getByRole('button', { name: '새 작전 시작' }).click();
+  await expect.poll(() => me.player?.state).toBe('waiting');
+  await page.getByRole('button', { name: '캠프 선택' }).click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => me.player?.state, { timeout: 8000 }).toBe('alive');
+  expect(me.player!.slots).toEqual(['strike', 'parry', 'grab', 'dash']);
+  await page.keyboard.down('KeyD'); await page.keyboard.down('KeyS');
+  await page.waitForTimeout(470);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
+  await expect.poll(() => me.player?.mana).toBe(24);
+  // 기술 막대의 넷째 칸이 대시다. 상성이 없어 손 그림은 없다.
+  const slot = page.locator('#skill-bar .skill-slot[data-slot="4"]');
+  await expect(slot.locator('b')).toHaveText('대시');
+  await expect(slot.locator('.hand svg')).toHaveCount(0);
+
+  // 위로 걸으며 대시(Q)를 짧게 누른다. 대시하는 동안 기술 칸은 "이동"이라고 적는다. 0.17초뿐이라 화면이 그린 순간을 잡는다.
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(200);
+  const moving = page.waitForFunction(() => document.querySelector('#skill-bar .skill-slot[data-slot="4"].active small')?.textContent === '이동');
+  const from = { y: me.player!.y, now: me.state!.now };
+  await tapKey(page, 'KeyQ');
+  await moving;
+  await expect.poll(() => me.player?.mana).toBe(23);
+  await expect.poll(() => me.player?.actions.length).toBe(0);
+  const to = { y: me.player!.y, now: me.state!.now };
+  await page.keyboard.up('KeyW');
+  // 걷기만 했다면 초당 180을 간다. 대시의 다섯 틱은 걷는 30 대신 150을 가므로 120을 더 갔다.
+  const walked = 180 * (to.now - from.now);
+  expect(from.y - to.y).toBeGreaterThan(walked + 100);
+  expect(from.y - to.y).toBeLessThan(walked + 140);
+  // 서버가 대시 단계를 알렸다. 기운이 없으므로 기운을 잇는 중으로 나온 적이 없다.
+  const dashes = seen.filter(action => action.slot === 4);
+  expect(dashes.length).toBeGreaterThan(0);
+  expect(dashes.every(action => action.phase === 'dash' && !action.held)).toBe(true);
+  // 한 번만 나간다. 마나가 더 줄지 않는다.
+  await page.waitForTimeout(600);
+  expect(me.player!.mana).toBe(23);
+  expect(me.errors).toEqual([]);
+});
+
 test('a press goes out once in pressed, apart from the slots that stay held, and presses between two sends keep their order', async ({ page }) => {
   const me = observe(page);
   const inputs = sentInputs(page);

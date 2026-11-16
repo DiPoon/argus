@@ -98,6 +98,8 @@ public sealed class PlayerAction
     // 뗀 뒤 다시 눌러도 이 시전의 기운은 이어지지 않는다. 다시 누른 것은 새 누름이다.
     // 입력이 도착할 때 적는다(Match.Input). 장판이 나갈 틱에만 버튼을 보면, 그 전에 지나간 뗌과 다른 버튼의 누름을 놓친다.
     public bool Released;
+    // 대시가 가는 방향(길이 1)이다. 기술을 시작한 틱에 정하고 그 뒤로 바꾸지 않는다(Match.StartWaitingSkill). 대시가 아니면 0 벡터다.
+    public FixedVector Direction;
     public int? Target;
     // 잡기처럼 한 명만 판정하는 기술의 대상이 정해졌는지 나타낸다. 정해진 뒤에는 같은 시전에서 바꾸지 않는다.
     public bool TargetLocked;
@@ -125,6 +127,11 @@ public sealed class PlayerAction
         _durationTicks = Rules.ToTicks(skill.Duration);
         // 가장 짧은 기운 시간이 최대 기운 시간보다 긴 기술은 누르고 있어도 더 이어지지 않는다.
         _holdTicks = Math.Max(_auraTicks, maxAuraTicks);
+        // 기운이 없는 기술(대시)은 누르고 있어도 이을 기운이 없다.
+        if (_auraTicks == 0)
+        {
+            _holdTicks = 0;
+        }
     }
 
     // 버튼을 계속 누르고 있을 때 장판이 나가는 틱이다. 장판은 이 틱보다 늦게 나가지 않는다.
@@ -191,6 +198,18 @@ public sealed class PlayerAction
     public void Hold()
     {
         HeldTicks++;
+    }
+
+    // 대시하는 중인지다. 대시는 기술을 시작한 틱부터 끝나기 전까지 내내 움직인다.
+    public bool Dashing(long tick)
+    {
+        return Skill.DashDistance > 0 && tick >= StartedTick && tick < EndsTick;
+    }
+
+    // 적의 나간 장판에 맞지 않는 중인지다(SkillDefinition.Evades). 기술을 쓰는 동안 내내다.
+    public bool Evading(long tick)
+    {
+        return Skill.Evades && tick >= StartedTick && tick < EndsTick;
     }
 }
 

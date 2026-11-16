@@ -750,7 +750,6 @@ public sealed partial class Match
             player.Move = FixedVector.Zero;
             ReleaseButtons(player);
         }
-        player.Position = MoveBody(player.Position, player.Move * _playerStep, Rules.PlayerRadius, null);
         for (int i = player.Actions.Count - 1; i >= 0; i--)
         {
             if (player.Actions[i].EndsTick <= Tick)
@@ -760,7 +759,36 @@ public sealed partial class Match
         }
         HoldAuras(player);
         StartWaitingSkill(player);
+        // 기술을 시작한 뒤에 움직인다. 대시는 누름을 처리한 바로 그 틱부터 움직인다. 다른 기술은 이동과 관계없어 차례가 결과를 바꾸지 않는다.
+        MovePlayer(player);
         UpdateSupplies(player);
+    }
+
+    // 대원을 한 틱 움직인다. 대시하는 중이면 대시의 방향으로 대시의 한 틱 거리만큼 가고, 그동안 이동 입력은 쓰지 않는다.
+    // 아니면 이동 입력 쪽으로 걷는 한 틱 거리만큼 간다. 어느 쪽이든 같은 몸 충돌(MoveBody)이라 벽과 적의 몸은 지나가지 못한다.
+    private void MovePlayer(Player player)
+    {
+        FixedVector delta = player.Move * _playerStep;
+        for (int i = 0; i < player.Actions.Count; i++)
+        {
+            PlayerAction action = player.Actions[i];
+            if (action.Dashing(Tick))
+            {
+                delta = action.Direction * action.Skill.DashStep;
+            }
+        }
+        player.Position = MoveBody(player.Position, delta, Rules.PlayerRadius, null);
+    }
+
+    // 대시가 갈 방향(길이 1)이다. 걷던 쪽이고, 서 있었으면 조준한 쪽이다.
+    // 이동 입력이 아주 짧으면 방향을 정할 수 없으므로 서 있는 것으로 본다(TinyLengthSquared).
+    private static FixedVector DashDirection(Player player)
+    {
+        if (player.Move.LengthSquared() >= TinyLengthSquared)
+        {
+            return player.Move.Normalize();
+        }
+        return player.AimDirection;
     }
 
     // 버튼을 누르고 있으면 기운이 이어진다. 장판이 나갈 틱이 되었는데 그 기술의 버튼을 아직 놓지 않았으면 장판을 한 틱 미룬다.
@@ -808,6 +836,11 @@ public sealed partial class Match
             if (!press.Held || HasLivePress(player))
             {
                 started.Released = true;
+            }
+            // 대시의 방향은 시작할 때 정하고 끝날 때까지 바꾸지 않는다.
+            if (skill.DashDistance > 0)
+            {
+                started.Direction = DashDirection(player);
             }
             player.Actions.Add(started);
         }

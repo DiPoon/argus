@@ -1,9 +1,9 @@
 import './style.css';
-import { tickMilliseconds } from './movement';
+import { slotMask, tickMilliseconds } from './movement';
 import { World } from './world';
 import { Minimap } from './minimap';
 import { handIcon } from './rps';
-import { aroundSkills, freeSkills, kindOfSkill, kindSlots } from './loadout';
+import { freeSkills, kindOfSkill, kindSlots, touchSkills } from './loadout';
 import { applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -13,12 +13,15 @@ const slotKeys = ['좌클릭 / 1', '우클릭 / 2', 'Space / 3', 'Q / 4'];
 const skillNotes: Record<Skill, string> = {
   strike: '앞쪽 좁은 범위', parry: '앞쪽 방어 후 반격', grab: '앞쪽 한 명',
   spin: '둘레 모두 · 조준 없음', spinblock: '둘레 모두 · 조준 없음', spingrab: '둘레 모두 · 조준 없음',
+  dash: '걷던 쪽으로 빠르게 · 가는 동안 안 맞음',
 };
 // 자유 칸은 아무 종류의 기술이나 고르므로 기술마다 그 종류의 손 그림을 상성 색으로 붙인다(hand). 종류 칸은 이름표에 붙인다.
+// 상성이 없는 기술(대시)의 선택지에는 plain을 붙인다. 터치 로비는 기술 설명을 숨기는데(모두 "둘레 모두 · 조준 없음"이라 위의 한 줄로 대신한다),
+// 이 선택지만은 한 줄을 다 쓰며 이름 옆에 설명을 보인다.
 const skillChoice = (name: string, skill: Skill, checked: boolean, hand = false) => {
   const kind = kindOfSkill(skill);
   const mark = hand ? `<span class="skill-${kind}">${handIcon(kind)}</span>` : '';
-  return `<label><input type="radio" name="${name}" value="${skill}" ${checked ? 'checked' : ''}/><span><b>${mark}${skillNames[skill]}</b><small>${skillNotes[skill]}</small></span></label>`;
+  return `<label${kind === 'none' ? ' class="plain"' : ''}><input type="radio" name="${name}" value="${skill}" ${checked ? 'checked' : ''}/><span><b>${mark}${skillNames[skill]}</b><small>${skillNotes[skill]}</small></span></label>`;
 };
 // 기술 칸(터치 기술 버튼, PC 기술 막대)의 손 그림이다. 칸은 처음에 한 번 만들고, 손 그림은 종류가 바뀔 때만 다시 그린다.
 // 작전 중에는 장비가 바뀌지 않는데 updateUi는 스냅샷마다 불린다.
@@ -34,9 +37,10 @@ document.body.classList.toggle('touch', touchMode);
 // 터치 화면에서는 마우스가 아닌 포인터(손가락·펜)를 손가락처럼 다룬다. 지도에서 기술을 내지 않고 조준에도 쓰지 않는다.
 // PC 화면에는 터치 조작이 없으므로, 터치스크린 노트북의 손가락은 마우스 구실을 한다.
 const fingerLike = (event: PointerEvent) => touchMode && event.pointerType !== 'mouse';
-// 터치 기기의 로비에서는 둘레 기술만 고른다. 손가락으로는 조준하면서 기술을 쓰기 어렵다(2026-11-03 휴대폰 시험).
+// 터치 기기의 로비에서는 조준하지 않아도 되는 기술(둘레 기술과 대시, loadout.ts의 touchSkills)만 고른다.
+// 손가락으로는 조준하면서 기술을 쓰기 어렵다(2026-11-03 휴대폰 시험).
 // 화면에서 고를 수 있는 기술만 줄인다. 서버는 어느 기기에서 온 참가든 같은 규칙(Rules.ValidSlots)으로 받는다.
-const offered = (skills: Skill[]) => touchMode ? skills.filter(skill => aroundSkills.includes(skill)) : skills;
+const offered = (skills: Skill[]) => touchMode ? skills.filter(skill => touchSkills.includes(skill)) : skills;
 // 명단에 보이는 장비다. 종류 칸은 기본 기술과 다르게 고른 것만 적고, 자유 칸은 늘 적는다.
 const loadoutText = (slots: Skill[]) => [
   ...slots.slice(0, 3).filter((skill, index) => skill !== kindSlots[index].skills[0]).map(skill => skillNames[skill]),
@@ -48,7 +52,7 @@ const loadoutText = (slots: Skill[]) => [
 const loadoutFields = `${kindSlots.map((slot, index) => `<fieldset class="equipment-options kind-slot skill-${slot.kind}"><legend class="field-label"><strong><kbd>${index + 1}</kbd>${handIcon(slot.kind)}${slot.title}</strong><span>${slot.beats}</span></legend>
         ${offered(slot.skills).map((skill, choice) => skillChoice(`slot-${index + 1}`, skill, choice === 0)).join('')}
       </fieldset>`).join('')}
-      <fieldset class="equipment-options primary-weapons"><legend class="field-label">4번 자유 칸 <span>${touchMode ? '둘레 기술 하나 더' : '아무 기술이나 하나 더 · Q 또는 4'}</span></legend>
+      <fieldset class="equipment-options primary-weapons"><legend class="field-label">4번 자유 칸 <span>${touchMode ? '둘레 기술 하나 더나 대시' : '아무 기술이나 하나 더 · Q 또는 4'}</span></legend>
         ${offered(freeSkills).map((skill, choice) => skillChoice('free-slot', skill, choice === 0, true)).join('')}
       </fieldset>`;
 const desktopLobby = `  <main id="lobby" class="lobby">
@@ -83,7 +87,7 @@ const desktopLobby = `  <main id="lobby" class="lobby">
     <footer class="lobby-footer"><span>4명까지 함께하는 협동 전투</span><span>PC 브라우저 · 키보드 + 마우스</span></footer>
   </main>`;
 // 터치 기기의 로비다. 휴대폰 가로 화면 한 장에 들어오도록 왼쪽에 참가, 오른쪽에 장비 칸만 둔다. 입력의 id는 PC 로비와 같다.
-// 장비 칸 위의 한 줄이 둘레 기술만 고르는 까닭을 알린다.
+// 장비 칸 위의 한 줄이 둘레 기술을 고르는 까닭을 알린다. 대시의 설명은 그 선택지 옆에 보인다.
 const touchLobby = `<main id="lobby" class="lobby touch-lobby">
     <section class="loadout-panel">
       <div class="touch-entry">
@@ -293,7 +297,7 @@ function send(value: object) {
 function sendInput(x: number, y: number, aim: number, held: number[], pressed: number[] = []) {
   const seq = sequence++;
   if (!send({ type: 'input', seq, moveX: x, moveY: y, aim, held, pressed })) return;
-  world?.recordInput(seq, x, y);
+  world?.recordInput(seq, x, y, { aim, held: slotMask(held), pressed });
   for (const slot of pressed) pressSequence[slot] = seq;
 }
 function status(text: string, connected = false) { $('connection').innerHTML = `<i class="${connected ? 'online' : ''}"></i> ${escape(text)}`; }
@@ -580,7 +584,8 @@ function updateUi() {
     $('mana-fill').style.width = `${100 * p.mana / p.maxMana}%`;
     const current = p.actions.at(-1);
     // 기술 칸에 적는 지금 단계다. 기운이 도는 동안, 장판이 깔린 동안(받아치기의 반격은 상성이 없어 따로 적는다), 그 뒤의 회복이다.
-    const phaseText = !current ? '준비' : current.phase === 'aura' ? '기운' : current.phase === 'recovery' ? '후딜레이' : current.kind === 'none' ? '일반 반격' : '장판';
+    // 대시는 기운도 장판도 없이 처음부터 끝까지 움직인다.
+    const phaseText = !current ? '준비' : current.phase === 'dash' ? '이동' : current.phase === 'aura' ? '기운' : current.phase === 'recovery' ? '후딜레이' : current.kind === 'none' ? '일반 반격' : '장판';
     // 기술 칸 하나의 표시다. 기술 막대와 터치 기술 버튼이 같은 규칙을 쓴다.
     const slotView = (slot: number) => {
       const skill = p.slots[slot - 1];

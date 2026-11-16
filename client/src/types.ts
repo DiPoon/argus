@@ -1,7 +1,7 @@
 export type Position = { x: number; y: number };
-export type Skill = 'strike' | 'parry' | 'grab' | 'spin' | 'spinblock' | 'spingrab';
+export type Skill = 'strike' | 'parry' | 'grab' | 'spin' | 'spinblock' | 'spingrab' | 'dash';
 export type Affinity = 'strike' | 'block' | 'channel' | 'none';
-export const skillNames: Record<Skill, string> = { strike: '근접 타격', parry: '받아치기', grab: '잡기', spin: '회전 베기', spinblock: '회전 방어', spingrab: '회전 잡기' };
+export const skillNames: Record<Skill, string> = { strike: '근접 타격', parry: '받아치기', grab: '잡기', spin: '회전 베기', spinblock: '회전 방어', spingrab: '회전 잡기', dash: '대시' };
 export const affinityNames: Record<Affinity, string> = { strike: '타격', block: '방어', channel: '잡기', none: '반격' };
 // 기술에는 몸에 도는 기운과 범위에 깔리는 장판이 있다(protocol v6). auraSeconds는 기운이 도는 가장 짧은 시간,
 // zoneSeconds는 장판이 깔려 있는 시간, duration은 버튼을 짧게 눌렀을 때 기술 전체의 길이다.
@@ -13,13 +13,17 @@ export interface SkillDefinition {
   plainZone: boolean; singleTarget: boolean; breaksStructures: boolean;
   // 조준하지 않는 둘레 기술이다. 기운이 모든 방향으로 돌고, 장판이 대원 둘레의 원(반지름 range)이다.
   around: boolean;
+  // 대시다. 0보다 크면 기술을 쓰는 동안(duration) 걷던 쪽으로(서 있었으면 조준한 쪽으로) 모두 이만큼 움직인다. 기운도 장판도 없다.
+  // evades면 그 기술을 쓰는 동안 적의 나간 장판에 맞지 않는다.
+  dashDistance: number; evades: boolean;
 }
 // 대원의 기술과 적의 행동이다. startedAt부터 contactAt 전까지 몸에 기운이 돌고, contactAt에 장판이 나가 기운이 사라지며,
 // activeUntil에 장판이 걷힌다. 대원의 단계는 aura·zone·recovery, 적의 단계는 telegraph·active·recovery다.
 // 대원이 버튼을 누르고 있는 동안에는 서버가 최대 기운 시간까지 누른다고 보고 세 시각을 보낸다. 떼면 당겨진다.
 export interface CombatAction {
   id: number; skill: string; kind: Affinity; slot: number; tier: number;
-  phase: 'aura' | 'zone' | 'telegraph' | 'active' | 'recovery';
+  // 대원의 대시는 시작부터 끝까지 dash다.
+  phase: 'aura' | 'zone' | 'dash' | 'telegraph' | 'active' | 'recovery';
   // 시각은 서버가 지금 정해 둔 틱 그대로다. 대원이 버튼을 누르고 있어 기운이 이어지는 중(held)이면 contactAt은 지금 놓았을 때
   // 장판이 나가는 시각이고, 누르고 있는 동안 한 틱씩 뒤로 밀린다. activeUntil과 endsAt도 함께 밀린다.
   aim: number; startedAt: number; contactAt: number; activeUntil: number; endsAt: number;
@@ -27,6 +31,8 @@ export interface CombatAction {
   // (늦어도 이때는 나간다)이다(protocol v6).
   held?: boolean; holdUntil?: number;
   range: number; halfWidth: number;
+  // 대시가 가는 방향(길이 1)의 Raw다. 대원의 대시에만 있다. 내 대시를 서버와 같은 계산으로 이어 그리는 데 쓴다.
+  dashX?: number; dashY?: number;
   // 적의 행동이 노린 대원의 id다. 대원의 행동과 노린 대원이 없는 행동에는 없다(protocol v5, 2026-11-08).
   target?: string;
 }
@@ -62,6 +68,9 @@ export interface Snapshot {
   // 내가 눌렀지만 앞의 기술이 끝나지 않아 아직 시작하지 못한 누름의 슬롯이다. 누른 차례대로이고, 없으면 빠진다(protocol v6).
   // 기다리는 누름은 그 버튼을 누르고 있는 동안만 남는다. 진행 중인 기술과 달리 다른 곳에 드러나지 않아 서버가 따로 알린다.
   waiting?: number[];
+  // waiting 가운데 버튼을 이미 뗀 누름의 슬롯이다. 방금 짧게 눌렀다 뗀 누름이 한 틱 더 남은 것이다. 다음 틱에 앞의 기술이 끝나면
+  // 시작하고 아니면 버려진다. 없으면 빠진다. 내 기술 차례를 미리 계산할 때 쥐고 기다리는 누름과 가르는 데 쓴다.
+  waitingReleased?: number[];
 }
 // 서버가 보내는 그대로의 스냅샷. 벽은 바뀔 때만, 규칙과 맵은 접속 직후에만 담긴다(protocol v3부터).
 // 벽은 전체(walls)가 오거나, 이미 받은 배열에서 바뀐 칸만(wallChanges: [칸 번호, 값, …], 앞에서부터 적용) 온다(protocol v5).

@@ -173,3 +173,65 @@ export function normalize(v: FixedVector): FixedVector {
 }
 
 export const distanceSquared = (a: FixedVector, b: FixedVector) => lengthSquared(subtractVector(a, b));
+
+// 아래는 서버의 방향(server/Argus.Server/Game/Angle.cs) 가운데 클라이언트 예측에 필요한 부분을 옮긴 것이다.
+// 서 있는 대원의 대시는 조준한 쪽으로 가므로(Match.DashDirection), 보낸 조준(라디안)에서 서버와 같은 방향 벡터를 구해야 한다.
+// 방향은 한 바퀴를 65536칸으로 나눈 정수(칸 수)다. 사인은 2^30을 1로 보는 정수 급수로 구하는데 중간값이 2^62까지 커져서
+// BigInt로 계산한다. 예측이 서서 누른 대시를 시작하는 틱을 지날 때마다 부른다. 새 입력에는 한 번이고, 스냅샷이 올 때마다
+// 확인받지 않은 입력을 다시 걸으며 그 틱을 또 지난다. 나를 노린 예고를 굳히는 자리(world.ts의 serverSpotAfter)도 같은 틱을 지나지만
+// 한 번 구한 답을 기억해 두므로 그리기마다 부르지는 않는다. 한 번에 BigInt 곱셈 스무 번쯤이라 그 횟수로는 부담이 없다.
+export const unitsPerTurn = 65536;
+const quarterTurn = 16384;
+const angleOne = 1n << 30n;
+// π/2 × 2^30
+const halfPi = 1686629713n;
+// 사인의 테일러 급수 계수(1/3!, 1/5!, … 1/11!)를 2^30 단위로 적었다(Angle.SineTerms).
+const sineTerms = [178956971n, 8947849n, 213044n, 2959n, 27n];
+
+// 2^bits로 나눠 가장 가까운 정수로 반올림한다. 딱 절반이면 0에서 먼 쪽이다(Fixed.ShiftRounded).
+function shiftRoundedBig(value: bigint, bits: bigint): bigint {
+  const half = 1n << (bits - 1n);
+  return value >= 0n ? (value + half) >> bits : -((-value + half) >> bits);
+}
+
+// 2^30 단위 수 둘을 곱한다(Angle.Multiply).
+const multiplyAngle = (a: bigint, b: bigint) => shiftRoundedBig(a * b, 30n);
+
+// offset칸(0~16384, 0°~90°)의 사인을 2^30 단위로 구한다(Angle.QuarterSine).
+function quarterSine(offset: number): bigint {
+  const x = shiftRoundedBig(BigInt(offset) * halfPi, 14n);
+  const square = multiplyAngle(x, x);
+  let sum = 0n;
+  for (let i = sineTerms.length - 1; i >= 0; i--) {
+    const term = i % 2 === 0 ? -sineTerms[i] : sineTerms[i];
+    sum = term + multiplyAngle(sum, square);
+  }
+  sum = angleOne + multiplyAngle(sum, square);
+  return multiplyAngle(sum, x);
+}
+
+// 라디안을 칸 수(0~65535)로 바꾼다(Angle.FromRadians). 실수의 사칙연산·내림·반올림만 쓰므로 서버와 같은 값이 나온다.
+// 한 바퀴 안의 몫은 0 이상이라, 딱 절반을 위로 보내는 Math.round가 서버의 "0에서 먼 쪽"과 같다.
+export function angleUnits(radians: number): number {
+  if (!Number.isFinite(radians)) throw new RangeError(`각도로 바꿀 수 없는 값입니다: ${radians}`);
+  const turns = radians / (2 * Math.PI);
+  const fraction = turns - Math.floor(turns);
+  return Math.round(fraction * unitsPerTurn) & (unitsPerTurn - 1);
+}
+
+// 그 방향의 사인이다(Angle.Sin). 사분면의 대칭으로 0°~90°만 계산하고, 2^30 단위를 Raw(2^12 단위)로 반올림한다.
+export function sine(units: number): number {
+  const quadrant = Math.floor(units / quarterTurn);
+  let offset = units % quarterTurn;
+  if (quadrant === 1 || quadrant === 3) offset = quarterTurn - offset;
+  let value = quarterSine(offset);
+  if (quadrant >= 2) value = -value;
+  const raw = Number(shiftRoundedBig(value, BigInt(30 - fractionBits)));
+  return raw === 0 ? 0 : raw;
+}
+
+// 그 방향의 코사인이다(Angle.Cos).
+export const cosine = (units: number) => sine((units + quarterTurn) & (unitsPerTurn - 1));
+
+// 그 방향으로 길이가 1인 벡터다(Angle.Direction).
+export const direction = (units: number): FixedVector => ({ x: cosine(units), y: sine(units) });

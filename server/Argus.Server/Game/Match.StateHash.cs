@@ -119,6 +119,7 @@ public sealed partial class Match
             hasher.AddLong(action.StartedTick);
             hasher.AddLong(action.HeldTicks);
             hasher.AddBool(action.Released);
+            hasher.AddPoint(action.Direction);
             hasher.AddOptionalInt(action.Target);
             hasher.AddBool(action.TargetLocked);
             hasher.AddIntSet(action.JudgedEnemies);

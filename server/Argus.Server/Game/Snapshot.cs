@@ -215,11 +215,22 @@ public static class Snapshot
         if (recipient.Waiting.Count > 0)
         {
             int[] waiting = new int[recipient.Waiting.Count];
+            List<int> released = new List<int>();
             for (int i = 0; i < waiting.Length; i++)
             {
-                waiting[i] = recipient.Waiting[i].Slot;
+                WaitingPress press = recipient.Waiting[i];
+                waiting[i] = press.Slot;
+                // 버튼을 이미 뗀 누름은 따로 알린다. 다음 틱에 시작하지 못하면 버려질 누름이다.
+                if (!press.Held)
+                {
+                    released.Add(press.Slot);
+                }
             }
             personal.Waiting = waiting;
+            if (released.Count > 0)
+            {
+                personal.WaitingReleased = released.ToArray();
+            }
         }
         // 분대가 보지 못한 칸은 모름(3)으로 가린 배열이다.
         int revision = match.WallsRevision;
@@ -306,6 +317,12 @@ public static class Snapshot
                 {
                     display.Kind = "none";
                 }
+            }
+            if (action.Dashing(match.Tick))
+            {
+                display.Phase = "dash";
+                display.DashX = action.Direction.X.Raw;
+                display.DashY = action.Direction.Y.Raw;
             }
             entry.Actions.Add(display);
             if (action.EndsTick > busyUntil)

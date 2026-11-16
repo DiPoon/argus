@@ -4,11 +4,15 @@ using static TestTools;
 // 입력을 순번대로 보내는 도우미다. 검사가 버튼을 누르고 떼는 장면을 클라이언트처럼 만든다.
 // 입력의 held는 그 입력을 보내는 순간에 누르고 있는 슬롯 전부, pressed는 지난 입력 뒤에 누른 슬롯을 누른 차례대로 적은 것이다.
 // 슬롯 하나만 다루는 장면이 대부분이라, 정수를 받는 메서드는 슬롯 하나(0이면 없음)를 뜻한다. 버튼 둘을 함께 누르고 있는 장면은
-// 배열을 받는 Send를 쓴다. 대원은 오른쪽(+x)을 조준하고 움직이지 않는다.
+// 배열을 받는 Send를 쓴다. 대원은 오른쪽(+x)을 조준하고 움직이지 않는다. 걷거나 조준을 바꾸는 장면은 MoveX·MoveY·Aim을 바꾼다.
 internal sealed class Pad
 {
     public Fixture F { get; }
     private long _sequence;
+    // 입력에 실을 이동 방향과 조준(라디안)이다. 바꾸면 그 뒤의 입력부터 실린다.
+    public double MoveX;
+    public double MoveY;
+    public double Aim;
 
     // 마나를 가득 채운 새 대원으로 시작한다.
     public Pad()
@@ -26,7 +30,7 @@ internal sealed class Pad
     // 입력 하나를 보낸다. 틱은 진행하지 않는다. 한 틱 사이에 입력이 여럿 도착하는 장면을 만들 때 거듭 부른다.
     public void Send(int[] held, int[] pressed)
     {
-        Check(F.Match.Input(F.Player, _sequence, 0, 0, 0, held, pressed));
+        Check(F.Match.Input(F.Player, _sequence, MoveX, MoveY, Aim, held, pressed));
         _sequence++;
     }
 
