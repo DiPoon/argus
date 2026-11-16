@@ -729,6 +729,8 @@ internal static class LifecycleTests
         Equal(player.LastSequence, 1L);
         pad.F.Match.Step();
         Equal(WaitingSlots(pad.F.Match, player), "3,2");
+        // 둘 다 누르고 있으므로 뗀 누름은 없다.
+        Equal(ReleasedSlots(pad.F.Match, player), "없음");
         // 다른 대원이 받는 스냅샷과 공통 부분에는 없다.
         Equal(WaitingSlots(pad.F.Match, ally), "없음");
         JsonObject shared = JsonNode.Parse(Snapshot.SerializeShared(Snapshot.CreateShared(pad.F.Match), RoomHost.Json))!.AsObject();
@@ -751,14 +753,39 @@ internal static class LifecycleTests
         Equal(WaitingSlots(pad.F.Match, player), "없음");
 
         // 짧게 눌렀다 뗀 누름도 서버가 들고 있는 동안에는 실린다. 한 틱 뒤 버려지면 빠진다.
+        // 그동안에는 뗀 누름이라고 따로 알린다(waitingReleased). 슬롯 번호만으로는 쥐고 기다리는 누름과 가를 수 없다.
         Pad tap = new Pad();
         tap.Tap(1);
         tap.Send(0, 2);
         Equal(WaitingSlots(tap.F.Match, tap.F.Player), "2");
+        Equal(ReleasedSlots(tap.F.Match, tap.F.Player), "2");
         tap.F.Match.Step();
         Equal(WaitingSlots(tap.F.Match, tap.F.Player), "2");
+        Equal(ReleasedSlots(tap.F.Match, tap.F.Player), "2");
         tap.Run(0, 1);
         Equal(WaitingSlots(tap.F.Match, tap.F.Player), "없음");
+        Equal(ReleasedSlots(tap.F.Match, tap.F.Player), "없음");
+
+        // 뗀 누름과 쥔 누름이 함께 기다릴 때는 뗀 것만 알린다(PR #30 리뷰 2번의 장면). 근접 타격을 쓰는 중에 잡기를 짧게 눌렀다 떼고
+        // 곧바로 받아치기를 눌러 누르고 있다. 두 누름이 한 입력에 함께 왔다.
+        Pad mixed = new Pad();
+        mixed.Tap(1);
+        mixed.Send(new int[] { 2 }, new int[] { 3, 2 });
+        mixed.F.Match.Step();
+        Equal(WaitingSlots(mixed.F.Match, mixed.F.Player), "3,2");
+        Equal(ReleasedSlots(mixed.F.Match, mixed.F.Player), "3");
+        // 뗀 잡기를 다시 눌러 누르고 있으면, 서버는 뗀 누름을 버리고 새 누름을 맨 뒤에 넣는다. 받아치기가 앞선다.
+        // 클라이언트가 스냅샷의 잡기를 쥐고 기다리는 누름으로 읽었다면 새 누름을 겹쳐 누른 것으로 보고 잡기를 앞에 둔다.
+        mixed.Send(new int[] { 2, 3 }, new int[] { 3 });
+        Equal(WaitingSlots(mixed.F.Match, mixed.F.Player), "2,3");
+        Equal(ReleasedSlots(mixed.F.Match, mixed.F.Player), "없음");
+        // 쥐고 기다리던 버튼을 떼면 그 입력이 도착한 때부터 뗀 누름이고, 다음 틱에 버려진다.
+        mixed.Send(new int[] { 3 }, new int[0]);
+        Equal(WaitingSlots(mixed.F.Match, mixed.F.Player), "2,3");
+        Equal(ReleasedSlots(mixed.F.Match, mixed.F.Player), "2");
+        mixed.F.Match.Step();
+        Equal(WaitingSlots(mixed.F.Match, mixed.F.Player), "3");
+        Equal(ReleasedSlots(mixed.F.Match, mixed.F.Player), "없음");
     }
 
     // 그 대원이 받는 스냅샷의 waiting을 "3,2"처럼 적는다. 필드가 없으면 "없음"이다. 빈 배열은 보내지 않으므로 오류다.
@@ -775,6 +802,36 @@ internal static class LifecycleTests
         for (int i = 0; i < slots.Count; i++)
         {
             parts.Add(((int)slots[i]!).ToString());
+        }
+        return string.Join(",", parts);
+    }
+
+    // 그 대원이 받는 스냅샷의 waitingReleased를 "3"처럼 적는다. 필드가 없으면 "없음"이다. 뗀 누름은 모두 waiting에도 있어야 한다.
+    private static string ReleasedSlots(Match match, Player recipient)
+    {
+        JsonObject root = JsonNode.Parse(Snapshot.Create(match, recipient, RoomHost.Json))!.AsObject();
+        if (!root.ContainsKey("waitingReleased"))
+        {
+            return "없음";
+        }
+        JsonArray slots = root["waitingReleased"]!.AsArray();
+        Check(slots.Count > 0, "뗀 누름이 없는데 빈 배열을 보냈습니다");
+        Check(root.ContainsKey("waiting"), "기다리는 누름이 없는데 뗀 누름을 보냈습니다");
+        JsonArray waiting = root["waiting"]!.AsArray();
+        List<string> parts = new List<string>();
+        for (int i = 0; i < slots.Count; i++)
+        {
+            int slot = (int)slots[i]!;
+            bool listed = false;
+            for (int j = 0; j < waiting.Count; j++)
+            {
+                if ((int)waiting[j]! == slot)
+                {
+                    listed = true;
+                }
+            }
+            Check(listed, $"뗀 누름 {slot}이 기다리는 누름에 없습니다");
+            parts.Add(slot.ToString());
         }
         return string.Join(",", parts);
     }
@@ -979,7 +1036,7 @@ internal static class LifecycleTests
         byte[] body = Snapshot.SerializeShared(Snapshot.CreateShared(f.Match), RoomHost.Json);
         JsonObject shared = JsonNode.Parse(body)!.AsObject();
         // 공통 몸통에는 수신자별 값이 들어가지 않는다. SnapshotMessage에 그런 속성이 없다.
-        string[] personalKeys = new string[] { "you", "supplies", "waiting", "walls", "wallChanges", "map", "rules" };
+        string[] personalKeys = new string[] { "you", "supplies", "waiting", "waitingReleased", "walls", "wallChanges", "map", "rules" };
         for (int i = 0; i < personalKeys.Length; i++)
         {
             Check(!shared.ContainsKey(personalKeys[i]), $"공통 부분에 수신자별 값 {personalKeys[i]}이 섞였습니다");

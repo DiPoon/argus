@@ -43,6 +43,7 @@ public sealed class SkillDefinition
     [JsonIgnore]
     public Fixed DashStep { get; }
     // 이 기술을 쓰는 동안에는 적의 나간 장판에 맞지 않는다(회피). 피한 장판은 그 대원에게 다시 닿지 않는다.
+    // 회피하는 기술도 기운과 장판이 없는 기술이어야 한다(생성자가 확인한다). 대시가 아니어도 같다.
     public bool Evades { get; }
 
     public SkillDefinition(string id, string kind, int mana, double auraSeconds,
@@ -81,6 +82,13 @@ public sealed class SkillDefinition
             {
                 throw new ArgumentOutOfRangeException(nameof(duration), duration, "대시는 한 틱 이상 이어져야 합니다");
             }
+        }
+        // 회피하는 기술에도 기운과 장판이 없어야 한다. 판정은 회피하는 대원을 대응 없이 넘긴다(Match.ResolveEnemy의 마지막 단계).
+        // 기운이 있으면 그 대응은 판정받은 적이 없는 채로 남는다. 2티어 장판 안에서 혼자 회피한 대원의 기운이, 잠시 뒤 같은 장판에
+        // 들어온 동료의 기운과 합쳐져 완벽 대응이 된다. 회피가 없는 기운이었다면 장판이 나간 순간 부분 대응으로 판정받았을 대응이다.
+        if (evades && (auraSeconds > 0 || zoneSeconds > 0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(evades), evades, "회피하는 기술은 기운과 장판이 없는 기술이어야 합니다");
         }
         Id = id;
         Kind = kind;

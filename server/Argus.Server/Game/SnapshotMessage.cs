@@ -39,6 +39,13 @@ public sealed class PersonalSnapshot
     // 새 누름인지 가리는 데 쓴다. 진행 중인 기술은 대원의 actions에 있지만, 기다리는 누름은 다른 곳에 드러나지 않는다.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int[]? Waiting { get; set; }
+    // 기다리는 누름 가운데 버튼을 이미 뗀 것의 슬롯이다(WaitingPress.Held가 꺼진 것). 없으면 빠진다.
+    // 뗀 누름도 방금 들어왔으면 다음 틱까지 남으므로 Waiting에 실린다. 그 누름은 다음 틱에 앞의 기술이 끝나면 시작하고 아니면 버려진다.
+    // 슬롯 번호만으로는 쥐고 있는 누름과 가를 수 없다. 클라이언트가 내 기술 차례를 미리 계산할 때(대시의 예측) 둘을 같게 보면,
+    // 뗀 누름의 버튼을 다시 눌렀을 때 차례가 서버와 달라진다. 서버는 뗀 누름을 버리고 새 누름을 맨 뒤에 넣는데, 쥐고 있는
+    // 누름이었다면 자리를 그대로 둔다(Match.Press). 한 슬롯의 기다리는 누름은 하나뿐이라 슬롯 번호로 적어도 헷갈리지 않는다.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int[]? WaitingReleased { get; set; }
     // 벽은 수신자가 아직 받지 못한 판일 때만, 맵과 규칙은 아직 받지 못했을 때만 담는다.
     // 벽은 받은 판이 있으면 그 뒤로 바뀐 칸만(WallChanges), 처음이거나 바뀐 칸이 많으면 배열 전체(Walls)를 담는다. 둘은 함께 오지 않는다.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

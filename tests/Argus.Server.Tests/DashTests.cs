@@ -187,6 +187,24 @@ internal static class DashTests
         late.Tap(DashSlotNumber);
         late.Run(0, 8);
         Near(late.F.Player.Hp, late.F.Player.MaxHp - 1);
+
+        // 회피는 대시 거리와 따로인 속성이다. 제자리에서 회피만 하는 기술(기운도 장판도 없음)을 쓰는 동안에도 맞지 않는다.
+        // 장판이 나가기 한 틱 전에 그 기술을 쓰기 시작한 것으로 둔다.
+        SkillDefinition stillSkill = new SkillDefinition("still", "none", 1, 0, 0, 0.3, 0, 0,
+            plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 0, evades: true);
+        Pad rooted = DashPad();
+        Player stander = rooted.F.Player;
+        Enemy hitter = Striker(rooted.F, 0.1);
+        rooted.Run(0, 2);
+        long maxAuraTicks = Rules.ToTicks(rooted.F.Match.Rules.MaxAuraSeconds);
+        stander.Actions.Add(new PlayerAction(9001, stillSkill, DashSlotNumber, rooted.F.Match.Tick, maxAuraTicks));
+        FixedVector stood = stander.Position;
+        rooted.Run(0, 1);
+        Check(hitter.Action != null && hitter.Action.ZoneOut(rooted.F.Match.Tick), "병사의 장판이 아직 나가지 않았습니다");
+        rooted.Run(0, 6);
+        Near(stander.Hp, stander.MaxHp);
+        Equal(stander.Position, stood);
+        Check(HasEffect(rooted.F.Match, "evade"), "제자리 회피의 효과가 없습니다");
     }
 
     private static void DashIsASkill()
@@ -290,15 +308,26 @@ internal static class DashTests
         Check(!Rules.ValidSlots(new string[] { "dash", "parry", "grab", "strike" }));
         Check(!Rules.ValidSlots(new string[] { "strike", "dash", "grab", "strike" }));
         Check(!Rules.ValidSlots(new string[] { "strike", "parry", "dash", "strike" }));
-        // 대시에 기운이나 장판을 붙인 정의, 길이가 0인 대시, 음수 거리는 만들 수 없다.
+        // 대시에 기운이나 장판을 붙인 정의, 길이가 0인 대시, 음수 거리는 만들 수 없다. 기운과 장판은 회피하지 않는 대시로 본다.
+        // 회피하는 대시로 보면 회피 기술의 확인도 같은 정의를 막아, 대시의 확인이 빠져도 알 수 없다.
         Throws<ArgumentOutOfRangeException>(() => new SkillDefinition("bad", "none", 1, 0.1, 0, 0.3, 0, 0,
-            plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 100, evades: true));
+            plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 100, evades: false));
         Throws<ArgumentOutOfRangeException>(() => new SkillDefinition("bad", "none", 1, 0, 0.1, 0.3, 0, 0,
-            plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 100, evades: true));
+            plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 100, evades: false));
         Throws<ArgumentOutOfRangeException>(() => new SkillDefinition("bad", "none", 1, 0, 0, 0, 0, 0,
             plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 100, evades: true));
         Throws<ArgumentOutOfRangeException>(() => new SkillDefinition("bad", "none", 1, 0, 0, 0.3, 0, 0,
             plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: -1, evades: true));
+        // 대시가 아니어도 회피하는 기술에는 기운과 장판을 붙일 수 없다(PR #30 리뷰 3번). 방어 기운이 도는 구르기 같은 기술이면
+        // 2티어 장판 안에서 혼자 회피한 대원의 기운이 판정받지 않고 남아, 나중에 들어온 동료의 기운과 합쳐져 완벽 대응이 된다.
+        Throws<ArgumentOutOfRangeException>(() => new SkillDefinition("roll", "block", 1, 0.2, 0, 0.5, 0, 0,
+            plainZone: false, singleTarget: false, breaksStructures: false, around: true, dashDistance: 0, evades: true));
+        Throws<ArgumentOutOfRangeException>(() => new SkillDefinition("roll", "block", 1, 0, 0.2, 0.5, 48, 0,
+            plainZone: false, singleTarget: false, breaksStructures: false, around: true, dashDistance: 0, evades: true));
+        // 기운도 장판도 없으면 제자리에서 회피만 하는 기술도 만들 수 있다.
+        SkillDefinition still = new SkillDefinition("still", "none", 1, 0, 0, 0.3, 0, 0,
+            plainZone: false, singleTarget: false, breaksStructures: false, around: false, dashDistance: 0, evades: true);
+        Check(still.Evades && still.DashDistance == 0, "제자리에서 회피하는 기술의 정의가 다릅니다");
     }
 
     private static void DashStateAndWire()
