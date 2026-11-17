@@ -6,24 +6,25 @@ Argus는 1–4인 협동 PvE 브라우저 게임이다. C# 서버(.NET 10, ASP.N
 
 ## 이 문서의 구성
 
-이 파일은 세션마다 통째로 읽히므로 "어디에 무엇이 있는가"와 "깨면 안 되는 규칙"만 둔다. 까닭·수치·버린 안 같은 세부는 `.claude/rules/*.md`에 주제별로 있고, 머리말의 `paths`에 맞는 파일을 읽거나 고칠 때(Read·Edit·Write) 저절로 불려 온다.
+이 파일은 세션마다 통째로 읽히므로 "어디에 무엇이 있는가"와 "깨면 안 되는 규칙"만 둔다. 까닭·수치·버린 안 같은 세부는 `.claude/rules/*.md`에 주제별로 있고, 머리말의 `paths`에 맞는 파일을 Read·Edit·Write로 다루거나 `cat`·`head`로 한 파일을 읽을 때 저절로 불려 온다.
 
-- 규칙이 불려 오기 전에 판단해야 할 때(Grep으로 찾아 바로 고치기, 새 파일 쓰기, 설계 질문에 답하기)는 아래 표에서 골라 먼저 읽는다.
+- 그 밖의 길로는 불려 온다는 보장이 없다. 검색(Grep·`rg`)으로 찾은 줄만 보거나 `sed -n`으로 일부만 읽을 때, 셸(`sed -i`, heredoc)로 고칠 때, 새 파일을 쓰기 전, 설계 질문에 답할 때다. 그때는 그 파일을 Read로 한 번 열거나 아래 표에서 골라 규칙 파일을 먼저 읽는다.
+- 규칙은 세션을 시작한 폴더의 `.claude/rules/`에서, 그 폴더를 기준으로 한 경로로 맞춰 불려 온다. 다른 worktree(`.claude/worktrees/…`)의 파일을 고치는 세션은 그 worktree에서 시작하거나 `/cd`로 옮긴다. 그러지 않았으면 저절로 불려 오지 않으므로 표에서 골라 직접 읽는다.
 - 새로 알게 된 세부는 이 파일이 아니라 맞는 규칙 파일에 적는다. 이 파일은 200줄 안으로 둔다.
 
 | `.claude/rules/` | 내용 | 불러오는 파일(해당 검사 파일 포함) |
 | --- | --- | --- |
 | `determinism.md` | 틱 시각, 시드 난수, 금지한 수학 함수, 고정소수점, 상태 요약 | `Game/**` |
 | `combat.md` | 기운·장판 판정, 기술 속성, 2티어, 잡기, 대시, 같은 순간의 판정 | `Match.cs`, `Match.Combat.cs`, `SkillDefinition.cs`, `Rules.cs`, `Model.cs` |
-| `steering.md` | 적 조향의 규칙마다 없으면 생기는 일, 고칠 때 재는 법, 남는 한계 | `Match.Movement.cs` |
+| `steering.md` | 적 조향의 규칙마다 없으면 생기는 일, 고칠 때 재는 법, 남는 한계, 예고하는 적의 방향 | `Match.Movement.cs` |
 | `input.md` | 입력 검증, 누름과 누르고 있음, 기다리는 누름 | `Match.cs`, `Model.cs` |
 | `authority.md` | 시야 필터, 투입, 분대가 본 칸, 시드와 id, 기록 비공개, 압축 | `Snapshot*.cs`, `Match.cs`, `BattleMap.cs`, `Networking/**`, `Program.cs` |
-| `protocol.md` | 공통·수신자별 스냅샷, 벽 판 번호, 직렬화 | `Snapshot*.cs`, `types.ts`, `docs/protocol.md` |
+| `protocol.md` | 공통·수신자별 스냅샷, 벽 판 번호, 직렬화 | `Snapshot*.cs`, `Program.cs`, `types.ts`, `docs/protocol.md` |
 | `server-runtime.md` | 틱 루프, 방의 수명과 상한, 잠금, WebSocket 닫기, 접속 복구, Docker | `Networking/**`, `Program.cs`, `Dockerfile`, `compose.yaml` |
 | `recording.md` | 기록 형식과 쓰기, 재생, 버그 제보, CI의 재생 | `Recording/**`, `MatchRecord.cs`, `MatchReplay.cs`, `tools/**`, `ci.yml` |
 | `mission.md` | 배치 검증, 손으로 만든 맵과 조용한 방, 맵 생성 순서, 처음 적 | `MissionLayout.cs`, `MissionGenerator.cs` |
 | `prediction.md` | 서버와 같은 계산(대조 자료), 서버 재조정, 예측의 한계 | `fixed.ts`, `movement.ts`, `world.ts` |
-| `client-main.md` | 키·마우스·터치의 누름 보내기, HUD, 터치 화면과 CSS 주의점 | `main.ts`, `style.css`, `index.html` |
+| `client-main.md` | 키·마우스·터치의 누름 보내기, HUD, 방을 나갈 때 비우기, 터치 화면과 CSS 주의점 | `main.ts`, `style.css`, `index.html` |
 | `client-render.md` | 기운·장판 그리기, 원호, 벽 구역, 상성 색, 손 그림 | `world.ts`, `palette.ts`, `rps.ts`, `loadout.ts` |
 | `client-minimap.md` | 미니맵의 크기와 자리, 알림이 비켜 가는 자리 | `minimap.ts`, `style.css` |
 | `server-tests.md` | 하네스, 하나만 실행하기, 파일마다 다루는 것, 도우미 | `tests/Argus.Server.Tests/**` |
@@ -42,7 +43,9 @@ dotnet run --project server/Argus.Server --urls http://127.0.0.1:5077
 dotnet run --project tests/Argus.Server.Tests                  # 서버 검사 전체 (214개, 빌드 포함 약 20초)
 dotnet run --project tests/Argus.Server.Tests -- determinism   # 결정론 묶음만 (CI의 Windows·macOS가 쓴다)
 dotnet run --project tests/Argus.Server.Tests -- vectors       # client/tests/fixed-vectors.json을 지금 서버 계산으로 다시 쓰기
-dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz 또는 폴더> [--until <틱> --snapshot <대원 id>] [--strict]
+dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz> [--until <틱> [--snapshot <대원 id>]]   # 기록 하나 재생. 그 틱에서 멈춰 상태와 그 대원의 화면 보기
+dotnet run --project tools/Argus.Replay -- <기록 폴더> [--strict]   # 폴더 전체 확인. --strict는 폴더에만 듣는다(파일에 주면 말없이 무시한다)
+cd client && npx playwright install --with-deps chromium       # 브라우저 설치(처음 한 번. root 권한이 없으면 browser-tests.md)
 cd client && npm run test:e2e                                  # 브라우저 검사 전체 (109개, 서버가 5077에 떠 있어야 한다)
 cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 ```
@@ -52,7 +55,7 @@ cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 - 브라우저 검사용 서버는 `Argus__Missions__AllowHandmade=true`로 띄운다. 없으면 손으로 만든 맵과 조용한 방(`?layout=quiet`)의 방 만들기가 HTTP 403이다. `world.spec.ts`와 `fixed.spec.ts`는 게임 서버 없이 돈다.
 - UI 작업 중에는 서버를 5077로 켜 두고 `npm --prefix client run dev`로 <http://localhost:5173>을 연다. Vite가 `/api`·`/health`·`/ws`를 5077로 전달한다.
 - 서버 검사에는 이름으로 고르는 필터가 없다(`server-tests.md`). 서버는 SIGTERM으로 끈다. 그래야 기록이 끝 줄과 함께 닫힌다. 기록은 남긴 서버와 같은 커밋에서 재생한다(`recording.md`).
-- CI(`.github/workflows/ci.yml`): 서버 빌드와 검사 → 클라이언트 빌드 → 브라우저 검사 뒤 남은 기록을 `--strict`로 재생 → Windows·macOS에서 결정론 묶음과 같은 기록의 재생. PR과 master 푸시에서 돈다.
+- CI(`.github/workflows/ci.yml`): `server`(빌드와 서버 검사)·`client`(빌드)·`browser` 작업이 서로 기다리지 않고 함께 돈다. `browser`는 클라이언트를 스스로 빌드해 브라우저 검사를 돌리고 남은 기록을 `--strict`로 재생한다. `cross-os`만 `browser`를 기다렸다가 Windows·macOS에서 결정론 묶음과 같은 기록의 재생을 돌린다. PR과 master 푸시에서 돈다.
 
 ## 디렉터리 지도
 
@@ -100,7 +103,7 @@ docs/                       requirements·combat·protocol·verification (아래
 읽는 요령:
 
 - 코드의 주석이 까닭과 처리 순서를 자세히 적고 있다. 이름을 Grep으로 찾아 그 둘레만 읽는다. 큰 파일(`LifecycleTests.cs`, `EncounterTests.cs`, `world.spec.ts`, `CombatTests.cs`, `touch.spec.ts`, `main.ts`, `Match.cs`, 각 58~107KB)은 통째로 읽지 않는다.
-- `docs/verification.md`(377KB)는 `grep -n '^## ' docs/verification.md`로 절을 찾아 그 부분만 읽는다. `client/tests/fixed-vectors.json`(생성물)과 `client/package-lock.json`은 읽지 않는다.
+- `docs/verification.md`(377KB)는 `rg -n '^## ' docs/verification.md`로 절을 찾아 그 부분만 읽는다. `client/tests/fixed-vectors.json`(생성물)과 `client/package-lock.json`은 읽지 않는다.
 
 ## 실행 모델
 
@@ -108,7 +111,7 @@ docs/                       requirements·combat·protocol·verification (아래
 - `Match.Step()`은 정확히 한 틱(1/30초)이다: `Tick++` → `RunTick` → `Explore` → 30틱마다 기록에 요약값.
 - `RunTick`의 차례: 끝난 효과와 유예가 지난 대원 치우기 → 전멸 확인 → 착지 → 대원마다 `UpdatePlayer`(입력 끊김 처리 → 끝난 기술 치우기 → 기운 잇기 → 기다리는 누름으로 시작 → 이동 → 보급) → 증원 → 흐름장(0.5초마다) → `UpdateEnemies` → `ResolveCombat` → 쓰러진 적 치우기 → 전멸 확인 → 탈출 진행.
 - 방의 종류: 운영 방은 생성 맵에 `Rules.ForGeneratedMission()`(엘리트 켬, 선딜 1배)이다. 기본 규칙 `new Rules()`는 검사가 쓰는 튜토리얼 수준(병사만, 선딜 2배)이다. 손으로 만든 40×30 맵(`layout: "handmade"`)과 적이 없는 조용한 방(`"quiet"`)은 검사용이고 `Argus:Missions:AllowHandmade`가 켜져 있어야 만들 수 있다.
-- 메모리 기반 단일 인스턴스다. DB가 없고 재시작하면 방과 토큰이 사라진다. 디스크에 남는 것은 재현용 기록(`recordings/`, git 제외)뿐이다. 역방향 프록시 뒤에서는 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`를 켜야 주소 기준 제한이 사용자마다 따로 센다(`server-runtime.md`).
+- 메모리 기반 단일 인스턴스다. DB가 없고 재시작하면 방과 토큰이 사라진다. 디스크에 남는 것은 재현용 기록(`recordings/`, git 제외)뿐이다. 역방향 프록시 뒤에서는 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`를 켜야 주소 기준 제한이 사용자마다 따로 센다. 이 설정은 앞단을 모두 믿으므로 프록시가 X-Forwarded-For를 덮어쓰거나 뒤에 덧붙이는 구성에서만 켜고, 서버를 직접 노출할 때는 켜지 않는다(켜면 클라이언트가 헤더로 주소를 바꿔 제한을 피한다). 공개 배포 전에는 서버가 보는 접속 주소부터 확인한다(`server-runtime.md`).
 
 ## 깨면 안 되는 규칙
 
@@ -117,7 +120,7 @@ docs/                       requirements·combat·protocol·verification (아래
 ### 결정론 (`Game/`)
 
 - 시각은 모두 틱 번호(`long`)로 저장하고 비교한다. 초로 정한 기간은 `Rules.ToTicks`로 시작부터 한 번에 올리고, 초는 스냅샷으로 보낼 때만 쓴다.
-- 난수는 `Match`의 `SeededRandom` 하나에서만 뽑는다. `Random`·`RandomNumberGenerator`·시계·`Math.Sin`/`Cos`/`Atan2`/`Pow`·`MathF`·`Vector2`를 쓰지 않는다. 삼각함수는 `Angle`, 제곱근은 `Fixed`다. `HashSet`·`Dictionary`의 순회 순서에 진행을 맡기지 않는다.
+- 게임 진행에 쓰는 난수는 `Match`의 `SeededRandom` 하나에서만 뽑는다. 맵 생성은 거기서 뽑지 않고 `SeededRandom.Derive(seed, "mission-layout")`로 따로 뽑은 시드를 쓴다(같은 수를 쓰면 공개되는 맵 모양으로 숨은 적을 알 수 있다). `Random`·`RandomNumberGenerator`·시계·`Math.Sin`/`Cos`/`Atan2`/`Pow`·`MathF`·`Vector2`를 쓰지 않는다. 삼각함수는 `Angle`, 제곱근은 `Fixed`다. `HashSet`·`Dictionary`의 순회 순서에 진행을 맡기지 않는다.
 - 좌표와 거리는 `Fixed`·`FixedVector`로 계산한다. 거리는 제곱끼리 비교하고, 타일 번호는 `Fixed.FloorDivide`로 내리고, 초당 값은 `Rules.TicksPerSecond`로 나눠 틱당 값으로 바꾼다. `FromDouble`·`FromRadians`는 바깥에서 온 값(설정, 클라이언트 입력)에만 쓴다.
 - `Match.Step()`은 진행할 시간을 받지 않는다. 판정을 더할 때 한 틱씩 진행한다는 가정을 깨지 않는다.
 
@@ -146,11 +149,11 @@ docs/                       requirements·combat·protocol·verification (아래
 
 | 바꾸는 것 | 함께 고칠 곳 |
 | --- | --- |
-| 전송 형식(스냅샷, 입력, 메시지) | `Game/SnapshotMessage.cs` + `client/src/types.ts` + `docs/protocol.md`. 형식을 깨면 버전(지금 6: `/health`의 `protocol`, 스냅샷의 `version`)을 올린다 |
+| 전송 형식(스냅샷, 입력, 메시지) | 스냅샷은 `Game/SnapshotMessage.cs` + `client/src/types.ts`, 입력과 그 밖의 메시지는 `Program.cs`(읽고 답하는 곳) + `client/src/main.ts`(보내는 곳), 어느 쪽이든 `docs/protocol.md`. 형식을 깨면 버전(지금 6: `/health`의 `protocol`, 스냅샷의 `version`)을 올린다 |
 | 수신자마다 다른 값 | `PersonalSnapshot`에 넣는다. `SnapshotMessage`에 넣으면 모두에게 같은 값이 간다 |
 | `Match`의 상태 필드 | `Match.StateHash.cs`에도 넣는다 |
 | 바깥에서 `Match` 상태를 바꾸는 메서드 | 그 메서드가 `Recorder`에 적고, `MatchReplay.Apply`가 다시 반영한다 |
-| 고정소수점 연산, 대원 이동(`MoveBody`·`CanOccupy`·`BattleMap.CanStand`), 기술을 시작하는 차례(`UpdatePlayer`) | `client/src/fixed.ts`·`movement.ts` + `-- vectors`로 대조 자료를 다시 만든다 |
+| 클라이언트가 따라 하는 서버 계산(고정소수점 연산, 대원 이동, 기술을 시작하는 차례. 해당하는 함수의 목록은 `prediction.md`) | `client/src/fixed.ts`·`movement.ts` + `-- vectors`로 대조 자료를 다시 만든다 |
 | `MissionGenerator` | `GeneratorTests`의 고정값(SHA-256). 의도한 변경일 때만 |
 | `SeededRandom`이 뽑는 방식 | `SeededSequence`의 고정값. 예전 기록은 재현할 수 없게 된다 |
 | 대원 기술 추가 | `Rules.AllSkills` + `types.ts`(`Skill`·`skillNames`) + `loadout.ts` + `main.ts`의 `skillNotes` |

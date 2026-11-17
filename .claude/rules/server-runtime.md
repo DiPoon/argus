@@ -23,7 +23,7 @@ paths:
 
 ## 접속과 복구
 
-게스트 참가 후 서버가 32바이트 난수 토큰을 발급하고, 클라이언트는 `/ws`에서 `hello`로 제시한다. 같은 토큰의 새 연결이 기존 연결을 교체한다. 연결이 끊긴 대원은 입력이 멈춘 채 피격 가능한 몸으로 120초(`Rules.ReconnectSeconds`) 남고, 재접속은 체력·마나·장비·기술 시간을 유지한다. HTTP로 참가만 하고 한 번도 접속하지 않은 자리는 `Rules.FirstConnectSeconds`(15초) 뒤에 풀린다. `RoomHost.Join`이 켜고 `Attach`가 끄는 `Player.AwaitingFirstConnection`으로 두 경우를 구분한다. `Connection == 0`으로 판단하면 `RoomHost`를 거치지 않는 검사 대원이 짧은 유예를 받아 기존 검사가 깨진다.
+게스트 참가 후 서버가 32바이트 난수 토큰을 발급하고, 클라이언트는 `/ws`에서 `hello`로 제시한다. 같은 토큰의 새 연결이 기존 연결을 교체한다. 연결이 끊긴 대원은 입력이 멈춘 채 피격 가능한 몸으로 120초(`Rules.ReconnectSeconds`) 남고, 재접속은 체력·마나·장비·기술 시간을 유지한다. HTTP로 참가만 하고 한 번도 접속하지 않은 자리는 `Rules.FirstConnectSeconds`(15초) 뒤에 풀린다. `RoomHost.Join`이 켜고 `Attach`가 끄는 `Player.AwaitingFirstConnection`으로 두 경우를 구분한다. `Connection == 0`으로 판단하면 `RoomHost`를 거치지 않는 검사 대원이 짧은 유예를 받아 기존 검사가 깨진다. **`RoomHost`는 `Player`의 접속 값(`Connected`·`AwaitingFirstConnection`·`DisconnectedTick`)을 직접 바꾸지 않고 `Match.AwaitConnection`·`Connect`·`Disconnect`를 부른다.** 직접 바꾸면 그 변화가 기록에 남지 않아 재생이 그 틱에서 갈라진다(`recording.md`의 "무엇을 적나").
 
 ## 운영 범위
 
