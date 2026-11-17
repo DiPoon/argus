@@ -26,6 +26,15 @@ async function expectInvited(page: Page, code: string) {
   expect(join.y + join.height).toBeLessThanOrEqual(create.y);
   // 두 버튼 모두 줄의 폭을 다 쓴다.
   expect(Math.abs(join.width - create.width)).toBeLessThanOrEqual(1);
+  // PC 로비의 구분선("또는")은 두 버튼 사이에 있다. 터치 로비에는 구분선이 없다.
+  const divider = await dividerBox(page);
+  if (divider) expect([join.y + join.height <= divider.y, divider.y + divider.height <= create.y]).toEqual([true, true]);
+}
+
+// PC 로비에서 새 작전 시작과 참가 줄 사이에 있는 구분선의 자리다. 터치 로비에는 없다.
+async function dividerBox(page: Page) {
+  const divider = page.locator('.or');
+  return await divider.count() > 0 ? divider.boundingBox() : null;
 }
 
 // 평소 로비다. 새 작전 시작이 주된 버튼이고 방 코드 입력란이 보인다.
@@ -37,6 +46,8 @@ async function expectOrdinary(page: Page) {
   await expect(page.locator('#room-input')).toBeVisible();
   const join = (await page.locator('#join').boundingBox())!, create = (await page.locator('#create').boundingBox())!;
   expect(create.y + create.height).toBeLessThanOrEqual(join.y);
+  const divider = await dividerBox(page);
+  if (divider) expect([create.y + create.height <= divider.y, divider.y + divider.height <= join.y]).toEqual([true, true]);
 }
 
 test('an invite link carries only the room code, and the address gives it back', () => {
@@ -98,6 +109,8 @@ test('the side panel button copies an invite link, and the link opens a lobby th
     // 호출명 입력란에 커서가 있고 글이 골라져 있다. 이름을 적고 Enter를 누르면 그 방에 들어간다.
     await expect(guest.locator('#callsign')).toBeFocused();
     await guest.keyboard.type('Invited');
+    // 골라져 있던 기본 이름("대원")이 적은 글로 바뀐다. 커서만 있고 글이 골라져 있지 않으면 기본 이름에 덧붙는다.
+    await expect(guest.locator('#callsign')).toHaveValue('Invited');
     // 한글을 조합하는 중의 Enter는 글자를 확정하는 것이라 참가로 치지 않는다.
     await guest.locator('#callsign').dispatchEvent('keydown', { key: 'Enter', isComposing: true });
     await guest.waitForTimeout(300);
