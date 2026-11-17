@@ -24,6 +24,9 @@ Claude Code 2.1.326을 headless(`claude -p`)로 돌려 쟀다. 임시 저장소�
 | 바깥 체크아웃 | worktree의 `src/a.txt`(`cat`) | 같음 |
 | worktree | 그 안의 `src/a.txt`(Read) | worktree의 `CLAUDE.md`와 worktree의 규칙 |
 
+- 답은 세션이 스스로 적은 것이다. 세션이 규칙 파일을 직접 열어 보고 적은 것이 아닌지는 따로 확인했다. 장면 넷(바깥의 맞지 않는 파일, worktree의 파일, worktree에서 시작, 아래의 `other/src/a.txt`)을 `--output-format stream-json`으로 다시 돌려 세션이 부른 도구를 보니, 장면마다 지시한 파일의 Read 한 번뿐이었다.
+- 실제 작업 세션의 기록과도 맞는다(`CLAUDE.md` 쪽). 이 반영을 한 세션은 2026-11-10에 바깥 체크아웃에서 시작해 worktree에서만 일했고, 문맥을 다시 만들 때마다 실린 `CLAUDE.md`가 세션 기록에 남아 있다. 문맥을 다시 만든 열 번 가운데 두 체크아웃의 `CLAUDE.md`가 서로 달랐던 아홉 번 모두 바깥 체크아웃의 판이 실렸다. 11-12의 한 번은 두 판이 몇 문장만 달랐는데, 실린 글에 바깥 판에만 있는 문장은 모두 있고 worktree 판에만 있는 문장은 하나도 없었다. 11-13부터 11-17 새벽까지의 일곱 번은 worktree의 브랜치가 통신 형식 v6 판이고 바깥 체크아웃이 v5 판이었는데 v5 판이 실렸다. 11-18의 한 번은 worktree가 이 PR의 198줄 판이고 바깥 체크아웃이 master의 306줄 판이었는데 306줄 판이 실렸다.
+- 같은 세션에서 worktree의 `client/src/types.ts`를 Read로 열었을 때는 worktree에 있는 `protocol.md`가 실리지 않았다(11-17에 한 번, 11-18에 한 번. 뒤의 것은 Bash의 `cd`로 세션의 작업 폴더가 worktree로 옮겨진 뒤였다). 바깥 체크아웃(master)에는 규칙이 없으니 표와 맞는다. 지난 항목이 잘못 읽은 관찰이 이것이다.
 - 이 저장소의 실제 규칙 파일로도 쟀다. 이 PR의 브랜치를 임시 폴더에 복제하고 그 안에 worktree를 만든 뒤, 복제본의 바깥에서 시작한 세션이 worktree의 파일을 열게 했다. `client/src/types.ts`를 열자 `protocol.md`가, `Game/MissionGenerator.cs`를 열자 `mission.md`와 `determinism.md`가 실렸다. 그 파일을 `paths`에 둔 규칙과 꼭 같다. `README.md`를 열 때는 아무 규칙도 실리지 않았다.
 - 경로는 앞머리가 달라도 맞는다. `paths`가 `src/**`인 규칙이 `other/src/a.txt`에도, worktree가 아닌 `.claude/other/w/src/a.txt`에도 실렸다. 그래서 worktree의 파일(`.claude/worktrees/<이름>/server/…`)에도 `server/…`로 적은 규칙이 맞는다. worktree라서 따로 다뤄지는지, 앞머리를 가리지 않는 것인지는 가르지 않았다.
 - 공식 문서와 맞는 점: worktree 문서(code.claude.com/docs/en/worktrees의 "Isolate subagents with worktrees")는 worktree가 기본 자리(`.claude/worktrees/`)에 있으면 그 안의 파일을 읽어도 worktree 루트의 `CLAUDE.md`와 `.claude/rules/`는 불려 오지 않는다고 적는다(하위 에이전트에 대해 적은 문장이다). 메모리 문서는 규칙의 `paths`가 "그 규칙의 `.claude` 폴더가 있는 폴더"를 기준으로 한다고 적고, 다른 자리에 있는(sibling) worktree의 파일에 규칙이 불려 오게 하려면 그 worktree에서 시작하거나 `/cd`로 옮기라고 적는다.
@@ -31,7 +34,7 @@ Claude Code 2.1.326을 headless(`claude -p`)로 돌려 쟀다. 임시 저장소�
 ### 이 저장소의 작업 방식에 주는 뜻
 
 - 작업 세션은 바깥 체크아웃(`/mnt/e/argus`)에서 시작해 `.claude/worktrees/` 안에서 일한다. 이 PR을 병합하고 바깥 체크아웃이 그 master를 받으면, worktree의 파일을 열 때 규칙이 저절로 실린다. 지난 항목에 적은 걱정("요약만 남고 세부는 저절로 실리지 않는다")은 맞지 않았다.
-- 실리는 것은 바깥 체크아웃의 판이다. 바깥 체크아웃이 옛 브랜치에 머물러 있으면 세션은 옛 `CLAUDE.md`를 받고 규칙은 하나도 받지 못한다(지난 세션들이 실제로 그랬다. 그 체크아웃은 2026-11-17까지 한 주 남짓 `feature/minimap_test`에 있었고, 세션이 받은 `CLAUDE.md`는 통신 형식을 아직 v5라고 적은 판이었다). 그래서 병합한 뒤에는 바깥 체크아웃에서 master를 받아 둔다.
+- 실리는 것은 바깥 체크아웃의 판이다. 바깥 체크아웃이 옛 브랜치에 머물러 있으면 세션은 옛 `CLAUDE.md`를 받고 규칙은 하나도 받지 못한다. 위의 세션 기록이 그 장면이다. 바깥 체크아웃은 2026-11-10부터 11-17 아침까지 `feature/minimap_test`의 한 커밋(`4eb33e6`)에 있었고, 그동안 master에 병합된 PR #28(기운·장판 모델)과 #29(적 조향)의 설명이 세션이 받은 `CLAUDE.md`에는 없었다. 그래서 병합한 뒤에는 바깥 체크아웃에서 master를 받아 둔다.
 - 브랜치에서 `CLAUDE.md`나 규칙 파일을 고치는 세션은 고치기 전의 판을 받는다. 재리뷰가 짚은 장면 그대로다. 그때는 그 브랜치의 파일을 직접 읽는다.
 - `CLAUDE.md`의 "이 문서의 구성"에 이 셋을 적었다.
 
@@ -43,7 +46,7 @@ Claude Code 2.1.326을 headless(`claude -p`)로 돌려 쟀다. 임시 저장소�
 
 ### 확인하지 못한 것
 
-- 잰 것은 headless 실행이다. 대화형 세션이나 앱의 세션에서도 같은지는 재지 않았다. 병합 뒤 실제 작업 세션에서 한 번 보면 된다(worktree의 파일을 Read로 열었을 때 그 파일의 규칙이 실리는지).
+- 실제 작업 세션에서 바깥 체크아웃의 규칙이 worktree의 파일에 실리는 것은 보지 못했다. 규칙 쪽은 headless 실행으로만 쟀다(`CLAUDE.md` 쪽은 위의 세션 기록으로도 보았다). 바깥 체크아웃에 규칙이 생기는 병합 뒤에야 볼 수 있다. 그때 worktree의 파일을 Read로 열어 그 파일의 규칙이 실리는지 한 번 본다.
 - `/cd`나 `EnterWorktree`로 세션을 worktree로 옮겼을 때 어느 판이 실리는지는 재지 않았다.
 - Claude Code의 다른 판에서의 동작. 판이 바뀌면 `rules-probe.sh`로 다시 잴 수 있다.
 
