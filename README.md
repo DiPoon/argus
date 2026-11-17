@@ -110,7 +110,7 @@ cloudflared tunnel --url http://127.0.0.1:5077
 | `client/src/main.ts` | 로비·네 슬롯 조작·터치 조작·HUD·재접속 |
 | `client/src/world.ts` | 단순한 도형, 기운과 장판, 예고, 보간·이동 예측 |
 
-서버 파일 경로는 `server/Argus.Server/` 기준이다. C#은 [작성 규칙](AGENTS.md)에 따라 명시적 타입과 일반 생성자, for/foreach와 if/else로 작성한다.
+서버 파일 경로는 `server/Argus.Server/` 기준이다. C#은 [작성 규칙](AGENTS.md)에 따라 명시적 타입과 일반 생성자, for/foreach와 if/else로 작성한다. 파일마다의 자세한 지도와 깨면 안 되는 규칙은 [CLAUDE.md](CLAUDE.md)에, 주제별 세부(결정론, 전투 판정, 적 조향, 입력, 서버 권위, 클라이언트 화면)는 `.claude/rules/`에 있다.
 
 ## 검사
 
