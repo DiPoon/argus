@@ -327,12 +327,13 @@ test('the top row, notices and deploy buttons stay on screen and apart on short 
     };
   });
   const menu = page.getByRole('button', { name: '☰ 메뉴' });
-  // 초대 코드를 복사해 알림을 띄운다. 복사 버튼은 옆 패널(☰ 메뉴) 안에 있다.
-  // 패널은 위쪽 줄과 알림 아래에서 시작한다. 체력과 마나, 알림이 패널 머리와 초대 코드 버튼을 덮지 않는다.
+  // 초대 링크를 복사해 알림을 띄운다. 복사 버튼은 옆 패널(☰ 메뉴) 안에 있다. 검사 서버는 127.0.0.1이라 알림은 가장 긴 문장
+  // ("…단, 이 주소는 이 PC에서만 열립니다.")이다.
+  // 패널은 위쪽 줄과 알림 아래에서 시작한다. 체력과 마나, 알림이 패널 머리와 초대 링크 버튼을 덮지 않는다.
   const showNotice = async (name: string) => {
     await menu.tap();
-    await page.getByRole('button', { name: /초대 코드/ }).tap();
-    await expect(page.locator('#toast')).toContainText('초대 코드');
+    await page.getByRole('button', { name: /초대 링크 복사/ }).tap();
+    await expect(page.locator('#toast')).toContainText('초대 링크를 복사했습니다');
     const gap = () => page.evaluate(() => document.querySelector('.sidebar')!.getBoundingClientRect().top - document.querySelector('.top-stack')!.getBoundingClientRect().bottom);
     await expect.poll(gap, name).toBeGreaterThanOrEqual(0);
     await menu.tap();
