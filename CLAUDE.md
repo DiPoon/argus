@@ -51,7 +51,7 @@ cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 - `wwwroot`는 git에서 제외된다. **클라이언트를 빌드해야 서버가 화면을 제공한다.** 새로 클론했으면 클라이언트 빌드가 먼저다.
 - 브라우저 검사용 서버는 `Argus__Missions__AllowHandmade=true`로 띄운다. 없으면 손으로 만든 맵과 조용한 방(`?layout=quiet`)의 방 만들기가 HTTP 403이다. `world.spec.ts`와 `fixed.spec.ts`는 게임 서버 없이 돈다.
 - UI 작업 중에는 서버를 5077로 켜 두고 `npm --prefix client run dev`로 <http://localhost:5173>을 연다. Vite가 `/api`·`/health`·`/ws`를 5077로 전달한다.
-- 서버 검사에는 이름으로 고르는 필터가 없다(`server-tests.md`). 서버는 SIGTERM으로 끈다. 그래야 기록이 끝 줄과 함께 닫힌다.
+- 서버 검사에는 이름으로 고르는 필터가 없다(`server-tests.md`). 서버는 SIGTERM으로 끈다. 그래야 기록이 끝 줄과 함께 닫힌다. 기록은 남긴 서버와 같은 커밋에서 재생한다(`recording.md`).
 - CI(`.github/workflows/ci.yml`): 서버 빌드와 검사 → 클라이언트 빌드 → 브라우저 검사 뒤 남은 기록을 `--strict`로 재생 → Windows·macOS에서 결정론 묶음과 같은 기록의 재생. PR과 master 푸시에서 돈다.
 
 ## 디렉터리 지도
