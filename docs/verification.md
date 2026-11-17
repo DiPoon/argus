@@ -8,7 +8,7 @@
 
 | # | 지적 | 반영 |
 | --- | --- | --- |
-| 16 | `CLAUDE.md`가 worktree에서 규칙이 불려 오는 방식을 근거 없이 사실로 적었다. 근거인 관찰은 원인을 가르지 못한다(시작한 체크아웃에 그때 규칙이 없었다) | 임시 저장소에서 쟀고(아래), `CLAUDE.md`의 그 줄을 잰 대로 다시 썼다. 지난 항목의 "새로 찾은 것" 절은 틀린 결론이었다고 밝히고 빠뜨린 것을 적었다 |
+| 16 | `CLAUDE.md`가 worktree에서 규칙이 불려 오는 방식을 근거 없이 사실로 적었다. 근거인 관찰은 원인을 가르지 못한다(시작한 체크아웃에 그때 규칙이 없었다) | 임시 저장소에서 쟀고(아래), `CLAUDE.md`의 그 줄을 잰 대로 다시 썼다. 잰 동작이고 공식 문서가 보장하는 것은 아니라는 것과, 규칙이 실리지 않았을 때의 대비도 함께 적었다. 지난 항목의 "새로 찾은 것" 절은 틀린 결론이었다고 밝히고 빠뜨린 것을 적었다 |
 | 17 | `protocol.md`의 수신자별 값 목록에서 보급 항목이 `cooldown`인데 실제 속성은 보급 목록 전체 `supplies`다 | "보급 목록 `supplies`(대기 시간 `cooldown`이 대원마다 달라 목록 전체)"로 고쳤다 |
 
 ### 잰 것: 규칙과 CLAUDE.md는 세션을 시작한 체크아웃의 것이 실린다
@@ -28,8 +28,9 @@ Claude Code 2.1.326을 headless(`claude -p`)로 돌려 쟀다. 임시 저장소�
 - 실제 작업 세션의 기록과도 맞는다(`CLAUDE.md` 쪽). 이 반영을 한 세션은 2026-11-10에 바깥 체크아웃에서 시작해 worktree에서만 일했고, 문맥을 다시 만들 때마다 실린 `CLAUDE.md`가 세션 기록에 남아 있다. 문맥을 다시 만든 열 번 가운데 두 체크아웃의 `CLAUDE.md`가 서로 달랐던 아홉 번 모두 바깥 체크아웃의 판이 실렸다. 11-12의 한 번은 두 판이 몇 문장만 달랐는데, 실린 글에 바깥 판에만 있는 문장은 모두 있고 worktree 판에만 있는 문장은 하나도 없었다. 11-13부터 11-17 새벽까지의 일곱 번은 worktree의 브랜치가 통신 형식 v6 판이고 바깥 체크아웃이 v5 판이었는데 v5 판이 실렸다. 11-18의 한 번은 worktree가 이 PR의 198줄 판이고 바깥 체크아웃이 master의 306줄 판이었는데 306줄 판이 실렸다.
 - 같은 세션에서 worktree의 `client/src/types.ts`를 Read로 열었을 때는 worktree에 있는 `protocol.md`가 실리지 않았다(11-17에 한 번, 11-18에 한 번. 뒤의 것은 Bash의 `cd`로 세션의 작업 폴더가 worktree로 옮겨진 뒤였다). 바깥 체크아웃(master)에는 규칙이 없으니 표와 맞는다. 지난 항목이 잘못 읽은 관찰이 이것이다.
 - 이 저장소의 실제 규칙 파일로도 쟀다. 이 PR의 브랜치를 임시 폴더에 복제하고 그 안에 worktree를 만든 뒤, 복제본의 바깥에서 시작한 세션이 worktree의 파일을 열게 했다. `client/src/types.ts`를 열자 `protocol.md`가, `Game/MissionGenerator.cs`를 열자 `mission.md`와 `determinism.md`가 실렸다. 그 파일을 `paths`에 둔 규칙과 꼭 같다. `README.md`를 열 때는 아무 규칙도 실리지 않았다.
-- 경로는 앞머리가 달라도 맞는다. `paths`가 `src/**`인 규칙이 `other/src/a.txt`에도, worktree가 아닌 `.claude/other/w/src/a.txt`에도 실렸다. 그래서 worktree의 파일(`.claude/worktrees/<이름>/server/…`)에도 `server/…`로 적은 규칙이 맞는다. worktree라서 따로 다뤄지는지, 앞머리를 가리지 않는 것인지는 가르지 않았다.
-- 공식 문서와 맞는 점: worktree 문서(code.claude.com/docs/en/worktrees의 "Isolate subagents with worktrees")는 worktree가 기본 자리(`.claude/worktrees/`)에 있으면 그 안의 파일을 읽어도 worktree 루트의 `CLAUDE.md`와 `.claude/rules/`는 불려 오지 않는다고 적는다(하위 에이전트에 대해 적은 문장이다). 메모리 문서는 규칙의 `paths`가 "그 규칙의 `.claude` 폴더가 있는 폴더"를 기준으로 한다고 적고, 다른 자리에 있는(sibling) worktree의 파일에 규칙이 불려 오게 하려면 그 worktree에서 시작하거나 `/cd`로 옮기라고 적는다.
+- 경로는 앞머리가 달라도 맞는다. `paths`가 `src/**`인 규칙이 `other/src/a.txt`에도, worktree가 아닌 `.claude/other/w/src/a.txt`에도 실렸다. 그래서 worktree의 파일(`.claude/worktrees/<이름>/server/…`)에도 `server/…`로 적은 규칙이 맞는다. worktree라서 따로 다뤄지는지, 앞머리를 가리지 않는 것인지는 가르지 않았다. 공식 문서의 표는 `src/**/*`를 "기준 폴더의 `src/` 아래 모든 파일"이라고 적으므로, 이것은 문서보다 느슨한 동작이다.
+- 공식 문서에 있는 것(두 문서의 원문을 받아 대조했다). 메모리 문서(code.claude.com/docs/en/memory)는 규칙의 `paths`가 "그 규칙의 `.claude` 폴더가 있는 폴더"를 기준으로 한다고 적고, 다른 자리에 있는(sibling) worktree의 파일에 규칙이 불려 오게 하려면 그 worktree에서 시작하거나 `/cd`로 옮기라고 적는다. worktree 문서(code.claude.com/docs/en/worktrees의 "Isolate subagents with worktrees")는 worktree가 기본 자리(`.claude/worktrees/`)에 있으면 그 안의 파일을 읽어도 worktree 루트의 `CLAUDE.md`와 `.claude/rules/`는 불려 오지 않는다고 적는다(하위 에이전트에 대해 적은 문장이다).
+- 공식 문서에 없는 것: 바깥 체크아웃의 규칙이 그 안 worktree의 파일에 맞는다는 것. 위에서 잰 동작일 뿐이라 판이 바뀌면 달라질 수 있다. 그래서 `CLAUDE.md`의 그 줄에 잰 날짜와 판을 적고, 재리뷰가 어느 경우에도 안전하다고 한 대비(규칙이 실리지 않았으면 표에서 골라 직접 읽는다)를 남겼다.
 
 ### 이 저장소의 작업 방식에 주는 뜻
 
