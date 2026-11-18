@@ -2,302 +2,190 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Argus는 1–4인 협동 PvE 브라우저 게임이다. C# 서버가 모든 판정의 권위를 가지고, TypeScript/PixiJS 클라이언트는 입력 전달과 화면 표시만 담당한다. 문서와 주석, 커밋 메시지는 한국어로 쓴다.
+Argus는 1–4인 협동 PvE 브라우저 게임이다. C# 서버(.NET 10, ASP.NET Core)가 모든 판정의 권위를 가지고, TypeScript/PixiJS 클라이언트는 입력 전달과 화면 표시만 맡는다. 문서와 주석, 커밋 메시지는 한국어로 쓴다.
+
+## 이 문서의 구성
+
+이 파일은 세션마다 통째로 읽히므로 "어디에 무엇이 있는가"와 "깨면 안 되는 규칙"만 둔다. 까닭·수치·버린 안 같은 세부는 `.claude/rules/*.md`에 주제별로 있고, 머리말의 `paths`에 맞는 파일을 Read·Edit·Write로 다루거나 `cat`·`head`로 한 파일을 읽을 때 저절로 불려 온다.
+
+- 그 밖의 길로는 불려 온다는 보장이 없다. 검색(Grep·`rg`)으로 찾은 줄만 보거나 `sed -n`으로 일부만 읽을 때, `cd <폴더> && cat <파일>`처럼 다른 명령과 이어 읽을 때, 셸(`sed -i`, heredoc)로 고칠 때, 새 파일을 쓰기 전, 설계 질문에 답할 때다. 그때는 그 파일을 Read로 한 번 열거나 아래 표에서 골라 규칙 파일을 먼저 읽는다.
+- 이 파일과 규칙이 어느 체크아웃의 것으로 실리는지는 세션이 worktree(`.claude/worktrees/…`)에 들어간 방법에 달려 있다. 바깥 체크아웃에서 시작해 세션을 옮기지 않고 일하면(명령마다 `cd`, 경로로 열기) worktree의 파일을 열어도 시작한 체크아웃의 것이 실린다. 그래서 그 체크아웃을 최신 master로 둔다. `EnterWorktree`로 들어가면 그때부터 규칙은 worktree의 것이 실리고, 이 파일은 문맥을 다시 만들 때(이어 하기, 압축)에야 worktree의 것이 실린다. worktree에서 시작한 세션(`claude --worktree`)에는 처음부터 worktree의 것이 실린다. 2026-11-18에 Claude Code 2.1.327의 headless 실행으로 잰 동작이고 공식 문서가 보장하는 것은 아니다. `/cd`로 옮긴 세션은 재지 못했다(`docs/verification.md`).
+- 실린 판은 문맥에 함께 적힌 그 파일의 경로로 가린다. 두 판이 함께 보이면 지금 일하는 worktree의 것을 따른다. 규칙이 실리지 않았거나 실린 판이 지금 고치는 브랜치의 것이 아니면 아래 표에서 골라 그 브랜치의 파일을 직접 읽는다. 이 파일이나 규칙 파일을 고치는 브랜치에서는 실린 것이 고치기 전의 판일 수 있다.
+- 새로 알게 된 세부는 이 파일이 아니라 맞는 규칙 파일에 적는다. 이 파일은 200줄 안으로 둔다.
+
+| `.claude/rules/` | 내용 | 불러오는 파일(해당 검사 파일 포함) |
+| --- | --- | --- |
+| `determinism.md` | 틱 시각, 시드 난수, 금지한 수학 함수, 고정소수점, 상태 요약 | `Game/**` |
+| `combat.md` | 기운·장판 판정, 기술 속성, 2티어, 잡기, 대시, 같은 순간의 판정 | `Match.cs`, `Match.Combat.cs`, `SkillDefinition.cs`, `Rules.cs`, `Model.cs` |
+| `steering.md` | 적 조향의 규칙마다 없으면 생기는 일, 고칠 때 재는 법, 남는 한계, 예고하는 적의 방향 | `Match.Movement.cs` |
+| `input.md` | 입력 검증, 누름과 누르고 있음, 기다리는 누름 | `Match.cs`, `Model.cs` |
+| `authority.md` | 시야 필터, 투입, 분대가 본 칸, 시드와 id, 기록 비공개, 압축 | `Snapshot*.cs`, `Match.cs`, `BattleMap.cs`, `Networking/**`, `Program.cs` |
+| `protocol.md` | 공통·수신자별 스냅샷, 벽 판 번호, 직렬화 | `Snapshot*.cs`, `Program.cs`, `types.ts`, `docs/protocol.md` |
+| `server-runtime.md` | 틱 루프, 방의 수명과 상한, 잠금, WebSocket 닫기, 접속 복구, Docker | `Networking/**`, `Program.cs`, `Dockerfile`, `compose.yaml` |
+| `recording.md` | 기록 형식과 쓰기, 재생, 버그 제보, CI의 재생 | `Recording/**`, `MatchRecord.cs`, `MatchReplay.cs`, `tools/**`, `ci.yml` |
+| `mission.md` | 배치 검증, 손으로 만든 맵과 조용한 방, 맵 생성 순서, 처음 적 | `MissionLayout.cs`, `MissionGenerator.cs` |
+| `prediction.md` | 서버와 같은 계산(대조 자료), 서버 재조정, 예측의 한계 | `fixed.ts`, `movement.ts`, `world.ts` |
+| `client-main.md` | 키·마우스·터치의 누름 보내기, HUD, 방을 나갈 때 비우기, 초대 링크, 터치 화면과 CSS 주의점 | `main.ts`, `invite.ts`, `style.css`, `index.html` |
+| `client-render.md` | 기운·장판 그리기, 원호, 벽 구역, 상성 색, 손 그림 | `world.ts`, `palette.ts`, `rps.ts`, `loadout.ts` |
+| `client-minimap.md` | 미니맵의 크기와 자리, 알림이 비켜 가는 자리 | `minimap.ts`, `style.css` |
+| `server-tests.md` | 하네스, 하나만 실행하기, 파일마다 다루는 것, 도우미 | `tests/Argus.Server.Tests/**` |
+| `browser-tests.md` | 스펙마다 서버가 필요한지, 조용한 방, root 없는 환경 | `client/tests/**` |
 
 ## 명령어
 
-.NET 10 SDK와 Node.js 24 이상이 필요하다. 모든 명령은 저장소 루트에서 실행한다.
+모든 명령은 저장소 루트에서 실행한다. .NET 10 SDK와 Node.js 24(CI 기준)가 필요하다.
 
 ```bash
-# 클라이언트 의존성 설치
-npm --prefix client ci
-
-# 클라이언트 빌드 (tsc --noEmit + vite build)
-npm --prefix client run build
-
-# 타입 검사만
-npm --prefix client run typecheck
-
-# 서버 실행
+npm --prefix client ci                                         # 의존성 설치
+npm --prefix client run typecheck                              # tsc --noEmit
+npm --prefix client run build                                  # 타입 검사 + vite build → server/Argus.Server/wwwroot
+dotnet build server/Argus.Server/Argus.Server.csproj           # 경고 하나로 실패한다
 dotnet run --project server/Argus.Server --urls http://127.0.0.1:5077
-
-# 서버 단위 검사 (뒤의 것은 결정론 검사만, CI의 Windows·macOS가 쓴다)
-dotnet run --project tests/Argus.Server.Tests
-dotnet run --project tests/Argus.Server.Tests -- determinism
-
-# 클라이언트 예측 대조 자료(client/tests/fixed-vectors.json)를 지금 서버 계산으로 다시 만들기
-dotnet run --project tests/Argus.Server.Tests -- vectors
-
-# 기록 재생: 파일 하나 / 그 틱에서 멈춰 상태 보기 / 폴더 전체 확인
-dotnet run --project tools/Argus.Replay -- server/Argus.Server/recordings/<기록>.jsonl.gz
-dotnet run --project tools/Argus.Replay -- <기록> --until <틱> --snapshot <대원 id>
-dotnet run --project tools/Argus.Replay -- server/Argus.Server/recordings
-
-# 브라우저 검사 (서버가 5077에서 실행 중이어야 한다). 임무 봇이 손으로 만든 맵을 고를 수 있게 서버를
-# Argus__Missions__AllowHandmade=true로 띄운다. 이 설정이 없으면 임무 봇의 방 만들기가 HTTP 403이다.
-# 조작을 보는 검사가 쓰는 적 없는 방(주소의 ?layout=quiet)도 같은 설정이 필요하다.
-cd client && npx playwright install --with-deps chromium && npm run test:e2e
+dotnet run --project tests/Argus.Server.Tests                  # 서버 검사 전체 (214개, 빌드 포함 약 20초)
+dotnet run --project tests/Argus.Server.Tests -- determinism   # 결정론 묶음만 (CI의 Windows·macOS가 쓴다)
+dotnet run --project tests/Argus.Server.Tests -- vectors       # client/tests/fixed-vectors.json을 지금 서버 계산으로 다시 쓰기
+dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz> [--until <틱> [--snapshot <대원 id>]]   # 기록 하나 재생. 그 틱에서 멈춰 상태와 그 대원의 화면 보기
+dotnet run --project tools/Argus.Replay -- <기록 폴더> [--strict]   # 폴더 전체 확인. --strict는 폴더에만 듣는다(파일에 주면 말없이 무시한다)
+cd client && npx playwright install --with-deps chromium       # 브라우저 설치(처음 한 번. root 권한이 없으면 browser-tests.md)
+cd client && npm run test:e2e                                  # 브라우저 검사 전체 (118개, 서버가 5077에 떠 있어야 한다)
+cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 ```
 
-`vite.config.ts`의 `outDir`은 `server/Argus.Server/wwwroot`다. **클라이언트를 빌드해야 서버가 화면을 제공한다.** `wwwroot`는 git에서 제외되므로 새로 클론한 뒤에는 클라이언트 빌드가 먼저다.
+- 린터와 포매터, 솔루션 파일(.sln)은 없다. 정적 검사는 C# 세 프로젝트의 `TreatWarningsAsErrors`·`Nullable`과 TypeScript `strict`(`tsc --noEmit`)가 전부다. 외부 NuGet 패키지는 없고, npm 런타임 의존성은 `pixi.js` 하나다.
+- `wwwroot`는 git에서 제외된다. **클라이언트를 빌드해야 서버가 화면을 제공한다.** 새로 클론했으면 클라이언트 빌드가 먼저다.
+- 브라우저 검사용 서버는 `Argus__Missions__AllowHandmade=true`로 띄운다. 없으면 손으로 만든 맵과 조용한 방(`?layout=quiet`)의 방 만들기가 HTTP 403이다. `world.spec.ts`와 `fixed.spec.ts`는 게임 서버 없이 돈다.
+- UI 작업 중에는 서버를 5077로 켜 두고 `npm --prefix client run dev`로 <http://localhost:5173>을 연다. Vite가 `/api`·`/health`·`/ws`를 5077로 전달한다.
+- 서버 검사에는 이름으로 고르는 필터가 없다(`server-tests.md`). 서버는 SIGTERM으로 끈다. 그래야 기록이 끝 줄과 함께 닫힌다. 기록은 남긴 서버와 같은 커밋에서 재생한다(`recording.md`).
+- CI(`.github/workflows/ci.yml`): `server`(빌드와 서버 검사)·`client`(빌드)·`browser` 작업이 서로 기다리지 않고 함께 돈다. `browser`는 클라이언트를 스스로 빌드해 브라우저 검사를 돌리고 남은 기록을 `--strict`로 재생한다. `cross-os`만 `browser`를 기다렸다가 Windows·macOS에서 결정론 묶음과 같은 기록의 재생을 돌린다. PR과 master 푸시에서 돈다.
 
-클라이언트 UI 작업 중에는 서버를 5077로 켜 둔 채 `npm --prefix client run dev`를 실행하고 <http://localhost:5173>을 연다. Vite가 `/api`, `/health`, `/ws`를 5077로 전달한다.
+## 디렉터리 지도
 
-두 C# 프로젝트 모두 `TreatWarningsAsErrors`와 `Nullable`이 켜져 있다. 경고 하나로 빌드가 실패한다.
-
-### 검사 하나만 실행하기
-
-서버 검사는 xUnit이 아니라 `tests/Argus.Server.Tests/Program.cs`의 자체 콘솔 하네스다. 인자 없이 돌리면 `Main()`이 열세 개의 `Register` 호출로 모든 검사를 등록한 뒤 순서대로 실행한다. 이름으로 고르는 필터는 없고, `-- determinism`을 주면 결정론 검사(`DeterminismTests`, `FixedTests`, `ClientParityTests`, `GeneratorTests`)만 돌린다. `-- vectors`는 검사 대신 클라이언트 예측 대조 자료를 다시 쓴다. 전체가 수 초면 끝나므로 보통 그대로 돌린다. 하나만 보려면 `Program.cs`의 `Register` 호출을 임시로 줄이거나 해당 `*Tests.cs`의 `Register`에서 `tests.Add` 줄을 임시로 주석 처리한다. **임시 수정을 되돌리고 전체를 다시 통과시킨 뒤 커밋한다.**
-
-Playwright는 이름으로 고를 수 있다.
-
-```bash
-cd client
-npx playwright test tests/mission.spec.ts
-npx playwright test -g "late join"
-ARGUS_URL=http://127.0.0.1:8080 npm run test:e2e   # 다른 포트
+```text
+server/Argus.Server/
+  Program.cs                시작점. /health, POST /api/rooms, POST /api/rooms/{code}/join, /ws.
+                            WebSocket 메시지(input·deploy·loadout·ping·report·reportNote) 해석, 참가 제한, 닫는 절차
+  Networking/RoomHost.cs    방 목록과 33ms 틱 루프(BackgroundService). Room·Peer·TickClock·PublishSchedule·EntryFailure.
+                            방 만들기(Create)·참가(Join)·접속(Attach/Detach)·진행(StepRoom)·방송(PublishSnapshots)·제보(Report)
+  Networking/AddressKeys.cs 주소별 제한의 키(IPv6 /64, 사설망은 방 수 상한에서 제외)
+  Game/                     결정론 시뮬레이션. Networking과 Recording을 참조하지 않는다
+    Match.cs                한 방의 상태. 바깥 요청(Join·SetLoadout·Deploy·Input·Disconnect·AwaitConnection·Connect),
+                            Step/RunTick, 대원의 한 틱(UpdatePlayer), 보급·증원·임무 종료, 본 칸(Explore)·Visible·PublicTiles
+    Match.Combat.cs         ResolveCombat → 적마다 ResolveEnemy → ApplyCombatResults. 잡기 대상, 시설·벽 파괴
+    Match.Movement.cs       몸 충돌(CanOccupy·MoveBody), 적 생성, 흐름장, 적 조향(ActEnemies → PlanMoves → MoveEnemies)
+    Match.StateHash.cs      진행 상태 전체의 요약값
+    Model.cs                Player·WaitingPress·PlayerAction·EnemyAction·EnemyPlan·Enemy·Facility·Supply·Effect·Notice
+    Rules.cs                틱 상수(초당 30), 규칙 값, 대원 기술 정의(AllSkills), 장비 검사(ValidSlots)
+    SkillDefinition.cs      SkillDefinition, Affinity.Beats, EnemySkill, EnemyDefinition(Grunt·Breaker·Warden)
+    Fixed.cs FixedVector.cs Angle.cs   고정소수점(1/4096), 벡터, 각도(한 바퀴 65536칸)
+    SeededRandom.cs         HMAC-SHA256 카운터 난수, 용도별 시드(Derive)
+    BattleMap.cs            벽 배열, CanStand, RayWall, Reveal, DeepestWall
+    MissionLayout.cs        배치 데이터와 검증, CreateHandmade·CreateQuiet
+    MissionGenerator.cs     방의 시드로 맵 생성
+    Snapshot.cs             공개 상태 선별(CreateShared·CreatePersonal·Combine)
+    SnapshotMessage.cs      전송 자료구조(SnapshotMessage, PersonalSnapshot, …)
+    MatchRecord.cs MatchReplay.cs LayoutRecord.cs StateHasher.cs   기록 한 줄·헤더·IMatchRecorder, 재생, 배치의 기록 형식, 요약 계산
+  Recording/                RecordingStore(폴더와 보관 수) → RecordingFile(쓰기), RecordingReader, RecordingCheck(폴더 판정), RecordingFormat
+tests/Argus.Server.Tests/   자체 콘솔 하네스. Program.cs(Main·Fixture·TestTools), Pad.cs(입력 도우미), *Tests.cs 13개
+tools/Argus.Replay/         기록 재생 명령(Program.cs 하나)
+client/src/
+  main.ts invite.ts         로비, 접속, 입력(키·마우스·터치), HUD, 재접속. invite.ts는 초대 링크(?room=방 코드)의 주소 계산
+  world.ts                  PixiJS 그리기, 스냅샷 보간, 이동 예측과 서버 재조정(World)
+  minimap.ts                미니맵(Minimap)
+  movement.ts fixed.ts      서버의 대원 한 틱과 고정소수점을 옮긴 것(예측용)
+  types.ts                  통신 형식의 TypeScript 쪽
+  palette.ts rps.ts loadout.ts   색과 그리는 규칙, 손 그림 SVG, 로비의 장비 표
+  style.css                 모든 화면의 CSS
+client/tests/               Playwright 스펙 8개, 도우미 rooms.ts·wire.ts, 서버가 만든 fixed-vectors.json
+docs/                       requirements·combat·protocol·verification (아래 "문서")
 ```
 
-### root 권한 없이 브라우저 검사 환경 만들기
+의존 방향은 한쪽이다. 서버는 `Program.cs` → `Networking` → `Recording` → `Game`이고, `Game`은 기록을 `IMatchRecorder` 인터페이스로만 안다. 검사와 재생 도구는 서버 프로젝트를 참조한다. 클라이언트는 `main.ts` → `world.ts`·`minimap.ts` → `movement.ts` → `fixed.ts`이고, 색은 `palette.ts`, 형식은 `types.ts`를 함께 쓴다.
 
-`playwright install --with-deps`는 apt로 시스템 라이브러리를 설치하므로 root 권한이 필요하다. 그럴 수 없으면 브라우저와 빠진 라이브러리를 따로 받아 환경 변수로 알려 준다. 이 개발 환경(WSL)에서는 `libnss3`, `libnspr4`, `libasound2t64`가 빠져 있었다. `/tmp`는 재시작할 때 지워지므로 유지되는 곳에 둔다.
+읽는 요령:
 
-```bash
-D=$HOME/.cache/argus-browser
-mkdir -p $D/browsers $D/debs $D/root
-(cd client && PLAYWRIGHT_BROWSERS_PATH=$D/browsers npx playwright install --only-shell chromium)
-(cd $D/debs && apt-get download libnss3 libnspr4 libasound2t64)
-for deb in $D/debs/*.deb; do dpkg -x "$deb" $D/root; done
-cd client && PLAYWRIGHT_BROWSERS_PATH=$D/browsers LD_LIBRARY_PATH=$D/root/usr/lib/x86_64-linux-gnu npm run test:e2e
-```
+- 코드의 주석이 까닭과 처리 순서를 자세히 적고 있다. 이름을 Grep으로 찾아 그 둘레만 읽는다. 큰 파일(`LifecycleTests.cs`, `EncounterTests.cs`, `world.spec.ts`, `CombatTests.cs`, `touch.spec.ts`, `main.ts`, `Match.cs`, 각 58~107KB)은 통째로 읽지 않는다.
+- `docs/verification.md`(408KB)는 `rg -n '^## ' docs/verification.md`로 절을 찾아 그 부분만 읽는다. `client/tests/fixed-vectors.json`(생성물)과 `client/package-lock.json`은 읽지 않는다.
 
-저장소가 Windows 드라이브(WSL의 `/mnt/e` 같은 곳)에 있으면 검사 결과 폴더를 리눅스 쪽 디스크로 돌린다(`npx playwright test --output $D/test-results`). Playwright는 실패했을 때 남기려고 검사 내내 기록(trace)을 그 폴더에 쓰는데, Windows 드라이브에는 쓰기가 느리다. 화면 크기 33가지를 재는 미니맵 휴대폰 배치 검사가 35초에서 45~90초로 늘어, 전체 실행에서 제한 시간 90초에 한 번 걸렸다(2026-11-17). 결과 폴더만 옮기면 다시 35초다. CI 실행기는 리눅스 디스크라 해당하지 않는다.
+## 실행 모델
 
-## C# 작성 방식
+- `RoomHost`의 타이머 하나가 33ms마다 깨어 `TickClock`이 정한 틱 수(한 번에 8틱까지)만큼 방마다 `Match.Step()`을 부른다. 스냅샷은 0.1초마다 보낸다. 방이 둘 이상이면 방마다 동시에 진행한다.
+- `Match.Step()`은 정확히 한 틱(1/30초)이다: `Tick++` → `RunTick` → `Explore` → 30틱마다 기록에 요약값.
+- `RunTick`의 차례: 끝난 효과와 유예가 지난 대원 치우기 → 전멸 확인 → 착지 → 대원마다 `UpdatePlayer`(입력 끊김 처리 → 끝난 기술 치우기 → 기운 잇기 → 기다리는 누름으로 시작 → 이동 → 보급) → 증원 → 흐름장(0.5초마다) → `UpdateEnemies` → `ResolveCombat` → 쓰러진 적 치우기 → 전멸 확인 → 탈출 진행.
+- 방의 종류: 운영 방은 생성 맵에 `Rules.ForGeneratedMission()`(엘리트 켬, 선딜 1배)이다. 기본 규칙 `new Rules()`는 검사가 쓰는 튜토리얼 수준(병사만, 선딜 2배)이다. 손으로 만든 40×30 맵(`layout: "handmade"`)과 적이 없는 조용한 방(`"quiet"`)은 검사용이고 `Argus:Missions:AllowHandmade`가 켜져 있어야 만들 수 있다.
+- 메모리 기반 단일 인스턴스다. DB가 없고 재시작하면 방과 토큰이 사라진다. 디스크에 남는 것은 재현용 기록(`recordings/`, git 제외)뿐이다. 역방향 프록시 뒤에서는 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`를 켜야 주소 기준 제한이 사용자마다 따로 센다. 이 설정은 앞단을 모두 믿으므로 프록시가 X-Forwarded-For를 덮어쓰거나 뒤에 덧붙이는 구성에서만 켜고, 서버를 직접 노출할 때는 켜지 않는다(켜면 클라이언트가 헤더로 주소를 바꿔 제한을 피한다). 공개 배포 전에는 서버가 보는 접속 주소부터 확인한다(`server-runtime.md`).
 
-**[AGENTS.md](AGENTS.md)가 이 저장소의 C# 작성 규칙이며 코드를 쓰기 전에 반드시 따른다.** 사용자는 C#을 학습 중이고 축약 문법보다 기본 문법을 선호한다. 요약하면:
+## 깨면 안 되는 규칙
+
+요약이다. 까닭과 예외는 해당 규칙 파일에 있다.
+
+### 결정론 (`Game/`)
+
+- 시각은 모두 틱 번호(`long`)로 저장하고 비교한다. 초로 정한 기간은 `Rules.ToTicks`로 시작부터 한 번에 올리고, 초는 스냅샷으로 보낼 때만 쓴다.
+- 게임 진행에 쓰는 난수는 `Match`의 `SeededRandom` 하나에서만 뽑는다. 맵 생성은 거기서 뽑지 않고 `SeededRandom.Derive(seed, "mission-layout")`로 따로 뽑은 시드를 쓴다(같은 수를 쓰면 공개되는 맵 모양으로 숨은 적을 알 수 있다). `Random`·`RandomNumberGenerator`·시계·`Math.Sin`/`Cos`/`Atan2`/`Pow`·`MathF`·`Vector2`를 쓰지 않는다. 삼각함수는 `Angle`, 제곱근은 `Fixed`다. `HashSet`·`Dictionary`의 순회 순서에 진행을 맡기지 않는다.
+- 좌표와 거리는 `Fixed`·`FixedVector`로 계산한다. 거리는 제곱끼리 비교하고, 타일 번호는 `Fixed.FloorDivide`로 내리고, 초당 값은 `Rules.TicksPerSecond`로 나눠 틱당 값으로 바꾼다. `FromDouble`·`FromRadians`는 바깥에서 온 값(설정, 클라이언트 입력)에만 쓴다.
+- `Match.Step()`은 진행할 시간을 받지 않는다. 판정을 더할 때 한 틱씩 진행한다는 가정을 깨지 않는다.
+
+### 서버 권위와 시야
+
+- 시야 밖의 적·예고·효과는 `Snapshot.CreateShared`가 직렬화 전에 뺀다. 적에 관한 필드를 더할 때 이 필터를 우회하지 않는다. 보지 못한 칸의 정보는 `Match.Explored`로 거른다.
+- 결과가 숨은 적에 따라 달라지는 동작은 실패나 거절로 알리지 않는다(투입은 본 칸의 벽만 보고 답한다).
+- 클라이언트가 정할 수 있는 것은 이동 방향·조준 방향·슬롯 번호뿐이다. 기술은 `pressed`(누름)로만 한 번 시작하고, `held`로 누름을 짐작하지 않는다. 클라이언트는 판정 결과를 정하지 않는다.
+- 시드를 클라이언트에 보내지 않는다. 서버가 보내는 메시지에 토큰 같은 비밀을 넣지 않는다(WebSocket 압축). 숨은 사건에 공개 순번(`_nextId`)을 쓰지 않는다.
+- 재현용 기록 파일을 서버 밖으로 내보내지 않는다(내려받는 HTTP 경로 금지). 예외는 CI 검사 방의 기록이다.
+- 서드파티 클라이언트를 허용하므로 공식 클라이언트에서만 동작하는 장치로 규칙을 강제하지 않는다.
+
+### 동시성
+
+- `Match`를 만지는 모든 경로는 `lock (room.Gate)` 안에서 만진다. 방을 찾은 뒤 잠금을 잡는 경로는 잠금 안에서 `IsRegistered`로 다시 확인한다.
+- 클라이언트가 보낸 JSON 값은 `ValueKind`를 확인한 뒤 읽는다. 연결 오류가 아닌 예외는 결함으로 기록된다.
+
+### 전투
+
+- 상성(타격 < 방어 < 잡기 < 타격)은 `Affinity.Beats(response, attack)` 한 곳에 있고 **기술 id가 아니라 `Kind`를 비교한다.** id `strike`/`parry`/`grab`의 `Kind`는 `strike`/`block`/`channel`이다.
+- 기술별 동작은 `SkillDefinition`의 속성으로 판단한다. 판정 코드에 `Skill.Id == "parry"` 같은 비교를 넣지 않는다.
+- 한 틱의 판정은 그 틱이 시작할 때의 대원 상태로 한다. 판정 도중에 대원의 상태를 바꾸지 않고 `ApplyCombatResults`로 미룬다.
+- 적은 예고하는 동안 노린 대원 쪽으로 돈다. 걸어서 피할 틈(도는 빠르기 한도, 방향 굳히기)을 만들지 않는다. 피하기는 대시가 맡는다.
+
+## 함께 고칠 곳
+
+| 바꾸는 것 | 함께 고칠 곳 |
+| --- | --- |
+| 전송 형식(스냅샷, 입력, 메시지) | 스냅샷은 `Game/SnapshotMessage.cs` + `client/src/types.ts`, 입력과 그 밖의 메시지는 `Program.cs`(읽고 답하는 곳) + `client/src/main.ts`(보내는 곳), 어느 쪽이든 `docs/protocol.md`. 형식을 깨면 버전(지금 6: `/health`의 `protocol`, 스냅샷의 `version`)을 올린다 |
+| 수신자마다 다른 값 | `PersonalSnapshot`에 넣는다. `SnapshotMessage`에 넣으면 모두에게 같은 값이 간다 |
+| `Match`의 상태 필드 | `Match.StateHash.cs`에도 넣는다 |
+| 바깥에서 `Match` 상태를 바꾸는 메서드 | 그 메서드가 `Recorder`에 적고, `MatchReplay.Apply`가 다시 반영한다 |
+| 클라이언트가 따라 하는 서버 계산(고정소수점 연산, 대원 이동, 기술을 시작하는 차례. 해당하는 함수의 목록은 `prediction.md`) | `client/src/fixed.ts`·`movement.ts` + `-- vectors`로 대조 자료를 다시 만든다 |
+| `MissionGenerator` | `GeneratorTests`의 고정값(SHA-256). 의도한 변경일 때만 |
+| `SeededRandom`이 뽑는 방식 | `SeededSequence`의 고정값. 예전 기록은 재현할 수 없게 된다 |
+| 대원 기술 추가 | `Rules.AllSkills` + `types.ts`(`Skill`·`skillNames`) + `loadout.ts` + `main.ts`의 `skillNotes` |
+| 색, 목표를 그리는 규칙 | `palette.ts` 한 곳(메인 화면과 미니맵이 함께 쓴다). 상성 색은 CSS 변수와 같은 값 |
+| 입력을 보내는 경로 | 반드시 `main.ts`의 `sendInput`을 거친다(예측이 기록한다) |
+| 방마다 바뀌는 HUD 요소 | `main.ts`의 `firstTexts` |
+| 게임 규칙 | `docs/combat.md`의 해당 절, 필요하면 `docs/requirements.md`와 README |
+| 새 서버 검사 파일 | `tests/Argus.Server.Tests/Program.cs`의 `Register` 호출 |
+
+## 코드 작성 방식
+
+**C#은 [AGENTS.md](AGENTS.md)를 따른다.** 사용자는 C#을 학습 중이고 축약 문법보다 기본 문법을 선호한다.
 
 - 명시적 타입, 일반 생성자, 중괄호 있는 `if`/`else`와 `for`/`foreach`를 쓴다.
 - LINQ 연결, switch 식, 복잡한 패턴 매칭, 삼항 연산자, 식 본문 메서드, 주 생성자(primary constructor), target-typed `new`, 컬렉션 식을 **피한다**.
 - 한 줄에 한 동작. 중요한 처리 순서와 이유는 짧은 한국어 주석으로 남긴다.
 - 자동 속성, nullable, `async`/`await`, `lock`은 목적이 있으므로 유지한다. 문법을 피하려고 동작을 복잡하게 바꾸지 않는다.
 - 기존 검사의 간결한 표현은 유지해도 되지만, 새로 쓰거나 수정하는 검사에는 위 방식을 적용한다.
+- 모양: 파일 범위 네임스페이스, `sealed` 클래스, 비공개 필드는 `_camelCase`, 들여쓰기 4칸.
 
-클라이언트 TypeScript는 이 제약을 받지 않으며 `main.ts`처럼 간결한 화살표 함수와 템플릿 문자열을 쓴다.
+TypeScript는 이 제약을 받지 않는다. `main.ts`처럼 간결한 화살표 함수와 템플릿 문자열을 쓰고, 작은따옴표와 세미콜론, 들여쓰기 2칸이다. `verbatimModuleSyntax`라 형식은 `import type`이나 `type` 수식어로 가져온다.
 
-## 아키텍처
+주석과 문서는 무엇이 아니라 왜를 적고, 결정에는 날짜와 근거(사용자 결정, PR 리뷰 번호, 잰 수치)를 남긴다. 용어는 대원(player), 분대, 칸(맵의 한 칸. 화면의 네모는 "상자"), 기운(aura), 장판(zone), 누름과 누르고 있음, 검사(test), 틱이다.
 
-### 실행 구조
+## 작업 흐름
 
-`RoomHost`(`Networking/RoomHost.cs`)는 싱글턴 `BackgroundService`이고 모든 방을 `ConcurrentDictionary`로 들고 있다. `ExecuteAsync`의 `PeriodicTimer` 하나가 33ms(`TickClock.TimerPeriod`)마다 깨어난다. `PeriodicTimer`는 주기를 밀리초 단위로 내려 쓰므로, `Rules.Step`(1/30초)을 내린 값을 직접 넘기고 검사도 같은 값을 쓴다. 깨어날 때마다 `TickClock`이 시작한 뒤 지난 시간으로 진행할 틱 수를 정하고, 이번 틱의 방 목록을 만든 뒤 `StepRoom`으로 각 방을 그 틱 수만큼 진행한다. 한 틱에 못 미치는 남은 시간은 다음에 깨어날 때로 넘긴다. 깨어나는 시각이 흔들리므로 가끔은(실측 40번에 한 번쯤) 진행할 틱 없이 깨어나고, 그때는 상태가 그대로이므로 방송도 미룬다. 스냅샷은 0.1초마다 보낸다(`PublishSchedule`). 다음 방송 시각은 실제로 깨어난 시각이 아니라 예정 시각에서 0.1초 뒤로 잡는다. 깨어난 시각에서 잡으면 타이머 주기 세 번(99ms)이 0.1초에 못 미쳐 방송이 자주 한 번씩 밀리고 8Hz 안팎이 된다. 방이 둘 이상이면 `Parallel.For`로 **동시에** 진행한다. 방마다 상태와 잠금이 독립이라 가능한 것이며, 아직 부하를 측정한 적은 없다. 한 번 깨어날 때 진행하는 틱은 8틱(약 0.27초, `TickClock.MaxTicksPerWake`)까지이고, 넘친 시간은 게임 시간에서 버린다. 서버가 절전 등으로 오래 멈췄다 깨어났을 때 밀린 시간을 한꺼번에 따라잡으면, 아무도 보지 못하는 사이에 대원이 죽고 작전이 끝나기 때문이다. 연결이 끊긴 대원은 재접속 유예(120초)가 지나면 빠지고, 대원이 아무도 남지 않은 방은 곧바로 지운다. 그래서 방은 보통 마지막 연결이 끊긴 뒤 2분쯤 지나 사라진다. `Room.Expired`의 15분(`IdleRoomGrace`)은 대원이 어떤 이유로 빠지지 않을 때를 대비한 안전장치다. 기준은 `Detach`가 갱신하는 `LastVisit`, 곧 마지막 연결이 끊긴 시각이다. 방을 만들고 첫 대원을 넣기 전의 틈만 2초 기다린다(`EmptyRoomGrace`). 그래서 접속 없이 참가만 한 방은 자리가 풀리는 15초 무렵 사라진다. 한 주소가 동시에 가질 수 있는 방은 4개다(`RoomHost.MaxRoomsPerAddress`, 넘으면 429). 둘 다 빈 방이나 붙잡아 둔 방으로 방 32개 상한을 채우지 못하게 하려는 것이다. 같은 기계와 사설망(10/8, 172.16/12, 192.168/16, 169.254/16, IPv6 fc00::/7·fe80::/10)에서 온 접속은 이 상한에서 뺀다(`AddressKeys.ForRoomLimit`). 개발과 브라우저 검사는 한 주소에서 방을 계속 만들고 끝난 방도 재접속 유예 동안 2분쯤 남는다. 또 Docker로 띄우면 모든 요청이 브리지 주소(172.17.0.1 등)에서 온다. 그래서 이 주소들까지 세면 방 4개가 남은 동안 모든 사용자의 방 생성이 막힌다. 두 제한 모두 IPv6는 /64 대역을 한 주소로 센다. 사용자 한 명이 보통 /64를 통째로 받아 요청마다 주소를 바꿀 수 있어서다. 역방향 프록시 뒤에서는 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`로 전달 헤더(X-Forwarded-For)를 켜야 사용자마다 따로 센다. 이 설정은 앞단을 모두 믿으므로 프록시가 X-Forwarded-For를 덮어쓰거나 뒤에 덧붙이는 구성에서만 켜고, 서버를 직접 노출할 때는 켜지 않는다. 켜면 클라이언트가 헤더로 주소를 바꿔 제한을 피할 수 있다.
-
-방 상태를 건드리는 모든 경로가 `lock (room.Gate)`를 잡는다. HTTP 참가, WebSocket 접속·입력, 시뮬레이션 루프가 같은 자료구조를 공유하므로 **새 경로를 추가할 때도 이 잠금 안에서 `Match`를 만진다.** 방 삭제(`StepRoom`)도 그 방의 잠금 안에서 일어난다. 그래서 방을 찾은 뒤 잠금을 잡는 경로는 잠금 안에서 `IsRegistered`로 방이 아직 등록되어 있는지 다시 확인한다. `Join`과 `Attach`가 그렇게 한다. `StepRoom`은 진행 중 예외를 잡아 연속 실패를 센다. 30번(약 1초) 연속 실패하면 방을 닫고 연결도 닫는다. 오류는 연속 실패의 첫 번째만 기록한다. 토큰 정리는 대원이 실제로 빠져 `Match.Departures`가 바뀌었을 때만 한다. 연결마다 용량 2의 `BoundedChannel`(`DropOldest`)을 두어 느린 수신자에게는 오래된 스냅샷을 버린다. 오류 안내와 pong은 버려지면 안 되므로 따로 `Peer.Control` 통로(용량 32, 차면 새 메시지를 버림)로 보내고, `Peer.Send`가 스냅샷보다 먼저 보낸다. `Peer.Send`는 두 통로를 함께 기다릴 때 끝나지 않은 기다림을 다음 차례에 다시 쓴다. 차례마다 새로 기다리면 ping을 보내지 않는 연결에서 제어 통로의 기다림이 스냅샷마다 하나씩 쌓인다. 취소되면 기다림의 예외로 끝낸다. 취소된 기다림은 곧바로 끝나므로 넘어가면 헛돈다. 스냅샷 통로가 닫혀 끝날 때도 제어 통로에 남은 메시지는 마저 보낸다. 두 기다림이 함께 깨면 어느 쪽이 먼저인지 정해져 있지 않아, 비우지 않으면 남은 오류 안내를 버린다.
-
-`Program.cs`가 `/health`, `POST /api/rooms`, `POST /api/rooms/{code}/join`, `/ws`를 연결하고 요청 본문 4096바이트 상한과 IP당 분당 30회 참가 제한을 건다. 방 만들기와 참가의 장비 검증과 실패 이유는 `RoomHost`가 정하고(`EntryFailure`), HTTP 처리는 그 값으로 상태 코드(400·409·429·503)만 고른다. 방을 만든 직후 참가에 실패하면 빈 방을 바로 지운다. 맵 생성과 `Match`는 생성 잠금(`_createGate`) 밖에서 방마다 한 번만 만든다. 잠금 안에서 맵을 만들면 모든 방 만들기가 다른 방의 맵 생성을 기다린다. 맵을 만들기 전에 잠금 안에서 자리를 예약하고(`Reserve`), 상한(방 32개 `MaxRooms`, 주소별 `MaxRoomsPerAddress`)은 등록된 방과 맵을 만들고 있는 방(예약)을 합쳐 센다. 그래서 동시에 들어온 요청도 상한을 넘는 만큼은 맵을 만들기 전에 거절된다. 등록된 방만 세면, 맵을 만들고 있는 요청이 있는 동안 들어온 요청이 모두 통과해 각자 맵을 만들고 버린다. 방을 등록하면 같은 잠금 안에서 예약을 풀고(`Release`), 만들다 예외가 나면 `finally`에서 푼다. 방을 등록하는 곳은 이 한 곳이라 예약한 자리는 늘 비어 있고, 등록할 때 상한을 다시 보지 않는다. 방 코드가 이미 쓰이고 있으면 맵은 그대로 두고 코드만 새로 뽑는다. WebSocket 처리(`HandleWebSocket`)는 연결 오류(`WebSocketException`·`OperationCanceledException`·`JsonException`)만 기록 없이 정리하고, 그 밖의 예외는 결함으로 보고 방 코드와 함께 기록한다. `InvalidOperationException`·`ArgumentException`을 연결 오류로 치면 목록 범위 초과 같은 게임 로직 결함이 기록 없이 사라진다. 그래서 클라이언트가 보낸 JSON 값은 `ValueKind`를 확인한 뒤 읽어, 잘못된 메시지가 이런 예외를 내지 않게 한다. 서버가 먼저 닫을 때(연결 교체는 4001, 방이 닫히는 등 그 밖에는 1000)는 `CloseFirst`가 남은 전송을 마치고 종료 메시지를 보낸 뒤 상대의 종료 응답을 1초까지 기다린다. 기다리는 수신을 먼저 취소하면 .NET이 소켓을 바로 중단(Aborted)하므로, 상대는 정상 종료 대신 1006을 받기 때문이다. 참가 정보가 틀린 연결도 종료 응답은 1초까지만 기다린다. 무기한 기다리면 답하지 않는 클라이언트가 인증 없이 연결을 붙잡아 둘 수 있다. 어느 길로 나가든 `finally`에서 `lifetime`을 취소하고 송수신 작업이 끝나기를 기다린 뒤 나간다. 그러지 않으면 소켓이 해제된 뒤에도 수신 작업이 남는다. 클라이언트가 먼저 닫아 상태가 `CloseReceived`이면 서버도 종료 응답을 보내 닫기를 마친다. 응답 없이 소켓을 해제하면 상대는 정상 종료 대신 1006을 받는다.
-
-### Match — 한 방의 전체 상태
-
-`Match`는 `partial class`로 네 파일에 나뉜다. 어디를 고칠지 먼저 판단한다. 맵 크기와 임무 배치(처음 벽, 캠프, 탈출 지점, 시설, 보급, 처음 적 자리, 증원 타원)는 `Game/MissionLayout.cs`의 데이터이고, 방은 만들 때 받은 배치로 진행한다(`Match.Layout`, 맵은 `Match.Map`). 운영 방은 `MissionGenerator`가 방의 시드로 만든 맵을 쓴다(아래 "작전 생성"). 손으로 만든 40×30 맵(`MissionLayout.CreateHandmade`)은 검사가 쓰고, 설정 `Argus:Missions:AllowHandmade`가 켜진 서버에서는 방을 만들 때 `layout: "handmade"`로 고를 수 있다. `layout: "quiet"`는 같은 맵에 처음 적도 증원도 없는 조용한 방이다(`MissionLayout.CreateQuiet`, 적 상한 0). 조작과 화면을 보는 브라우저 검사가 주소의 `?layout=quiet`로 만든다. 생성 작전에서는 처음 적들이 캠프로 와서 대원을 치고(가만히 선 대원은 가장 이르면 4초에 처음 맞고 9초에 쓰러진다), 맞거나 받아친 기술은 그 순간 기술 목록에서 빠지므로, 기술이 스냅샷에 보이는지로 확인하는 검사가 적 하나에 흔들린다. **기술을 쓰거나 대원이 오래 살아 있어야 하는 새 브라우저 검사는 조용한 방에서 돌린다.** 배치만 보는 검사도 착지한 뒤 8초를 넘기면 그렇다. 혼자인 대원이 쓰러지면 작전이 끝나 화면이 바뀐다. 캠프에 선 대원이 쓰러지는 판은 착지 뒤 10초 안에 시드 300개 가운데 1판, 12초 안에 14판, 15초 안에 78판이다(2026-11-16). 미니맵의 휴대폰 배치 검사가 생성 작전에서 15초쯤 걸려 그렇게 한 번 실패했고 조용한 방으로 옮겼다. 조용한 방의 맵은 늘 40×30칸이라, 맵 비율에 기대는 배치는 가장 좁은 맵과 가장 넓은 맵의 비율을 덮어써서 잰다(`minimap.spec.ts`가 `--minimap-ratio`를 `!important`로 덮는다). 손으로 만든 맵은 브라우저 검사의 임무 봇이 쓴다(봇은 본 칸으로만 길을 내고, 갈 곳을 아직 보지 못했으면 본 곳의 경계 가운데 맵 가운데에 가장 가까운 칸으로 가며 찾는다). 그 밖에는 HTTP 403이다(`EntryFailure.LayoutUnavailable`). 생성기가 만든 배치도 받으므로 배치의 생성자가 검사한다. 모든 자리는 맵 안이어야 하고, 캠프와 탈출 지점은 대원이 설 수 있어야 하며, 시설·보급은 벽 칸이 아니어야 한다. 처음 적 자리는 그 종류의 몸이 벽에 닿지 않고 들어가야 하고, 두 적의 몸이 겹치지 않아야 한다. 그래서 검사를 통과한 배치로는 언제나 방을 만들 수 있다(`Match`가 처음 적을 두지 못하면 생성자가 예외를 낸다). 증원 타원은 반지름이 1 이상이고 맵 안에 들어가야 하며, 가장 큰 적이 설 수 있는 점이 하나는 있어야 한다. 목록은 읽기 전용이다. 맵 크기는 방마다의 값(`BattleMap.Columns`·`Rows`·`Width`·`Height`)이고 칸 크기(`BattleMap.Cell`, 48)와 캠프 시야(`BattleMap.CampVision`)만 상수다.
-
-| 파일 | 담당 |
-| --- | --- |
-| `Game/Match.cs` | 참가·장비·투입·입력 검증, `Step` 진행 순서, 기술 시작(누름)과 기운 잇기(누르고 있음), 마나·보급(상자 종류와 남은 횟수, 시설 자리 상자)·증원·임무 종료, `Visible`, 분대가 본 칸(`Explore`·`Explored`·`PublicTiles`) |
-| `Game/Match.Combat.cs` | 적마다 상성 없는 타격 → 대응(장판 안의 기운, 기운에 닿은 장판) 수집 → 완벽 대응 → 부분 대응·비김·패배, 잡기 대상 고르기, 시설·벽 파괴 |
-| `Game/Match.Movement.cs` | 몸 충돌, 적 생성, 흐름장(flow field) 경로, 적 조향과 예고 시작 |
-| `Game/Match.StateHash.cs` | 진행 상태 전체의 요약값(`StateHash`). 결정론 검사와 재현 확인에 쓴다 |
-
-**작전 생성**(`Game/MissionGenerator.cs`): 방의 시드로 맵 크기(가로 50~70칸, 세로 38~52칸)와 배치를 만든다. 정수 계산과 `SeededRandom`만 써서 어느 기계에서나 같은 맵이 나온다. 만드는 순서는 이렇다.
-1. 가장자리를 부술 수 없는 벽으로 두른다.
-2. 캠프를 한 변 가까이, 탈출 지점을 맞은편 변 가까이에 두고 둘레를 비운다. 캠프 둘레 4칸은 투입하고 바로 움직일 수 있게 비운다.
-3. 시설 셋을 캠프에서 11칸 넘게, 서로 9칸 넘게 떨어뜨리고, 7×7칸 부술 수 있는 벽으로 두른 뒤 출입구 둘을 낸다.
-4. 처음 적을 시설마다 5~7칸 떨어진 곳에, 보급을 캠프 옆과 들판(부목표 둘, 일반 둘)에 둔다. 자리 칸은 비워 둔 칸(시설 울타리와 그 바깥 통로, 캠프·탈출 지점 둘레, 앞서 둔 자리의 둘레)을 피하므로, 적과 보급은 울타리 안에 놓이지 않고 서로 같은 칸이나 이웃 칸에 놓이지 않는다. 시설 둘이 가까울 때 두 시설의 적이 같은 칸에 놓이면 방을 만들지 못한다.
-5. 장애물을 다른 벽과 닿지 않게 흩어 놓는다.
-6. 캠프에서 벽을 부수지 않고 모든 목표와 증원 타원 위의 점 60% 이상에 걸어서 갈 수 있는지 확인하고, 안 되면 크기부터 다시 뽑아 처음부터 다시 만든다(최대 80번, `LayoutAttempts`). 크기를 다시 뽑으므로 조건을 채우기 어려운 크기에 걸려도 그 크기로만 거듭 실패하지 않는다. 지금 크기 범위에서는 시드 10만 개가 모두 한 번에 만들어졌고, 크기마다 따로 재 본 실패율도 0%다(2026-10-28). 맵이 작던 예전 범위(34~50 × 26~38칸)에서는 가장 어려운 34×26이 한 번 만들 때 약 19% 실패했다.
-`GeneratorTests`가 시드 1000개로 이 조건을 따로 확인하고, 그 배치로 운영 방의 `Match`를 만들 수 있는지, 배치를 다시 만든 횟수가 최대 횟수의 1/8 안인지도 본다. 시드 50개에서는 몸이 가장 큰 적이 처음 자리 셋에서 각각 캠프의 대원에게 오는지도 본다(`EnemiesReachCamp`). 칸 연결만 보는 확인은 몸 크기 때문에 막히는 길을 잡지 못한다. 시드 1~5의 결과를 고정값(SHA-256)과 맞춘다. 결정론 묶음에도 들어 있어 Windows·macOS에서도 같은 맵인지 본다. **생성기를 바꾸면 이 고정값도 바뀌므로, 의도한 변경이면 새 값으로 고친다.**
-
-`Match.Step()`은 정확히 한 틱(`Rules.Step`)을 진행하며 진행할 시간을 받지 않는다. 지금 시각 `Now`(초)는 틱 번호 `Tick`에서 바로 구한다. 서버가 늦어지면 `StepRoom`이 `Step()`을 여러 번 부르므로 0.25초 적 공격 창이나 0.2초 남짓한 기운, 몸 충돌을 통째로 건너뛰지 않는다. `CombatTests`의 `LongStep`이 가장 많이 밀린 경우(한 번에 8틱)를 검사한다. 판정을 추가할 때 이 가정을 깨지 않는다. 검사 도우미 `TestTools.Advance`도 정수 틱으로만 진행하며, 한 틱에 못 미치는 나머지는 한 틱으로 올려 센다.
-
-### 결정론
-
-코드·규칙·시드가 같은 두 방에 같은 틱마다 같은 입력을 넣으면 같은 상태가 된다. 서버가 언제 깨어나 한 번에 몇 틱을 진행하든 결과는 같다. `DeterminismTests`가 90초 동안 틱마다 `Match.StateHash()`를 비교해 이를 확인한다.
-
-- **시각은 모두 틱 번호(`long`)로 저장하고 비교한다.** 투입·기술·적 행동·보급 대기·효과·연결 끊김·증원·흐름장의 마감과 안내가 나온 시각이 모두 틱이고, 탈출 진행도는 반 틱 단위로 센다. 초로 정한 기간은 `Rules.ToTicks`로 올려 틱 수로 바꾸고(0.18초는 6틱), 초는 스냅샷으로 보낼 때만 `Rules.ToSeconds`로 바꾼다. 효과와 안내는 모델 객체를 그대로 직렬화하지 않고 전송용 `EffectSnapshot`·`NoticeSnapshot`에 초로 옮겨 담는다. 틱으로 된 시간 필드는 모두 `Snapshot.Seconds`를 거쳐 소수 둘째 자리로 반올림한다. 그래서 같은 틱이면 `now`와 정확히 같은 값이 되고, 30을 곱해 반올림하면 틱 번호로 돌아간다. 어떤 필드가 여기에 드는지는 [docs/protocol.md](docs/protocol.md) 맨 위의 목록을 기준으로 한다. 규칙 값(기술의 `auraSeconds` 등)은 설정한 초를 그대로 보내고, 탈출 진행도는 `Snapshot.Seconds`를 거치지 않는다. `LifecycleTests`의 `TimedWireShape`가 효과·안내·기술 시각의 모양과 값을 확인한다. 마감을 `Now + 5`처럼 초로 저장해 비교하면 실수 오차 때문에 같은 5초가 시작 틱에 따라 150틱도 되고 151틱도 된다. 여러 단계로 된 시간(적 행동의 예고·공격 창·회복, 대원 기술의 기운·장판·끝)은 단계마다 올림하지 않고 시작부터 잰 초를 한 번에 올림한다. 단계마다 올림하면 끝이 한 틱씩 밀린다. 대원의 기술은 버튼을 누르고 있어 기운이 이어진 틱 수(`PlayerAction.HeldTicks`)만큼 뒤의 단계가 함께 밀린다. 그래서 단계가 바뀌는 틱은 클라이언트가 규칙 값으로 다시 계산하지 않고, 서버가 기술 객체의 `contactAt`·`activeUntil`·`endsAt`으로 보낸다(`PlayerAction.ZoneTick`·`ZoneUntilTick`·`EndsTick`). **스냅샷의 기술 시각은 서버가 지금 정해 둔 틱 그대로 보낸다. "계속 누를 것"이라고 짐작한 시각을 보내지 않는다.** 짧게 누른 기술도 뗀 입력이 닿기 전에는 누르고 있는 것으로 보이므로, 짐작한 시각은 긴 값(최대 기운 시간)이었다가 짧은 값으로 바뀌어 화면의 남은 시간이 튄다(PR #28 리뷰). 대신 기운을 잇는 중인지(`held`, `PlayerAction.Holding`)와 늦어도 장판이 나가는 시각(`holdUntil`, `HoldUntilTick`)을 따로 보낸다. 화면은 `held`인 기운을 `contactAt`이 지나도 다음 스냅샷이 올 때까지 기운으로 그리고(`world.ts`의 `drawAction`), 남은 시간 호는 `held`에 기대지 않고 `holdUntil`까지를 한 바퀴로 그린다. `LifecycleTests`의 `SkillWireTimes`가 보낸 값과 단계가 바뀌는 틱이 같은지, 짧게 누른 기술의 시각이 뗀 입력 앞뒤로 같은지 확인한다.
-- 게임 진행에 쓰는 난수는 모두 `Match`의 `SeededRandom` 하나에서 뽑는다. `Game` 코드에서 `Random`, `RandomNumberGenerator`, 시계(`DateTime.Now`·`UtcNow`, `Stopwatch`)를 쓰지 않는다. 운영체제의 수학 함수(`Math.Sin`·`Cos`·`Atan2`·`Pow`·`IEEERemainder` 같은 함수와 `MathF`)와 실수 벡터(`Vector2` 등)도 쓰지 않는다. 결과의 마지막 자리가 운영체제나 CPU마다 다를 수 있기 때문이다. 삼각함수는 `Angle`, 제곱근은 `Fixed`를 쓴다. `DeterminismTests`의 `PortableGameCode`가 컴파일된 게임 코드(IL)에서 부르는 메서드를 모두 찾아 확인한다(`PortabilityCheck`). 실수 수학 형식(`Math`·`MathF`·`double`·`float`)은 결과가 정확히 정해진 허용 목록(`Abs`·`Min`·`Max`·`Clamp`·`Sign`·`Floor`·`Ceiling`·`Round`·`Truncate`·`Sqrt` 등)만, 실수 벡터(`Vector2` 등)는 하나도 통과하지 않는다. 그래서 `using static`, `double.Sin` 같은 형식 메서드, `Math.SinCos`, 람다와 문자열 보간 속 호출도 잡는다. 일반화 수학(`T.Sin(x)`)이 부르는 `System.Numerics`의 인터페이스 메서드(`ITrigonometricFunctions` 등)도 같은 허용 목록으로 본다. 검사가 실제로 잡는지는 검사 프로젝트의 일부러 틀린 예제(`PortabilityProbes`)로 함께 확인한다.
-- `SeededRandom`은 순번마다 시드를 키로 HMAC-SHA256을 계산하는 카운터 방식이다. `System.Random` 같은 일반 생성기는 공개된 적 id 몇 개로 내부 상태를 되짚을 수 있어, 안개 속 생성 위치와 적의 다음 행동이 드러난다. 뽑는 방식을 바꾸면 같은 시드로 기록한 진행을 재현할 수 없다. `SeededSequence` 검사의 고정값이 이를 잡는다.
-- 운영 방의 시드는 `RoomHost`가 `RandomNumberGenerator`로 만든 32바이트다. 정수 시드(`new Match(code, rules, 73)`)는 검사와 재현용이다. 검사의 `RoomHost`는 모두 `TestTools.NewHost`로 만들어, 방마다 정수 1, 2, 3, …으로 만든 시드를 만든 순서대로 쓴다(`RoomHost` 생성자의 `seeds`). 무작위 시드면 방마다 맵이 달라져 검사 결과가 실행마다 바뀌고, 실패한 맵을 다시 볼 수 없다.
-- `HashSet`과 `Dictionary`의 순회 순서에 진행을 맡기지 않는다. 지금은 포함 여부 확인에만 쓴다. 순회해야 하면 정렬하거나 `List`를 쓴다.
-- 상태 필드를 새로 추가하면 `Match.StateHash`에도 넣는다. 빠뜨리면 그 필드가 갈라져도 검사가 잡지 못한다. 요약에는 방 코드와 규칙도 들어간다. 규칙은 JSON으로 통째로 적으므로 규칙 값을 추가할 때는 따로 챙기지 않아도 된다. 적 기술은 id가 없어 정의 안의 순서로 적는다.
-- **고정소수점 수**: `Game/Fixed.cs`는 4096분의 1 단위 정수(`Raw`)로 된 수다. 곱셈·나눗셈·제곱근은 가장 가까운 값으로 반올림하고, 딱 절반이면 0에서 먼 쪽으로 간다. 그래서 부호만 바꾼 값의 결과는 부호만 바뀐다. 값과 중간값(곱, 나눗셈 전의 수, 제곱의 합)은 JavaScript가 정확히 다루는 ±(2^53 - 1) 안이어야 하고, 넘으면 값이 감기지 않고 예외(`OverflowException`)를 낸다. 넘는데도 서버만 계산하면 브라우저에서는 아래 자리가 소리 없이 잘려 4단계(클라이언트 예측 일치)에서 갈라진다. `FixedVector`는 그 수 두 개로 된 벡터다. `Angle`은 한 바퀴를 65536칸으로 나눈 방향이며, 사인·코사인·아크탄젠트를 운영체제의 수학 라이브러리 없이 정수 급수로 구한다. 실수에서 바꾸는 `FromDouble`·`FromRadians`는 설정 값과 클라이언트 입력처럼 바깥에서 온 값에만 쓴다. 단위는 브라우저(JavaScript)가 같은 계산을 할 수 있게 골랐다. 맵은 한 변이 128칸 이하(`MissionLayout.MaximumSize`)라 좌표끼리 곱해도 2^50이고, JavaScript가 정확히 다루는 2^53보다 작다. `LayoutTests`의 `LargestSize`가 가장 큰 맵에서 진행과 스냅샷을 돌려 본다. 초당 값을 틱당 값으로 바꿀 때는 `1/30`을 곱하지 말고 정수 `Rules.TicksPerSecond`로 나눈다. 1/30을 고정소수점으로 반올림하면 0.3% 어긋난다. `FixedTests`가 모든 각도의 사인·코사인과 넓은 범위의 아크탄젠트를 참값과 반 칸 안에서 비교하고, 결과 전체를 섞은 고정값과 맞춰 본다. 이 검사는 결정론 묶음(`-- determinism`)에도 들어 있어 CI가 Windows·macOS에서도 같은 고정값인지 확인한다. 각도는 게임 계산에 쓴다. 대원의 조준(`Player.Aim`)과 적 행동의 방향(`EnemyAction.Aim`)이 `Angle`이고, 방향 벡터·사잇각·생성과 착지의 각도도 모두 `Angle`로 구한다. 클라이언트가 보낸 라디안은 `Angle.FromRadians`로 바꾸고, 스냅샷에는 `ToRadians`로 보낸다. 방향 벡터는 판정마다 쓰므로 조준이 바뀔 때 한 번만 구해 둔다(`Player.AimDirection`, `EnemyAction.Direction`). 둘레를 고르게 도는 방향은 `Angle.FromFraction`, 방어 반각처럼 방향이 아닌 각도의 크기는 `Angle.SpanUnits`로 바꾼다. 좌표와 거리도 고정소수점이다. 대원·적·시설·보급·효과의 위치와 이동 방향이 `FixedVector`이고, 몸 충돌(`CanOccupy`·`MoveBody`), 벽 판정(`BattleMap.CanStand`·`RayWall`), 시야(`Visible`), 공격 범위(`InReach`), 적 조향이 모두 고정소수점으로 계산한다. 거리는 제곱끼리 비교한다. 타일 번호는 `Fixed.FloorDivide`로 정확히 내린다. 나눗셈 연산자(/)는 반올림하므로 그 뒤에 내리면 경계 바로 앞의 값이 다음 타일로 넘어간다. `RayWall`은 두 축 중 어느 타일 경계를 먼저 지나는지를 나누지 않고 엇갈려 곱해 비교하므로(a / b < c / d ⟺ a × d < c × b) 꼭짓점과 경계 위를 지나는 선분도 반올림 없이 판정하고, 결과는 `WallHit`(`Hit`, 비율 `Fraction`, `Tile`)이다. 한 틱의 이동 거리는 `1/30`을 곱하지 않고 30으로 나눠 구해 둔다(대원 `_playerStep`, 적 `EnemyDefinition.StepPerTick`). `MoveBody`는 이동을 4단위마다 한 걸음으로 나누고(걸음 수는 `Fixed.CeilingDivide`로 정확히 올림), i번째 걸음까지의 양(delta × i / 걸음 수)에서 앞 걸음까지의 양을 빼 걸음을 정한다. `delta / 걸음 수`를 걸음마다 쓰면 반올림 오차가 걸음 수만큼 쌓이지만, 이렇게 하면 걸음을 다 더해 정확히 delta가 된다. 4단계에서 클라이언트가 이 순서를 그대로 따라 해야 한다. 몸 반지름(`Rules.PlayerRadius`, `EnemyDefinition.Radius`)은 고정소수점이고, 기술 사거리·반폭은 클라이언트에 보내는 실수 설정 값(`Range`·`HalfWidth`) 옆에 판정용 `RangeFixed`·`HalfWidthFixed`를 둔다(JSON에서는 뺀다). 클라이언트가 보낸 투입 좌표는 크기를 먼저 거른 뒤(`MaxCoordinate`) `FixedVector.FromDouble`로 바꾼다. 스냅샷은 고정소수점 값(좌표·반지름)을 모두 `Snapshot.Round(Fixed)`로 바꿔 보낸다. Raw에서 100분의 1 단위 정수로 반올림하므로 딱 절반이면 0에서 먼 쪽이다(0.125는 0.13). 실수의 `Math.Round`는 딱 절반을 짝수 쪽(0.12)으로 보내는데, 4096분의 1 단위에는 이런 값이 실제로 있어 고정소수점 값에는 쓰지 않는다. 시야 다각형의 정수 좌표도 `Fixed.RoundToInt`로 같은 규칙을 따른다.
-- **클라이언트 예측 일치(4단계)**: `client/src/fixed.ts`가 `Fixed`·`FixedVector`를, `client/src/movement.ts`가 대원 이동(`Match.Input`의 정규화, 한 틱 이동 거리, `MoveBody`, 대원 쪽 `CanOccupy`, `BattleMap.CanStand`)을 같은 순서와 반올림으로 옮겼다. 대시는 누름으로 시작해 몸을 움직이므로(2026-11-15), 내 위치를 맞추려면 "이 누름으로 어느 틱에 무슨 기술이 시작하는가"도 서버와 같아야 한다. 그래서 `movement.ts`는 대원의 한 틱(`stepPilot`)에 기술 차례까지 옮겼다. 입력이 도착한 틱과 버튼의 변화(`receiveInput`: `Match.Input`의 `LastInputTick`, `ApplyButtons`·`Press`), 입력이 0.35초 끊겼을 때의 멈춤과 버튼 뗌(`InputTimeoutTicks`·`ReleaseButtons`), 끝난 기술 치우기, 기운 잇기(`HoldAuras`), 기다리는 누름으로 시작하기와 마나(`StartWaitingSkill`), 대시의 방향(`DashDirection`)과 이동(`MovePlayer`)이다. 쓰는 중인 기술(`PilotAction`)은 서버의 `ZoneTick`·`EndsTick`·`HoldUntilTick`과 같은 세 틱(`zone`·`ends`·`limit`)으로 둔다. 스냅샷이 그 셋을 시각으로 보내므로 그대로 옮길 수 있다. 서 있는 대원의 대시는 조준한 쪽으로 가므로 `fixed.ts`에 `Angle`의 라디안 → 방향 벡터(`angleUnits`·`sine`·`cosine`·`direction`)도 옮겼다. 사인의 중간값이 2^62까지 커져 BigInt로 계산한다. 전투 판정은 옮기지 않았다. JavaScript의 수는 2^53 안의 정수만 정확하므로 반올림 나눗셈은 더한 뒤 나누지 않고 몫과 나머지로 구하고, `Math.round`(딱 절반을 +∞ 쪽으로 보냄)와 검산하지 않은 `Math.sqrt`는 쓰지 않는다. 서버는 대원과 적의 Raw 좌표(`rawX`·`rawY`)를 함께 보내고, 클라이언트는 그 위에 확인받지 않은 입력을 하나에 한 틱씩 적용한다. 같은 계산인지는 서버가 만든 대조 자료(`client/tests/fixed-vectors.json`)로 양쪽에서 확인한다. `ClientParityTests`는 저장된 자료가 지금 서버 계산과 같은지 본다. 자료에는 연산 결과, 예외를 내는 계산, 틱 빈도와 입력 하나를 쓰는 최대 틱 수, 실제 `Match`로 걸은 이동 시나리오(입력이 끊긴 틱 포함), 투입 요청의 답(`deploy`: 손으로 만든 맵의 처음 상태에서 격자의 자리마다 `Match.Deploy`가 받아들였는지와 그때의 가린 벽 배열), 라디안마다의 방향(`angles`), 기술마다의 틱 수와 대시의 한 틱 거리(`skills`), 버튼까지 실은 시나리오(`pilots`: 실제 `Match`에 입력을 넣어 틱마다 적은 위치·마나·쓰는 중인 기술의 슬롯)가 들어 있다. 입력이 0.35초 넘게 끊기는 장면도 넷 있다(쥐고 기다리던 대시가 버려짐, 대시하는 중에 끊김, 기운을 쥔 채 끊김, 기술이 끝나는 틱에 끊김이 걸려 대시가 조준한 쪽으로 감). `pilots`의 시나리오는 보급 상자에서 떨어진 자리에서 돌린다. 보급으로 마나가 차면 자료를 만들 때 실패한다(클라이언트는 보급을 따라 하지 않는다). 브라우저 검사의 `fixed.spec.ts`는 클라이언트가 같은 값을 내는지 본다. **서버의 고정소수점 연산, 대원 이동 계산, 누름으로 기술을 시작하는 차례(`UpdatePlayer`의 순서, 기다리는 누름, 기운 잇기, 마나를 쓰는 때)를 바꾸면 두 TypeScript 파일도 함께 고치고 `-- vectors`로 자료를 다시 만든다.** 한계: 클라이언트는 숨은 적을 모르고 적이 다음 틱에 어디로 갈지도 모르므로 적 조향은 따라 하지 않고, 그런 몸에 막혀 생긴 차이와 입력이 서버에 들어간 틱이 어긋난 차이는 다음 스냅샷에서 바로잡힌다. 쓰던 기술이 완벽 대응이나 피격으로 일찍 끝난 것과 보급으로 마나가 찬 것도 미리 알 수 없다. 그때 누른 대시는 서버보다 늦게(또는 아예 나가지 않는 것으로) 예측했다가 다음 스냅샷에서 바로잡힌다. 보낸 입력이 망에서 늦어진 것도 알 수 없다. 예측은 보낸 입력이 한 틱에 하나씩 닿는다고 본다. 입력이 0.35초(11틱) 넘게 막히면 서버는 그동안 버튼을 모두 뗀 것으로 본다. 쥐고 있던 기운은 그때 장판이 나가 기술이 예측보다 일찍 끝나고, 쥐고 기다리던 누름은 버려진다. 화면은 그 대시를 냈다가 다음 스냅샷에서 되돌아간다. 막혔던 입력이 몰려 닿아도 그 입력들에는 새 누름이 없어 대시는 되살아나지 않는다. 걷기만 할 때는 몇 걸음의 차이였지만 대시는 한 번(150)이 통째로 갈린다(PR #30 리뷰 1번). 스스로 입력을 보내지 못한 틱(타이머가 늦게 깸)은 클라이언트가 알므로 서버처럼 따라간다(아래 "서버 재조정"). 반지름은 소수 둘째 자리로 받으므로, 그 자리에서 Raw로 그대로 되돌아오는 값(지금은 모두 정수)이어야 예측이 정확하다(`CoordinateWireRounding`이 확인한다).
-- 남은 한계: 게임 진행에서 실수가 남은 곳은 체력·피해(`double`)와 규칙의 설정 값뿐이다. 체력과 피해는 작은 정수(1, 2, 4, …)라 실수 사칙연산으로도 정확하고, 설정 값은 진행 전에 한 번 바꿔 쓴다. CI는 리눅스(x64)에서 남긴 기록을 Windows(x64)와 macOS(ARM64)에서 다시 돌려 확인한다(아래 "재생"). 2026-10-18에는 Windows가 리눅스 기록을 510틱부터 다르게 계산하는 일이 세 번 거듭됐다. 그 사이에 부른 운영체제 수학 함수는 적 행동 방향을 구하는 `Math.Atan2`뿐이었다. 각도와 삼각함수를 `Angle`로 바꾼 뒤로는 운영체제 수학 함수를 쓰지 않는다.
-
-### 기록과 재생
-
-방마다 진행을 그대로 다시 돌릴 수 있는 기록을 남긴다. 버그 제보를 받으면 그 순간을 재현하는 데 쓴다.
-
-- **무엇을 적나**: `Match`의 바깥 요청 메서드(`Join`·`SetLoadout`·`Deploy`·`Input`·`Disconnect`·`AwaitConnection`·`Connect`)가 들어온 틱과 받은 값을 스스로 적는다(`Match.Recorder`). 거절되는 요청도 적는다. 다시 돌릴 때도 똑같이 거절되므로 결과가 같다. **바깥에서 `Match` 상태를 바꾸는 메서드를 새로 만들면 기록도 함께 넣는다.** 빠뜨리면 그 요청이 재생에서 빠져 기록과 갈라진다. `RoomHost`가 `Player`의 접속 값을 직접 바꾸지 않고 `AwaitConnection`·`Connect`를 부르는 것도 이 때문이다. 1초(30틱)마다 상태 요약값(`hash`)도 함께 적는다. 연결 번호(`Player.Connection`)는 진행에 쓰이지 않아 적지 않는다.
-- **파일**: 방마다 `recordings/<만든 시각>-<방 코드>.jsonl.gz` 하나다. 첫 줄은 헤더(형식 번호·코드 버전·방 코드·시드·규칙·작전 배치)이고 그 뒤로 한 줄에 기록 하나씩 JSON으로 적어 gzip으로 압축한다. 폴더는 설정 `Argus:Recordings:Folder`(기본은 앱 폴더 아래 `recordings`, `dotnet run`이면 `server/Argus.Server/recordings`)다. 일반 기록은 최근 `Argus:Recordings:MaxFiles`개(기본 200)까지, 제보가 들어온 기록(`.reported` 표시 파일이 있는 기록)은 따로 같은 수까지 남긴다. `MaxFiles`를 0으로 두면 기록하지 않는다. 폴더를 쓸 수 없으면 한 번 알리고 기록 없이 방을 연다. 대원이 한 번도 접속하지 않은 방(HTTP로 참가만 한 방, 만든 직후 참가에 실패한 방)의 기록은 닫을 때 지운다. 남기면 방을 만들기만 반복해 보관 자리를 채워 실제 플레이 기록을 밀어낼 수 있다. 제보된 기록 보관분은 접속해 제보한 방을 많이 만들어야 밀어낼 수 있다. 주소당 방 수 상한(4개)과 재접속 유예(약 2분) 때문에 주소 하나로는 100분쯤 걸린다. 상한에서 빠지는 사설망·Docker 주소는 방 32개 상한까지 쓸 수 있어 더 빠르다.
-- **쓰는 방식**: `Match`는 방 잠금 안에서 기록 줄을 통로에 넣기만 하고, 직렬화와 디스크 쓰기는 `RecordingFile`의 작업이 따로 한다. 1초마다 압축 스트림까지 비우므로 서버가 갑자기 꺼져도 그때까지는 읽힌다. 방이 지워지거나(`expired`) 연속 실패로 닫히거나(`failed`) 만든 직후 참가에 실패하거나(`unused`) 서버가 꺼지면(`shutdown`) 끝 줄을 쓰고 닫는다. 서버를 끌 때는 기록이 다 쓰일 때까지 5초까지 기다린다. **정상 종료는 SIGTERM으로 한다.** 백그라운드로 띄운 프로세스는 SIGINT를 무시하도록 시작되고 .NET도 그대로 따른다.
-- **재생**: `MatchReplay`가 헤더로 방을 처음 상태로 만들고(맵과 임무 배치는 헤더의 `Layout`으로 다시 만든다. 배치가 없는 형식 1의 기록은 모두 손으로 만든 맵의 방이었다) 기록 줄을 같은 틱에 다시 반영하며, 요약값이 처음 달라진 틱에서 멈춘다. 진행 중 예외는 서버처럼 기록해 두고 다음 틱을 계속 진행한다. `tools/Argus.Replay`가 이것을 명령으로 쓴다. 같은 코드 버전(헤더의 `version`, 어셈블리 버전 뒤의 커밋)이어야 같은 결과가 나온다. 폴더를 확인하는 판정은 `RecordingCheck`에 있다(재현됨·끝나지 않음·갈라짐·읽지 못함·건너뜀). CI는 브라우저 검사가 끝나면 서버를 SIGTERM으로 끄고 남은 기록을 `--strict`로 모두 재생한다. 갈라지거나 읽지 못한 기록은 물론, 끝 줄이 없거나 잘렸거나 진행 중 예외가 난 기록, 다른 코드 버전이라 건너뛴 기록이 있어도 실패하고, 재현한 기록이 하나도 없어도 실패한다. 이 기준은 `RecordingCheck.FolderPasses` 한 곳에 있다. 같은 기록을 Windows와 macOS 실행기로 넘겨 `--strict`로 다시 재생하고, 결정론 검사(`-- determinism`)도 함께 돌린다(`cross-os` 작업). 같은 커밋을 빌드하므로 코드 버전이 같아야 하고, 어긋나 건너뛴 기록이 있으면 실패한다. 운영체제나 CPU에 따라 계산이 달라지면 이 작업이 잡는다. 서버 검사 전체는 리눅스에서만 돌린다. 서버는 리눅스에서만 운영하고, 실제 시간과 소켓에 기대는 검사는 공유 실행기에서 흔들리기 쉽기 때문이다.
-- **버그 제보**: 화면의 "버그 제보" 버튼은 누르는 순간 `report`를 보내고, `RoomHost.Report`가 그 틱을 기록에 남겨 `reported`(틱)로 답한다. 내용은 그 뒤 옆 패널의 입력란으로 받아 `reportNote`(제보 틱, 내용)로 덧붙인다(`RoomHost.ReportNote`, 그 대원의 마지막 제보에 한 번). 브라우저 입력 창(`prompt`)은 닫을 때까지 게임을 멈추고 닫은 순간을 제보 틱으로 찍으므로 쓰지 않는다. 입력란은 커서를 스스로 가져가지 않아 싸우는 중에 키보드를 빼앗지 않는다. 게임 상태는 바꾸지 않는다. 대원마다 5초에 한 번, 방마다 20개까지 받고, 쓰기에 실패한 기록이면(`RecordingFile.Accepting`) 받지 않는다. 받지 못한 제보를 받았다고 답하면 제보한 사람이 그 기록을 찾지 못한다. 제보한 사람이 알려 준 방 코드와 틱으로 기록을 찾아 `--until <틱> --snapshot <대원 id>`로 그 순간과 그 대원의 화면을 본다.
-
-### 전투 — 근접 RPS
-
-상성은 **타격 < 방어 < 잡기(채널) < 타격**이고 `Affinity.Beats(response, attack)` 한 곳에만 있다.
-
-주의할 구분: `Affinity.Beats`는 **기술 id가 아니라 `Kind`를 비교한다.** 플레이어 기술 id `strike`/`parry`/`grab`의 `Kind`는 각각 `strike`/`block`/`channel`이다. `parry`를 `"parry"`로 비교하면 조용히 틀린다.
-
-판정은 기운·장판 모델이다(2026-11-11 합의, [docs/combat.md](docs/combat.md)의 "기운과 장판"). 기술에는 몸에 도는 기운과 범위에 깔리는 장판이 있고, 대원도 적도 같다.
-
-- 대원의 기술(`PlayerAction`)은 기운이 도는 동안(`HasAura`) → 장판이 깔린 동안(`ZoneOut`) → 회복 순서로 진행한다. 장판이 나가면 기운은 사라진다. 적의 행동(`EnemyAction`)은 예고하는 동안 기운이 돌고(`HasAura`), 공격 창이 열리면 장판이 나가며(`ZoneOut`) 기운이 사라진다.
-- **적의 장판은 예고할 때부터 대원의 기운과 판정한다**(`EnemyAction.ZoneJudged`). 대원의 장판은 나간 뒤에만 적의 기운과 판정한다. 그래서 예고 장판 안에서 맞는 버튼을 누르면 그 틱에 판정이 난다.
-- 적 하나의 판정은 `ResolveEnemy` 한 곳이다. 차례는 ① 상성 없는 타격(기운이 없는 적을 친 장판, 측면 공격, 받아치기의 반격)을 먼저 주고, 그 피해로 쓰러지면 그 적의 공격은 무효다. ② 대응을 모은다. 장판 안에서 그 적 쪽으로 두른 기운과, 기운을 두른 그 적에게 닿은 대원의 장판이다. ③ 이기는 대응의 수가 티어 이상이면 완벽 대응이다. ④ 아니면 실제로 닿은 대원만 판정한다(적의 나간 장판에 닿은 대원, 자기 장판으로 그 적의 기운을 친 대원). **예고 장판 안에서 기운을 두르고만 있는 대원에게는 아무 일도 없다.** 그 판정은 장판이 나가 닿을 때로 미룬다.
-- 완벽 대응을 낸 기술과 끊긴 기술은 그 틱의 판정이 끝나면 대원의 기술 목록에서 빠진다(`ApplyCombatResults`). 목록에서 빠진 것이 곧 끝난 것이라 기술에 끝났다는 표시를 따로 두지 않는다(검사는 `TestTools.Gone`). 그래서 다음 틱부터 다음 기술을 쓴다(이기면 바로 다음 기술, 끊겨도 바로). 다음 기술을 쓸 수 있는지는 기술 목록이 비었는지로 본다. 끝날 틱을 따로 적어 두지 않는다.
-- 기운은 버튼을 누르고 있는 동안 이어진다(`HoldAuras`). 장판이 나갈 틱에 그 기술의 버튼을 아직 놓지 않았으면(`PlayerAction.Holding`) 장판을 한 틱 미룬다. 최대 기운 시간(`Rules.MaxAuraSeconds`, 1초)이 지나면 누르고 있어도 나간다. 짧게 눌러도 기술의 가장 짧은 기운 시간(`SkillDefinition.AuraSeconds`)만큼은 돈다.
-
-기술별 동작은 id가 아니라 `SkillDefinition`의 속성으로 판단한다. `AuraSeconds`(기운이 도는 가장 짧은 시간), `ZoneSeconds`(장판이 깔려 있는 시간), `PlainZone`(장판에 상성이 없음. 받아치기의 반격이다. 기운을 두른 적에게 닿아도 일반 피해만 주고, 적의 방어 기운이 향한 쪽에서는 막힌다), `SingleTarget`(한 시전에 적 하나만 판정), `BreaksStructures`(장판이 시설·벽 파괴), `Around`(조준하지 않는 둘레 기술. 기운이 모든 방향으로 돌고, 장판이 대원 둘레의 원이며, 벽은 치지 않음), `DashDistance`(0보다 크면 대시. 기술을 쓰는 동안 몸이 한 방향으로 모두 그만큼 움직인다), `Evades`(그 기술을 쓰는 동안 적의 나간 장판에 맞지 않음)다. **판정 코드에 `Skill.Id == "parry"` 같은 비교를 다시 넣지 않는다.** 새 기술은 속성만 정하면 같은 판정을 받는다. `CombatTests`의 `SkillFlags`가 id만 다른 기술로 동작을, `AroundSkills`가 둘레 기술의 동작을, `DashTests`가 대시의 동작을 확인한다. 대원 기술은 규칙마다 바꾸지 않으므로 정적 정의 하나를 모든 규칙이 함께 쓰고(`Rules.AllSkills`), 장비 칸은 타격·방어·잡기 칸이 그 종류의 기술 가운데 하나, 자유 칸이 아무 기술이다(`Rules.ValidSlots`). 상성 종류가 없는 기술(대시, `kind`가 `none`)은 그래서 자유 칸에만 든다. 클라이언트도 `rules.skills`의 같은 속성으로 기운(몸 둘레의 빛, 둘레 기술이면 고리, 그 밖에는 앞 120°의 호)과 장판(둘레 기술이면 원)을 그리고, 단계가 바뀌는 때는 기술 객체의 `contactAt`·`activeUntil`로 정한다.
-
-적은 조향 방식으로 움직인다(`Match.Movement.cs`의 `UpdateEnemies`). 한 틱은 세 단계다.
-
-1. 행동(`ActEnemies`, 적 목록 차례): 끝난 행동을 치우고, 공격 거리 안이면 새 행동을 고른다. 그 밖의 적은 가려는 방향을 정해 이동 계획(`EnemyPlan`)을 만든다. 몸이 직선으로 지나갈 수 있으면 직진하고(`BodyCanPass`: 몸 중심선과 양옆 두 선이 모두 열려 있음), 아니면 흐름장을 따른다. 적의 난수는 이 단계에서만 뽑으므로 적 목록 차례를 지킨다.
-2. 계획(`PlanMoves`, 앞선 적부터): 이번 틱의 이동을 정한다. 뒤선 적은 가까이에서 움직이는 앞선 적에게 길을 내준다(`Yield`).
-3. 이동(`MoveEnemies`, 뒤선 적부터): 정한 대로 몸을 움직인다. 막히면 막은 것을 끼고 돈다(`MoveEnemy`).
-
-2026-11-14 전에는 적마다 방향을 정해 `MoveBody`로 바로 움직이고, 이웃 적과 서로 똑같이 밀어내는 분리 방향을 더했다. 그때는 적 둘 이상이 벽 모서리나 한 칸 틈을 함께 지나려다 서로 막고 영영 멈췄다. 한 칸 틈 앞에 여덟이 몰린 200판 가운데 191판에서 틈을 지나지 못한 적이 남았고, 시설 울타리 안에서 셋이 출발하는 장면은 시드 40개 가운데 22개에서 멈춘 적이 나왔다. 지금은 같은 장면들에서 멈추는 적이 없다. 아래 규칙마다 그것이 없으면 생기는 일을 적는다.
-
-- **끼고 돌기**(`MoveEnemy`·`Slide`·`Blocker`, `BattleMap.DeepestWall`): `MoveBody`는 가로와 세로를 따로 움직여 벽 면은 따라 미끄러지지만, 벽 모서리와 다른 몸에 함께 막히면 빠져나오지 못한다. 모서리에 걸린 적은 가로로 조금 비켜야 돌 수 있는데 그 가로를 옆의 적이 막는다(2026-11-10에 찾은 장면, `CornerPair`). 그래서 다 가지 못했으면 가려던 자리를 가장 깊이 막은 것(벽 칸이나 몸)을 찾아, 그것 쪽으로 파고드는 성분을 빼고 겉을 따라간다. 가로·세로 이동과 견줘 가려던 쪽으로 더 나아간 것을 쓴다. 두 몸 사이를 비스듬히 지나는 자리가 비어 있으면 그대로 간다. 설 수 있는 자리인지는 늘 `CanOccupy`가 정하고, `Blocker`는 막은 것의 방향만 알려 준다. 몸끼리 겹치는지는 `BodiesOverlap` 한 곳에서 묻는다. 설 수 있는 자리, 막은 것 찾기, 기다림 판정(`Stuck`)이 같은 식과 같은 여유(`TouchTolerance`)를 써야 서로 어긋나지 않는다. 벽에서 몸 쪽 방향은 가려는 자리가 아니라 지금 자리에서 본다. 가려는 자리가 칸 안으로 들어가 있으면 방향을 정할 수 없다. 예전의 "직진이 반 걸음도 못 가면 흐름장 방향으로 다시 구하기"는 없앴다. 모서리를 스치는 줄(`GrazingLine`)은 이제 끼고 돌아 지나간다.
-- **옆으로 돌기**(`Slide`): 다른 적의 몸에 거의 정면으로 막히면 겉을 따라갈 성분이 없어 그 뒤에 선다. 틈에서 줄지어 나온 적들이 맨 앞의 적 뒤에 한 줄로 서서 대원을 둘러싸지 못했다(`SingleFile`). 그때는 옆으로 돈다. 먼저 쫓는 대원 쪽(`EnemyPlan.Toward`)에서 보아 이미 치우쳐 있는 쪽으로 돌고, 그쪽 걸음을 디딜 수 없으면 반대쪽으로 돈다(2026-11-15). 그래서 앞줄 뒤에 온 적도 한쪽이 비어 있으면 그리로 돌아 들어간다(`TurnsOtherWay`). **반대쪽으로 도는 것은 아래의 '움직이던 쪽 지키기'가 있어야 쓸 수 있다.** 그것 없이 넣으면 막힌 쪽과 열린 쪽을 한 틱씩 오간다(잰 1,800판에서 제자리를 오간 5초 구간이 243에서 11,281로. 2026-11-14에 한 번 넣었다 버린 까닭이다). 먼저 도는 쪽은 가려는 방향이나 이번 틱의 이동으로 고르지 않는다. 대원이 보여도 몸 통과 판단이 한 걸음 차이로 갈리는 자리에서는 가려는 방향이 직진과 흐름장 사이를 오가고, 이동에는 길을 내주는 방향이 섞인다(`SidestepSettles`). 벽과 대원의 몸은 옆으로 돌지 않는다. 대원에게 닿은 적은 다 온 것이라 대원 둘레를 돌 까닭이 없다(돌게 하면 대원에게 닿은 적들이 자리를 잡지 못하고 계속 움직인다).
-- **움직이던 쪽 지키기**(`KeepsCourse`·`Reverses`, `Enemy.LastMove`, 2026-11-15): 더 갈 수 없어 기다리는 적은 마지막으로 움직인 쪽을 거슬러(두 방향이 120° 넘게 벌어지게) 가지 않는다. 가던 쪽으로 더 갈 수 없으면 그 자리에 선다. 기다리는 적은 서 있는 몸에 막혀 있어서, 틱마다 다시 정하는 방향이 한 걸음 차이로 뒤집히는 자리가 많다. 뒤집힌 쪽으로 가면 다음 틱에 되돌아와 제자리를 끝없이 오간다. 리뷰(2026-11-14)가 찾은 장면에서는 틈을 막은 분쇄자 뒤의 병사가 북서로 한 걸음, 남동으로 한 걸음을 되풀이했다. 따라가 보니 원인이 셋이었다.
-  - 흐름장을 따르던 적이 옆으로 돌다 대원에게서 더 먼 칸으로 들어가고, 그 칸의 흐름장을 따라 되돌아온다.
-  - 가려는 칸의 가운데를 다른 적이 차지하고 있으면, 가로·세로로 따로 움직인 걸음으로 조금씩 다가갔다가 그 걸음이 0이 되는 틱에 옆으로 도는 걸음으로 한 걸음 물러난다.
-  - 직진과 흐름장이 한 걸음 차이로 갈리는 자리에서, 흐름장일 때 가는 쪽과 직진일 때 가는 쪽이 맞선다.
-  - 셋 다 움직이던 쪽을 거슬러 되돌아가는 것이라 규칙 하나로 막는다(`KeepsCourse`). 지키는 것은 막혀서 다 가지 못한 걸음(가로·세로 걸음, 끼고 도는 걸음, 옆으로 도는 걸음)이고, 막히지 않고 한 걸음을 다 가는 것은 막지 않는다. 길이 열리면 어느 쪽으로든 간다.
-  - 길을 내주는 적과 기다리지 않는 적은 뺀다. 기다리지 않는 적에게도 걸면 움직이는 적들 사이에서 한 틱 물러났다 다시 가는 걸음이 막혀, 적이 행동하는 1,800판에서 길에서 멈춘 적이 17 나왔다.
-  - 행동을 시작해도 움직이던 쪽은 지우지 않는다. 지우면 공격 거리 안에서 막혀 선 적이 공격과 공격 사이의 틈마다 자리를 옮겼다가 다음 틈에 되돌아온다(`HoldsPlaceBetweenAttacks`).
-  - `Enemy.LastMove`는 틱을 넘어 남는 상태라 상태 요약에 든다(`LastMoveInStateHash`). 스냅샷에는 담지 않는다.
-- **길 내주기**(`Steer`·`Yield`): 한쪽만 비켜 준다. 서로 똑같이 밀어내면 한 칸 틈 앞에서 둘이 마주 버틴다(`GapPairs`). 뒤선 적은 가까이에서 움직이는 앞선 적에게서, 몸이 닿기 12(`YieldMargin`) 전부터 가까울수록 세게 멀어지고 그만큼 제 갈 길을 덜 간다. 비켜 주려고 물러나는 적도 움직이는 적이라 그 뒤에 붙은 적이 또 비켜 준다. 그래서 길을 내주는 일이 뒤로 이어진다(`GapRushes`). 가려는 방향과 비켜 주는 방향이 거의 맞서면(합이 1/4 미만, `StillSteerSquared`) 그 틱에는 서 있는다. 느린 적을 한 줄로 뒤따르는 빠른 적이 다가갔다 물러나기를 되풀이하지 않게 하는 것이다(`FollowsInLine`).
-- **기다리는 적에게는 길을 내주지 않는다**(`EnemyPlan.Waiting`, `Stuck`): 더 갈 수 없어 기다리는 적은 이번 틱에 서 있는 적, 다음 걸음이 대원의 몸에 막히는 적(다 온 적), 다음 걸음이 행동 중인 적이나 기다리는 앞선 적의 몸에 막히는 적(그 뒤에 선 적), 다음 걸음이 막혀 선 적의 몸에 막히는 적(아래)이다. 앞선 적부터 정하므로 다 온 적 뒤에 선 적, 그 뒤에 선 적으로 차례로 이어진다. 이 규칙이 없으면 가지도 못하는 적에게 뒤의 적이 길을 내준다. 대원 둘레의 적들이 서로 밀려나 자리를 잡지 못하고, 앞줄 뒤로 들어서던 적이 한 틱은 다가가고 다음 틱은 물러나기를 되풀이한다(`GivesWayOnlyToMovers`). **적이 행동하는 장면에서 특히 크다.** 예고하고 공격하는 적은 그 자리에 서 있어, 그 뒤의 적들이 계속 떠돈다(`WaitersBehindAttackers`).
-- **막혀 선 적은 앞선 차례와 관계없이 서 있는 몸이다**(`MarkHalted`, `EnemyPlan.Halted`, 2026-11-15 재리뷰): 가려는 방향으로 한 걸음 간 자리가 대원의 몸, 행동 중인 적의 몸, 다른 막혀 선 적의 몸과 겹치는 적이 막혀 선 적이다. 대원에게 다 온 적, 그 뒤에 선 적, 또 그 뒤에 선 적으로 대원 쪽에서부터 이어진다. 계획을 세우기 전에 한 번 가려 두고, `Stuck`이 그 몸을 차례와 관계없이 본다. 기다리는지는 앞선 적부터 정하는데, 앞선 차례는 길의 칸 수로 먼저 가려 대각선 칸의 적(두 칸)이 곧은 칸의 적(한 칸)보다 뒤 차례다. 그래서 대원에게 먼저 닿아 선 적이 그 옆에서 아직 닿지 못한 적보다 뒤 차례일 때가 있다. 이 규칙이 없으면 그 몸과 벽 사이에 끼인 적이 한 걸음도 못 가면서 움직이는 적으로 남는다. 그 적은 움직이던 쪽을 지키지 않고, 둘레의 뒤선 적들은 그 적에게 길을 내주려 한다. 길을 내주는 적은 움직이던 쪽을 지키는 규칙에서 빠지므로, 어느 쪽이든 제자리를 끝없이 오간다(재리뷰가 생성 맵 시드 97에서 찾은 장면: 끼인 철위병 옆의 병사가 5초마다 495를 움직이고 자리는 그대로였다. `StuckBehindLaterEnemy`).
-  - 가려는 방향(`Heading`)으로 본다. 이번 틱의 이동(`Step`)에는 길을 내주는 방향이 섞이는데, 그것은 누가 기다리는지가 정해져야 구한다.
-  - 표시는 대원이나 행동 중인 적의 몸에서 시작해서만 이어지고, 틱마다 다시 정한다. 그래서 길 한가운데에서 서로 막은 두 적이 서로를 서 있는 몸으로 보고 함께 멈추는 일이 없고, 막은 몸이 사라지면 바로 풀린다. "길을 내주려 했는데도 못 움직인 적을 다시 움직일 때까지 서 있는 몸으로 본다"는 안은 틈 맵에 60마리를 몬 20판 가운데 2판에서 틈을 막고 선 77마리가 풀리지 않았다.
-  - 막혀 선 적도 옆으로 돌아 움직일 수 있다. 서 있다는 뜻이 아니라 가려는 쪽이 서 있는 몸에 막혔다는 뜻이다(기다리는 적도 그렇다).
-  - 사슬 없이 대원에게 닿은 적만 보면, 대원에게 닿지 못한 둘째 줄의 적에게 막힌 적이 같은 꼴로 남는다(틈 맵 60마리 20판 가운데 4판에서 끝까지 오가는 적 여덟).
-  - 비용: 끼인 적에게 둘레의 적이 길을 내주다 우연히 자리가 나던 일이 없어져, 붐비는 틈 맵에서 서 있는 대원 둘레에 붙는 적이 조금 준다(여덟을 놓은 200판에서 1,462 → 1,427). 대원이 걸어 다니는 장면의 압박은 같다. 수치와 견준 안들은 `docs/verification.md`의 2026-11-15 재리뷰 항목에 있다.
-- **앞선 차례**(`Ahead`): 대원까지 가는 길의 칸 수(흐름장)가 적은 적이 앞서고, 같으면 쫓는 대원에게 가까운 적, 그것도 같으면 id가 작은 적이다. 어느 두 적 사이에서도 한쪽이 앞서고, 적 목록의 차례와는 관계없다(`AheadOrder`·`TieGoesToSmallerId`).
-- 이동 계획(`_moving`)은 틱 안에서만 쓰는 임시 값이라 상태 요약에 넣지 않는다.
-- 검사로 묶지 못한 선택이 여덟 있다. 재 본 수치로 골랐고 코드의 그 자리에 주석으로 적었다: 뒤선 적부터 움직이기(`MoveEnemies`), 이번 틱에 서 있는 적도 기다리는 적으로 치기(`PlanMoves`), 옆걸음을 제 빠르기로(`Slide`), 두 몸 사이를 비스듬히 지나는 빈 자리로 바로 가기(`Slide`. 2026-11-14에는 장면으로 묶여 있었는데, 움직이던 쪽을 지키게 된 뒤로는 빼도 흔든 장면에서 갈리지 않는다), 움직이던 쪽 지키기에서 길을 내주는 적을 빼기와 기다리지 않는 적을 빼기(`KeepsCourse`), 기다리는 앞선 적의 몸 보기(`Stuck`. 막혀 선 적의 사슬이 들어간 뒤로는 그것이 대부분을 대신해, 이것만 빼면 작은 장면에서는 갈리지 않는다. 둘을 함께 빼면 `GivesWayOnlyToMovers`가 잡는다), 막혀 선 적이 제 몸은 보지 않기(`Stuck`). 바꾸려면 `docs/verification.md`의 2026-11-15 항목들에 있는 표처럼 여러 장면의 합으로 잰다.
-- **조향을 고칠 때는 두 가지를 한다.** 첫째, 적이 행동하는 장면으로도 잰다. 행동 없이 이동만 하는 장면에서 좋아진 변경이 행동하는 장면에서는 나빠질 수 있다(2026-11-14에 옆걸음 빠르기와 길 내주기를 고치다 겪었다). 둘째, 규칙을 하나씩 틀리게 바꿔 검사가 잡는지 본다. 조향은 작은 변경에도 장면마다 결과가 크게 달라져서, 아무 장면이나 검사로 삼으면 고칠 때마다 우연히 갈린다. `EncounterTests`의 장면 검사(`GivesWayOnlyToMovers`·`AheadOrder`·`SidestepSettles`·`KeepsCourse`·`StuckBehindLaterEnemy`·`TurnsOtherWay`)는 처음 자리를 흔들어도 결과가 같은 장면만 골라 둔 것이다(고른 방법은 `docs/verification.md`의 2026-11-14·11-15 항목). **모델을 고치면 예전에 고른 장면도 다시 본다.** 2026-11-15에 규칙 둘을 더하자 예전 장면 열하나 가운데 여섯을 바꾸거나 빼야 했다. 셋은 규칙을 틀리게 바꿔도 통과했고, 나머지는 흔들면 결과가 갈리거나 보려던 상황이 더는 생기지 않았다. 같은 날 재리뷰 반영으로 막혀 선 적을 더하자 또 셋이 규칙을 틀리게 바꿔도 통과하게 되어 장면을 바꿨다. `StuckBehindLaterEnemy`의 장면은 끼이는 자리가 한두 단위 차이로 갈려, 규칙을 뺀 코드도 흔든 가짓수 가운데 일부에서는 통과한다. 그래서 장면을 넷 두었다. 주석에 적어 둔 "그 규칙을 빼면 이렇게 된다"도 달라진 곳이 있었다. 틱마다 몸이 벽이나 다른 몸과 겹치지 않는지도 본다(`CheckBodies`). "가만히 선다"는 `RunScene`·`CheckStill` 한 곳의 기준(마지막 3초 동안 지나간 길이가 1 미만)으로 본다. 제자리를 오가는지는 자리가 아니라 지나간 길이나 되돌아선 걸음(`TurnBacks`)으로 잰다. "두 틱 전 자리로 돌아왔는가"로 세면 돌아올 때마다 조금씩 어긋나며 오가는 적을 놓친다(2026-11-14 리뷰. 그 기준으로 203틱이라던 떨림이, 5초 구간의 지나간 길이와 자리 변화로 재니 243구간이었다). `GeneratorTests`의 `GroupsLeaveEnclosures`는 생성 맵 12개에서 울타리 안의 셋이 모두 나와 캠프의 대원에게 오는지 본다.
-- 남는 한계:
-  - 두 쪽이 모두 막혔거나 돌던 쪽이 막다른 곳이면 그 자리에 선다. 되돌아 나와 반대쪽으로 가지는 않는다. 대원이 구석에 서 있으면 붙을 자리만큼만 붙고 나머지는 그 뒤에 선다. 고치려면 흐름장이 서 있는 적의 몸을 피해 가게 해야 한다.
-  - 앞줄의 두 적 사이 홈에 들어선 적은 반대쪽이 비어 있어도 그 자리에 선다. 가장 깊이 겹친 몸의 옆으로 도는 걸음을 다른 몸이 막기 때문이다. 재리뷰 반영 전에는 다가오는 다른 적에게 길을 내주다 우연히 빠져나오는 일이 있었는데, 막혀 선 적끼리는 길을 내주지 않으므로 이제 그대로 선다(틈 맵에 여덟을 놓은 200판 가운데 한 판에서는 여덟이 다 붙던 것이 다섯만 붙는다). "옆걸음이 막히면 그것을 막은 몸의 겉을 따라간다"로 풀어 보니 붙는 수는 돌아왔지만 제자리를 오가는 구간이 1,800판에서 5에서 100 넘게 늘어 넣지 않았다.
-  - 제자리를 짧게 오가는 구간이 드물게 남는다(수치는 `docs/verification.md`의 2026-11-15 재리뷰 항목). 끝까지 오가는 적은 잰 장면(1,800판, 벽 모서리 장면 9,000개, 틈 맵 60마리 40판)에서 없었다. 지난 항목의 "없었다"는 재리뷰가 틀렸음을 보였다. 내가 잰 장면 묶음에 벽 모서리 옆에 대원이 서는 장면이 드물었다.
-
-`EncounterTests`의 `CornerSlip`이 사선은 열려 있지만 몸이 모서리에 걸리는 경우를 검사한다. `FlowHeading`은 자기 칸보다 비용이 낮은 이웃이 있을 때만 방향을 준다. 대원이 있는 출발점 칸에서 이웃 칸으로 향하면 오히려 멀어지기 때문이다. 몸 통과 판단의 옆선은 반지름보다 0.5 좁게 긋는다. 벽에 딱 붙은 적의 옆선이 벽 면 위에서 시작하면 거리 0에서 막혔다고 나온다. 그 대신 모서리를 반지름보다 0.5 미만으로 가깝게 스치는 직선도 지나갈 수 있다고 본다. 그런 줄에서는 몸이 모서리에 걸리는데, 모서리를 끼고 돌아 지나간다(`GrazingLine`이 모든 적 종류로 확인한다). **적의 몸 지름은 한 칸(48)보다 작아야 한다**(`EnemyDefinition` 생성자가 확인한다). 흐름장은 칸 가운데를 가리키므로, 지름이 한 칸이면(반지름 24) 칸 가운데 줄의 여유가 0이라 흐름장을 따라가도 모서리와 한 칸 틈에 걸린다. 그래서 철위병을 반지름 24에서 23으로 줄였다. `NarrowGap`이 생성자의 거절과 한 칸 틈 통과를, `GeneratorTests`의 `EnemiesReachCamp`가 생성 맵 50개에서 모든 적 종류가 처음 자리부터 캠프 둘레의 대원에게 오는지를 확인한다. 모든 적 종류는 `EnemyDefinition.All`, 가장 큰 몸은 `EnemyDefinition.LargestRadius`이고, 적이 행동을 고르는 거리는 `Match.EngageDistance`(75)다. 적 기술의 사거리에 대원 반지름을 더하면 이 거리 이상이어야 한다. 짧으면 행동 거리 끝에서 고른 기술이 가만히 선 대원에게도 빗나간다(`EncounterTests`의 `SkillsReachEngageDistance`).
-
-- 일반 적(1티어): 완벽 대응이면 피해 없이 처치, 비김은 서로 피해 1, 패배는 플레이어만 피해 1. 기운이 없는 적(무행동, 회복 중, 장판이 나간 공격 창)에게는 일반 피해 1.
-- 완벽 대응은 대원의 기운이 적의 장판을 이길 때(예고 중인 장판 포함)와 대원의 장판이 적의 기운을 이길 때 난다. 비김은 같은 종류의 장판과 기운이 실제로 닿을 때만 난다. 예고 장판 안에서 같은 종류나 지는 종류의 기운을 두른 것만으로는 아무 일도 없다. 대원의 장판이 그것을 이기는 기운의 적에게 닿으면 적의 완벽 대응이다(대원만 피해, 기술 끊김).
-- 2티어 엘리트 행동은 같은 순간에 유효한 대응 **두 개**가 필요하고 동료의 대응과 합산된다. 대응은 기운과 장판을 가리지 않고 센다. 둘이 장판 안에서 이기는 버튼을 누르고 있으면 그 순간 완벽 대응이다. 완벽 대응은 체력과 무관한 처치이며 같은 장판 안의 무행동 동료까지 보호한다. 이기는 기운이 하나뿐이면 예고 중에는 아무 일도 없고, 실제로 닿을 때(엘리트의 장판이 나가 닿거나, 대원의 장판이 엘리트의 기운에 닿을 때) 부분 대응이 난다. 대원은 피해 1을 받고, 엘리트는 기술별 부분 대응 피해(`EnemySkill.PartialDamage`, 합의한 값은 1이고 지금은 엘리트 2티어 행동 모두 1)를 받으며 그 피해로도 쓰러진다. 판정이 따로 나면 판정마다 이 피해를 준다. 한 판정에 비김이 함께 있으면 부분 대응 피해를 먼저 주고, 처치는 쓰러뜨린 피해를 준 대원이 가져간다.
-- 받아치기는 방어의 기운이 전방 `Rules.GuardHalfAngle`로 돈 뒤 상성 없는(`kind: "none"`, `PlainZone`) 일반 반격이 장판으로 나간다. 받아칠 장판이 없었어도 반격하고, 상성 패배 시에는 취소한다. 완벽 대응을 내면 기술이 거기서 끝나 반격이 없다. 반격은 적의 방어 기운이 향한 쪽에서는 막힌다. 기운이 사라진 공격 창의 적은 막지 못한다.
-- 기운: 대원의 기운은 기술이 향한 쪽(둘레 기술은 모든 방향, 그 밖에는 앞 120°, `SkillFaces`)으로만 돌고 기술의 사거리와 관계없다. 적의 장판이 대원의 몸을 덮고(`Covers`, 사선 포함) 기운이 그 적 쪽을 향하면 대응이다. 적의 장판은 대원의 장판보다 멀리 닿으므로, 이것이 없으면 맞는 기술을 써도 맞기만 하는 거리가 있다. 그 장판에 이미 당한 대원(`EnemyAction.HitPlayers`)의 기운도 대응으로 친다. 그 대원에게 장판이 다시 닿지 않을 뿐이다. 한 명만 판정하는 기술(잡기)은 `ChooseGrabTargets`가 고른 대상만 판정한다. 대상을 바꾸는 곳은 그 한 곳이고, 판정(`ResolveEnemy`)은 읽기만 한다. 판정 도중에 대상을 정하면 적 목록 순서가 대상을 정하고, 측면 공격으로 판정 없이 쓰러진 적에게 잡기가 묶인다(PR #20 리뷰). `CombatTests`의 `AuraReach`·`GrabTargetOrder`·`GrabFlankedTarget`과 `AuraTests`가 확인한다.
-- 같은 순간의 판정: 한 틱의 판정은 모두 그 틱이 시작할 때의 대원 상태로 한다. 적은 목록 순서대로 하나씩 판정하므로, 앞의 판정이 대원의 기술을 끝내거나 대원을 쓰러뜨리면 뒤의 판정이 그 결과를 읽어 같은 장면이 적 목록 순서에 따라 다르게 끝났다. 그래서 판정 도중에는 끊길 대원(`CancelActions`, `_interrupted`)과 완벽 대응을 내어 끝날 기술(`EndSkill`, `_countered`)만 적어 두고, 전투 판정의 피해(`HurtInCombat`)는 체력만 깎는다. 기술을 끝내고 끊는 것과 쓰러짐(`Fall`)은 그 틱의 전투가 끝난 뒤 `ApplyCombatResults`가 한꺼번에 적용한다. 그래서 한 틱에 기운 하나가 이기는 장판 여럿을 모두 받아친다(타격을 예고하는 병사 셋의 장판 안에서 회전 방어를 누르면 셋이 함께 쓰러진다). 피해는 더하기라 순서와 관계없어 바로 깎고, 적이 받는 피해도 그 적의 판정만 읽으므로 바로 준다. **전투 판정 안에서 대원의 상태를 바꾸는 새 경로를 만들면, 같은 틱의 다른 판정이 읽는 값인지 먼저 보고 읽는 값이면 같은 방식으로 미룬다.** `SimultaneousHits`와 `AuraTests`의 `MixedCrowd`가 적 목록 순서를 바꿔 확인한다.
-- 적은 예고하는 동안 그 행동을 시작할 때 노린 대원(`EnemyAction.TargetId`, 그때 가장 가까운 대원) 쪽으로 돈다(`TurnToTarget`, 도는 빠르기 한도 없음). 공격 창이 열리면 직전 틱의 방향을 고정한다. 공격은 창이 열리는 첫 틱에 판정되므로 노린 대원은 걸어서 피할 수 없다(한 틱에 6을 걷고, 공격의 가운데 줄에서 26~37 안이면 맞는다). 의도한 것이다. 걸어서 피하기는 의도한 동작이 아니고, 피하기는 대시 같은 기술이 맡는다(2026-11-08 사용자 결정. 대시는 2026-11-15에 넣었다). **도는 빠르기 한도나 공격 창 전의 방향 굳히기로 걸어서 피할 틈을 만들지 않는다.** 예고 내내 옆으로 걷기만 해도 그 틈에 범위를 벗어나, 제보된 "옆으로 걸으며 난사"가 다시 측면 처치가 된다. 측면은 다른 대원을 노리는 적을 칠 때 생긴다. 노린 대원은 바꾸지 않고, 그 대원이 쓰러지면 마지막 방향을 유지한다. 검사가 직접 만든 행동(`TargetId`가 없음)은 돌지 않으므로 기존 측면 검사가 정한 방향 그대로 판정받는다. `EncounterTests`의 `TelegraphTracksTarget`·`SidestepMeetsAffinity`·`WalkingAsideStillHit`·`WindowKeepsDirection`·`TargetStaysChosen`·`TeammateFlanksTurningEnemy`가 확인한다. 스냅샷의 적 행동에는 노린 대원 `target`이 있다. 화면은 나를 노린 예고를 내 예측 위치 쪽으로 그리고, 공격 창이 열린 뒤에는 서버가 보낸 방향 그대로, 그 밖의 예고는 같은 행동의 방향을 이전 스냅샷과 이어 그린다(`world.ts`의 `facing`). 보간한 방향만 그리면 나를 노린 예고가 내 몸보다 뒤처져, 걸어서 비켜 선 것처럼 보인다. 나를 노린 예고는 서버가 마지막으로 도는 틱(공격 창 한 틱 전)이 화면 시계로 지나면 더 따라 돌지 않는다. 그 틱에 서버가 본 내 자리를 서버와 같은 계산으로 구해(`serverSpotAfter`: 마지막 스냅샷의 내 Raw 위치에 확인받지 않은 입력을 그 틱까지만 다시 적용) 그쪽으로 굳힌다. 답은 스냅샷과 확인받지 않은 입력이 그대로면 같으므로 틱 수마다 기억해 두고(`spots`), 새 입력을 기록하거나 스냅샷이 오면 비운다. 그리기마다 확인받지 않은 입력을 처음부터 다시 걷지 않는다. 진하게 칠한 범위가 서버가 친 자리와 같아야 해서다(PR #22 재리뷰, 사용자 결정 "복잡해도 최선을"). 공격 창 스냅샷이 오기 전의 근사(마지막 서버 방향)로 대신하지 않는다.
-- 적의 기운은 그 행동이 향한 범위 안의 대원에게만 돈다(`InActionShape`: 타격·잡기는 그 장판, 방어는 밀어치기 장판과 전방 120°). 범위 밖에서 친 장판(측면 공격)은 상성 없이 일반 피해 1이고, 그 피해로 적이 쓰러지면 행동이 무효가 된다. 전방 120° 계산은 대원의 기운이 향한 쪽·적 방어의 반격 차단·측면 판정이 모두 `Faces` 하나를 쓴다. `Faces`는 사잇각을 구하지 않고 내적으로 비교한다(offset·forward ≥ |offset| × cos(반각)). 반각(`Rules.GuardHalfAngle`)은 한 바퀴로 감지 않아, 반 바퀴 이상이면 모든 방향을 막고 음수면 어느 방향도 막지 않는다. 반 바퀴 이상은 내적을 보지 않고 바로 막는다. 방향 벡터는 1/4096 단위로 반올림해 길이가 1보다 조금 길 수 있어, 코사인 -1과 내적으로 비교하면 정확히 뒤쪽 약 1°를 놓치기 때문이다.
-- 잡기는 한 시전에 적 하나만 판정한다. 기운이 도는 동안에는 받아칠 장판을 매 틱 다시 고른다(`AuraTarget`): 대원을 덮은 장판 가운데 잡기가 이기는 장판(방어)을 낸 가장 가까운 적, 없으면 지금 실제로 닿는 장판을 낸 가장 가까운 적이다. 장판이 나가면 범위 안의 가장 가까운 적을 잡고(`ZoneTarget`), 그때 아무도 없으면 장판이 깔려 있는 동안 처음 들어온 적이 대상이다. 거리가 같으면 id가 작은 적이다(`Closer`). 장판으로 대상을 고르거나 판정을 받으면 `TargetLocked`로 고정한다. 비김 피해로 쓰러뜨린 처치는 비긴 대원이 가져간다.
-- 합의에서 정하지 않아 만들면서 채운 세부는 `docs/combat.md`의 "기운·장판 모델을 만들며 정한 것"에 모여 있다(누르고 있어도 다시 시전하지 않음, 장판의 완벽 대응도 기술을 끝냄, 이미 당한 장판도 기운으로 받아침, 잡기의 기운이 고르는 장판, 상성 없는 타격 먼저). 사용자 확인을 받으면 합의한 규칙으로 옮긴다.
-- 대시(`Rules.cs`의 `DashSkill`, 2026-11-15 사용자 요청): 넷째 자유 칸에만 드는 상성 없는 기술이다. 기운도 장판도 없다(`SkillDefinition` 생성자가 대시에 기운이나 장판이 붙은 정의를 거절한다). 기술을 시작한 틱부터 끝나기 전까지(`PlayerAction.Dashing`) 틱마다 `DashStep`(대시 거리를 틱 수로 나눈 값. 150을 5틱에 가므로 30)만큼 한 방향으로 간다. 방향(`PlayerAction.Direction`)은 시작하는 틱에 한 번 정한다. 걷던 쪽이고, 서 있었으면 조준한 쪽이다(`Match.DashDirection`). 그동안 이동 입력은 쓰지 않는다.
-  - `UpdatePlayer`의 차례는 끝난 기술 치우기 → 기운 잇기(`HoldAuras`) → 기다리는 누름으로 시작하기(`StartWaitingSkill`) → 이동(`MovePlayer`)이다. **이동을 기술 시작 뒤에 둔다.** 앞에 두면 대시가 누른 틱에 움직이지 못해 다섯 틱 가운데 넷만 가고, 이어서 누른 대시와의 사이에 걷는 틱이 낀다.
-  - 이동은 걷는 것과 같은 `MoveBody`다. 벽과 적의 몸은 지나가지 못하고, 막힌 쪽만 멈춰 그 면을 따라 미끄러진다.
-  - 대시하는 동안(`PlayerAction.Evading`, 기술 정의의 `Evades`)에는 적의 나간 장판에 맞지 않는다. `ResolveEnemy`의 마지막 단계가 그 대원을 장판의 `HitPlayers`에 넣기만 하고 피해 없이 넘어간다. 그래서 피한 장판은 대시가 끝난 뒤에도 그 대원에게 닿지 않는다. 대시에는 기운이 없어 대응으로 세지 않는다. **회피하는 기술에는 기운도 장판도 붙일 수 없다**(대시가 아니어도 같다. `SkillDefinition` 생성자가 거절한다). 그 단계는 회피하는 대원을 대응 없이 넘기므로, 기운이 있으면 그 대응이 판정받지 않은 채 남는다. 방어 기운이 도는 구르기 같은 기술이면, 2티어 장판 안에서 혼자 회피한 대원의 기운이 잠시 뒤 같은 장판에 들어온 동료의 기운과 합쳐져 완벽 대응이 된다(PR #30 리뷰 3번). 기운이 도는 회피 기술을 만들려면 판정이 그 대응을 어떻게 다룰지부터 정한다.
-  - 대시는 전투 판정으로 끊기지 않는다. 대원이 피해를 받고 기술이 끊기는 길이 그 단계뿐이기 때문이다. 내 화면이 내 대시를 미리 그리는 것(결정론의 "클라이언트 예측 일치")이 여기에 기댄다. **대시하는 대원이 피해를 받거나 기술이 끊기는 길을 새로 만들면 예측이 어긋나므로, 그때는 화면이 대시를 미리 그리는 방식부터 다시 본다.**
-  - 방향은 틱을 넘어 남는 상태라 `StateHash`에 넣었다. 스냅샷은 대시하는 동안 기술 객체의 `phase`를 `dash`로, 방향의 Raw를 `dashX`·`dashY`로 보낸다.
-  - 쿨다운은 없다. 대시하는 중에 다시 눌러 누르고 있으면 앞의 대시가 끝나는 틱에 다음 대시가 나가, 움직임도 회피도 틈 없이 이어진다. 대가는 누를 때마다 드는 마나다.
-  - 사용자가 정한 것은 "넷째 칸에 걸 수 있는 기술로 대시를 넣는다"까지다. 나머지(대시하는 동안 맞지 않음, 적의 몸을 지나가지 못함, 방향, 쓰던 기술을 끊지 못함, 쿨다운 없음, 수치)는 `docs/combat.md`의 "대시를 만들며 정한 것"에 고르지 않은 안과 함께 모여 있고 사용자 확인을 기다린다. `DashTests`가 지금 동작을 확인한다.
-
-수치와 정의의 위치: `Game/Rules.cs`(기술 비용과 기운·장판 시간, 대시의 거리와 길이, `MaxAuraSeconds`, `AllowEliteEnemies`, `EnemyWindupMultiplier`, 체력·마나·시야), `Game/SkillDefinition.cs`(`Affinity`, `EnemySkill`, `EnemyDefinition`의 Grunt/Breaker/Warden), `Game/Model.cs`(`Player`·`Enemy`·`PlayerAction`·`EnemyAction` 상태와 중복 판정 기록용 `HashSet`).
-
-상성 색은 빛의 3원색이다. 타격 빨강(#ff6b61), 방어 파랑(#4785ff), 잡기 초록(#a6f9ba)이다(2026-11-05 사용자 요청, 11-08 사용자가 후보 중 골랐다). CSS 변수(`--strike`·`--block`·`--channel`)와 `palette.ts`의 `affinityColors`에 같은 값을 두고, `world.spec.ts`가 같은지 본다. 캔버스는 CSS 변수를 읽지 못하기 때문이다. `palette.ts`는 pixi를 불러오지 않으므로 검사가 그 값을 그대로 가져다 쓴다. 세 색 모두 어두운 지도 바닥에 대한 대비가 정상 시각과 적색약·녹색약 흉내에서 4.5 이상이다. 순수한 빨강은 적색약에게 어두운 올리브색으로 보여 타격 범위가 흐렸다. 초록은 빨강과 밝기가 크게 다르도록 연하게 골라, 녹색약에게도 둘이 밝기로 갈린다. 대원 색(`team`)은 그대로 두었다. 예전 상성 색(연어·청록·연보라)에서는 방어가 2번 대원과 같은 청록이었다. 효과 색(`effectColors`)에서 방어 성공은 방어 상성 색이고, 상성이 없는 피격·비김은 3원색과 겹치지 않는 분홍(#ff8fd6)이다(11-08 사용자 결정). 예전 피격·비김 색(연어 빨강)은 새 타격 빨강과 거의 같아 피격이 타격 예고로 읽혔다. `world.spec.ts`가 상성이 없는 효과가 상성 색을 쓰지 않는지 본다. 터치 기술 버튼, PC 기술 막대, 로비 장비 칸(종류 칸 이름표와 자유 칸의 기술마다)에는 상성마다 가위바위보 손 그림을 상성 색으로 붙인다(`rps.ts`). 타격은 가위, 방어는 주먹, 잡기는 보다(2026-11-05 사용자 요청, 11-09 범위와 그림 방식을 정함). 짝이 상성을 그대로 옮긴다. 가위가 보를 이기듯 타격이 잡기를 이긴다. 그림은 이모지가 아니라 직접 그린 SVG다. 이모지는 기기마다 모양과 색이 달라 상성 색으로 칠할 수 없다. 손가락 마디 사이와 엄지 둘레의 틈은 마스크로 뚫어 실제 바탕이 비치게 한다. 정해 둔 바탕색으로 칠하면 손 그림이 놓이는 바탕(고른 장비, 사용 중인 칸, 지도 위의 반투명 터치 버튼)과 달라 검은 윤곽선처럼 보였다(PR #25 리뷰). 마스크 id는 그림마다 따로 붙인다. 같은 id를 나눠 쓰면 모두 문서에서 처음 나온 정의를 따르는데, 그 그림이 숨은 화면(로비나 작전 화면)에 있으면 마스크가 그려지지 않는다. PC 기술 막대는 손 그림을 이름 앞에 두되, 폭 440px 이하의 창(크게 확대한 창)에서는 이름 위 줄로 올린다. 그 폭에서는 칸 안쪽이 54~74px이라 이름 앞에 두면 이름(약 51px)이 잘리고, 키 이름 줄과 마나 줄에도 자리가 없다. 폭 360px 이하는 손 그림 전부터 이름이 잘리고 키 이름이 두 줄로 꺾였으므로 전투 HUD와 칸의 옆 여백, 칸 사이를 줄였다. 기술 막대의 칸과 손 그림은 터치 버튼처럼 처음에 한 번 만들고, 스냅샷마다 클래스와 글자만 고친다. 손 그림은 종류가 바뀔 때만 다시 그린다(`showHand`). 로비는 방에 들어가기 전이라 서버의 기술 정의가 없어 장비 칸과 기술 종류 표를 `loadout.ts`에 따로 적는다. 종류 칸에 없는 기술(대시)은 종류가 `none`이라 손 그림만 빠진다. `hands.spec.ts`가 짝과 세 자리, 터치 버튼 안에 들어가는지, 다음 작전에서 자유 칸 종류가 바뀌면 손도 바뀌는지 본다. 틈 자리가 바탕을 비추는지(크게 그린 화소), 마스크 id가 겹치지 않는지, 좁은 PC 창에서 이름과 키 이름이 잘리거나 꺾이지 않고 손 그림이 글자와 겹치지 않는지, 로비 표가 첫 스냅샷의 `rules.skills`와 같은지도 본다. 엘리트의 몸 색(`world.ts`)이 그 엘리트가 쓰는 2티어 행동의 종류다. 분쇄자는 빨간 몸에 타격 Ⅱ, 철위병은 파란 몸에 방어 Ⅱ다. 합의 규칙 "크기와 특징으로 어떤 2티어 기술을 쓰는지 알아볼 수 있게 한다"를 따른다. 철위병의 타격도 2티어였을 때 휴대폰 시험에서 헷갈려 2026-11-05에 1티어로 낮췄다. 몸 색은 `bodyColor`가 적의 `tiers`와 상성 색(`affinityColors`)에서 구하므로, 티어나 상성 색을 바꾸면 몸 색도 함께 바뀐다(`CombatTests`의 `WardenStrike`, `world.spec.ts`의 몸 색 검사).
-
-운영 방(생성 작전)은 `Rules.ForGeneratedMission`(엘리트 켬, 선딜 배율 1)을 쓰고, 처음 적은 시설마다 병사·분쇄자·철위병이다. 기본 규칙(`new Rules()`)은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 선딜 두 배)이다. 처음 배치하는 자리와 종류는 작전 배치(`MissionLayout.InitialEnemySpots`의 `EnemySpot`)가 정한다. 엘리트를 끈 작전에서는 엘리트 자리(`EnemyDefinition.IsElite`, 2티어 기술이 있는 적)에도 병사를 둔다. 자리가 막혀 있으면 생성자가 예외를 낸다(`PlaceInitialEnemy`). `AddEnemy`는 막힌 자리를 아무 표시 없이 건너뛰므로, 처음 배치에 그대로 쓰면 적이 빠져도 알 수 없다. 증원(`SpawnEnemy`)은 막히면 다른 각도를 다시 뽑으므로 그대로 둔다.
-
-### 서버 권위와 시야 — 치트 방지 불변식
-
-이 저장소는 게임 서버의 권위와 치트 방지를 핵심 목표로 삼는다. 아래는 깨뜨리면 안 되는 규칙이다.
-
-- `Snapshot.CreateShared(match)`가 **직렬화 전에** 시야 밖 적과 예고, 효과를 제외한다. 팀 시야는 캠프 반경과 살아 있는 대원의 시야를 합친 것이며 `Match.Visible`에 벽 가림까지 포함된다. 대기·사망 대원은 시야를 주지 않는다. 적 관련 필드를 추가할 때 이 필터를 우회하지 않는다.
-- `Match.Deploy`는 **분대가 본 칸에만** 받고 **본 칸의 벽만** 검사한다(`BattleMap.CanStand`의 `known`, 보지 못한 칸은 빈 땅으로 본다). 즉시 응답으로 숨은 적의 위치나 보지 못한 지형을 탐색할 수 없게 하려는 의도이며, 적·보지 못한 벽과의 겹침은 5초 뒤 실제 도착 직전에 검사한다. 도착 때 막혀 있어도 실패시키지 않고 `Match.FindLanding`이 원래 지점이 보이는 가장 가까운 빈 자리를 고른다. 근처와 캠프가 모두 막히면 반지름 640까지 넓혀 찾아 대원이 투입 중 상태에 갇히지 않게 한다. **결과가 숨은 적에 따라 달라지는 동작은 실패나 거절로 알리지 않는다.** 그 결과가 곧 안개 속을 엿보는 수단이 된다.
-- 클라이언트가 보내는 것은 이동 방향·조준 방향·슬롯 번호뿐이다. `Match.Input`이 순번 역행·중복, 비유한수, 범위 초과를 거르고 이동 벡터를 정규화한다. `x`/`hp`/`mana`/`damage` 같은 필드로 상태를 정할 수 없다.
-- 입력은 누른 슬롯들(`pressed`, 누른 차례대로)과 누르고 있는 슬롯 전부(`held`)를 따로 보낸다. 클라이언트는 사실(무엇을 눌렀고 무엇을 누르고 있는지)만 보내고, 어느 누름으로 기술을 시작하고 어느 기운을 이을지는 서버가 정한다. **기술은 누름으로만, 누를 때 한 번 시작한다**(`StartWaitingSkill`). 누르고 있음은 그 슬롯으로 쓴 기술의 기운을 잇고(`HoldAuras`) 기다리는 누름을 남기는 데 쓴다. **누름을 `held`로 짐작하지 않는다.** `held`만으로는 '새로 눌렀다'와 '계속 누르고 있다'를 구분할 수 없다(PR #21 리뷰). `held`만 보내는 입력으로는 기술이 시작되지 않는다.
-  - **버튼의 변화(뗌과 누름)는 입력이 도착할 때 적는다**(`Match.ApplyButtons`). 서버는 틱마다 한 번만 진행하므로, 틱에서 지금 누르고 있는 버튼만 보면 두 틱 사이에 지나간 변화를 놓친다. 2026-11-05 휴대폰 시험에서 입력이 0.17초 끊겼다가 [누름, 뗌]이 몰려 와 누른 회전 방어가 나가지 않았다. PR #28 리뷰에서는 [뗌, 다시 누름]이 한 틱 사이에 와 이미 뗀 기술의 기운이 1초까지 이어졌고, [앞 버튼 누름, 뒤 버튼 누름]이 한 틱 사이에 와 한 자리에 적은 누름이 덮였다. 그래서 누름은 도착한 차례대로 기다리는 목록(`Player.Waiting`)에 넣고, 뗀 것은 그 기술(`PlayerAction.Released`)과 기다리는 누름(`WaitingPress.Held`)에 바로 적는다. 입력이 알린 지금의 모습(`held`)은 그때 한 번 쓰고 버린다. 진행이 읽지 않는 값이라 상태로 들고 있지 않는다(PR #28 재리뷰 나). **입력으로 바뀌는 상태를 새로 만들면, 지금의 모습만 읽어도 되는지 지나간 변화를 도착할 때 적어야 하는지 먼저 본다.**
-  - 누름은 누른 차례대로 처리한다(2026-11-13 사용자 결정). 기술을 쓰고 있지 않으면 맨 앞의 누름으로 시작하고(이미 뗐어도), 쓰는 중이면 기다린다. 기다리는 누름은 버튼마다 그 버튼을 누르고 있는 동안 남고, 앞의 기술이 끝나면 차례대로 시작한다. 뗀 누름은 다음 틱에 한 번 더 보고 버린다. 쌓아 두었다가 손을 뗀 뒤 한참 지나 내보내지 않는다. 방금 들어온 누름은 뗐더라도 그다음 틱까지 남는다(`WaitingPress.Fresh`). 거의 함께 짧게 누른 두 버튼 가운데 앞의 기술이 완벽 대응으로 그 자리에서 끝나면 뒤의 버튼이 이어서 나가게 하려는 것이다. 함께 도착한 두 누름 사이에 앞의 기술이 끝났는지는 그 틱의 판정이 끝나야 안다. 마나가 모자란 누름은 버리고 그다음 누름을 본다.
-  - **누르고 있다고 기술이 끝날 때마다 다시 시작하지 않는다.** 완벽 대응은 누른 순간 나므로, 다시 시작하게 두면 사람이 손을 떼기도 전에 같은 기술이 한 번 더 나가 마나를 쓰고 다음 버튼을 막는다. 2026-11-11 전에는 누르고 있으면 반복했다.
-  - 버튼을 놓은 기술은 기운을 더 잇지 않는다(`Released`, 한 번 켜면 끄지 않는다). 버튼을 뗐을 때, 새 누름이 왔을 때(다른 버튼이든 같은 버튼이든, 그 누름이 한 틱 안에 지나가도), 입력이 0.35초 끊겼을 때(`InputTimeoutTicks`), 연결이 끊겼을 때 켠다. 기다리던 누름으로 시작한 기술은 뒤에 아직 살아 있는 누름(그 버튼을 누르고 있거나 방금 들어온 누름, `HasLivePress`)이 있으면 처음부터 놓은 것이다. 뗀 지 한 틱이 지나 그 틱에 버려질 누름은 기다리는 버튼이 아니므로 세지 않는다. 그것까지 세면, 기다리는 버튼을 누른 채 다른 버튼을 짧게 눌렀을 때 누른 때가 한 틱 다를 뿐인데 기운이 이어지기도 하고 끊기기도 한다(PR #28 재리뷰 가). 누르고 있는지의 판단은 `PlayerAction.Holding` 한 곳에 두고 판정과 스냅샷이 함께 본다.
-  - 입력을 다루는 검사는 `Pad`(검사 프로젝트)로 입력을 틱마다 보낸다. 입력 없이 시간을 흘리면 0.35초 무입력 처리가 누르고 있던 버튼을 놓은 것으로 만들어 결함을 가리기 때문이다. 한 틱 사이에 입력이 여럿 오는 장면은 `Pad.Send`를 거듭 불러 만든다. `AuraTests`의 `LetGoBeforeTheZone`·`TwoPressesOneTick`, `EquipmentTests`의 `PressesWaitInOrder`·`TapBesideWaitingButton`이 리뷰의 장면을 확인한다.
-- **적의 장판이 나가는 바로 그 순간에 깔린 대원의 장판은 상성 없는 타격이다**(2026-11-13 사용자 결정, `docs/combat.md`의 "같은 순간에 서로의 장판이 닿을 때"). 적의 기운은 장판이 나가는 틱에 사라지고, 상성 없는 타격은 먼저 처리해 그 피해로 쓰러진 적의 공격을 무효로 한다. 그래서 틀린 버튼도 그 1/30초에는 병사를 피해 없이 쓰러뜨린다. 서드파티 클라이언트가 노릴 수 있다는 것을 알고 지금대로 두기로 했다. **이 순간을 상성 판정으로 바꾸지 않는다.** `AuraTests`의 `SameInstantZones`가 세 때(1/30초 전, 그 순간, 1/30초 뒤)를 확인한다.
-- 분대가 본 칸의 맵 구조와 그 칸의 시설·보급·탈출 지점, 벽 파괴, 목표 진행은 공개 정보다. 보지 못한 칸은 숨은 정보다. 본 칸은 캠프와 살아 있는 대원의 시야로만 늘고(`Match.Explore`), 칸의 어느 부분이든 보이면 본 칸이다. 눈에서 광선 384개를 쏴(`BattleMap.Reveal`, `RayWall`과 같은 칸 따라가기) 지나는 칸과 처음 닿는 벽 칸을 적고, 광선 사이로 빠지기 쉬운 아주 비스듬한 벽 면은 본 빈 땅과 맞닿은 면을 따로 확인한다(`RevealFaces`). 면의 점은 벽 안쪽으로 Raw 1만큼만 들어간다. 더 들어가면 비스듬한 선분이 옆 칸 면에서 먼저 막힌다. 탐색은 `Step`이 틱 진행을 마친 뒤 한 번 하므로 착지·이동·벽 파괴·작전 종료가 틱 안 어디서 일어나도 그 틱의 마지막 상태를 본다. 광선은 필요할 때만 쏜다. 캠프는 벽이 바뀌었을 때다. 대원은 마지막으로 둘러본 자리(`Player.ExploreOrigin`)를 벗어났을 때 멈추면(이동 입력이 없음) 바로, 움직이는 동안은 0.1초(`Match.ExploreIntervalTicks`, 3틱)마다나 반 칸을 넘게 움직였을 때, 그리고 벽이 바뀌었을 때다(`LooksAgain`). 반 칸만 기준으로 하면 모퉁이 옆에 멈춘 대원에게 가려 있던 방이 통째로 빠졌다(PR #18 리뷰). 한 번 둘러보는 데 약 50~75µs다. 한 번 본 칸은 계속 본 칸이다. 스냅샷은 벽 배열에서 보지 못한 칸을 3(`BattleMap.UnknownTile`)으로 가린 공개 벽 배열을 보내고(`Match.PublicTiles`), 그 칸의 시설·보급·탈출 지점을 빼고 보낸다. 공개 벽 배열이 바뀌면(새 칸을 보거나 본 벽이 부서짐) 바뀐 칸을 기록에 쌓고, 그 수가 판 번호(`Match.WallsRevision`)다. 이미 배열을 받은 연결에는 그 뒤로 바뀐 칸만(`wallChanges`, `Match.PublicChangesSince`) 보내고, 처음이거나 바뀐 칸이 칸 수의 1/8보다 많으면 배열 전체를 보낸다(`Snapshot.CreatePersonal`). **보지 못한 칸의 정보를 스냅샷에 새로 넣을 때는 본 칸인지(`Match.Explored`)로 거른다.** `ExplorationTests`가 본 칸의 규칙(보이는 곳에서 떨어진 칸은 보지 않고, 가운데가 보이는 빈 땅과 앞면 가운데가 보이는 벽은 빠뜨리지 않음), 비스듬한 벽 줄, 다시 둘러보는 때, 반 칸 안에서 멈춘 자리(`StopPeek`), 바뀐 칸 보내기, 상태 요약을 확인한다.
-- 서드파티 클라이언트를 허용하므로 공식 클라이언트에서만 동작하는 장치로 규칙을 강제하지 않는다.
-- **보이지 않는 곳에서 일어나는 사건에 공개 순번을 쓰지 않는다.** 효과와 행동의 id는 `Match._nextId` 순번이다. 안개 속 생성처럼 숨은 사건이 같은 순번을 쓰면, 보이는 id 사이의 빈 번호로 그 횟수가 드러난다. 그래서 적 id는 `NewEnemyId`가 방의 시드에서 무작위로 뽑는다.
-- **맵 생성은 방의 시드에서 용도별 시드로 따로 뽑는다**(`SeededRandom.Derive(seed, "mission-layout")`). 같은 시드의 같은 순번을 진행 난수와 함께 쓰면, 공개되는 맵 모양이 숨은 적의 행동·생성 위치와 같은 수가 되어 맵만 보고 숨은 정보를 알 수 있다. 맵 크기와 캠프는 처음부터 공개하고 벽·시설·보급·탈출 지점은 분대가 본 칸만 공개한다. 처음 적 자리와 증원 타원은 숨은 정보라 스냅샷에 담지 않는다.
-- **시드를 클라이언트에 보내지 않는다.** 시드를 알면 적이 고를 행동과 안개 속에서 생길 적의 위치를 미리 계산할 수 있다. 시드에서 뽑은 값(적 id 등)은 공개해도 된다. 출력으로 다음 값을 알 수 없는 생성기(`SeededRandom`)이기 때문이다.
-- **재현용 기록 파일을 서버 밖으로 내보내지 않는다.** 헤더에 방의 비밀 시드와 숨은 정보(처음 적 자리, 증원 타원)가 든 작전 배치가 들어 있어, 진행 중인 방의 기록을 보면 숨은 적의 행동과 생성 위치를 미리 알 수 있다. HTTP로 내려받는 경로를 만들지 않고, 기록 폴더는 git에서도 뺀다. 제보 내용은 기록에만 남고 다른 대원에게 가지 않는다. 예외는 CI 검사 방의 기록이다. 검사에서 쓰고 버리는 방이라, 실패를 분석하거나 다른 운영체제에서 재생하려고 CI 자료(아티팩트)로 올린다. 재생용으로 넘기는 자료는 14일 뒤 지워진다. 운영 기록에는 이 방식을 쓰지 않는다.
-- WebSocket 압축(permessage-deflate)을 켜 두었다. **서버가 보내는 메시지에 토큰 같은 비밀을 넣지 않는다.** 비밀이 플레이어 이름처럼 다른 사람이 정할 수 있는 값과 같은 압축 문맥에 들어가면 압축된 크기로 비밀을 추측할 수 있다(CRIME/BREACH). 지금은 숨겨진 적이 직렬화 전에 빠지고 토큰은 HTTP 응답으로만 나가므로 안전하다.
-
-`client/tests/game.spec.ts`의 위조 상태·잘못된 장비·순번 재생·신원 탈취 검사가 이 경계를 지킨다.
-
-### 프로토콜
-
-통신 형식은 [docs/protocol.md](docs/protocol.md)의 protocol v6이다. `/health`의 `protocol`과 스냅샷의 `version`이 모두 6이다. `Game/Snapshot.cs`(공개 상태 선별)와 `Game/SnapshotMessage.cs`(전송 자료구조)가 서버 쪽이고, `client/src/types.ts`가 같은 모양을 TypeScript로 옮겨 둔 것이다.
-
-방송할 때 `RoomHost.PublishSnapshots`는 `Snapshot.CreateShared`로 팀 공통 부분(시야 계산 포함)을 한 번만 만들고, 수신자마다 `Snapshot.CreatePersonal`로 `you`, 보급 `cooldown`, 기다리는 누름 `waiting`(있을 때만), 그리고 `walls`·`rules`·`map`을 담을지를 정한다. `walls`는 그 연결이 아직 받지 못한 판일 때만, `rules`·`map`은 아직 받지 못했을 때만 담는다. 받았는지는 **보낸 뒤에** `Peer.MarkSent`가 기록한다(`Peer.Send`). 만들 때 기록하면, 느린 연결에서 그 스냅샷이 버려졌을 때 클라이언트가 바뀐 벽을 영영 받지 못한다. 클라이언트(`main.ts`)와 임무 검사 봇은 빠진 값을 같은 방의 이전 스냅샷에서 이어 쓴다. 직렬화도 공통 부분은 방송마다 한 번만 한다. `Snapshot.SerializeShared`가 공통 부분을 한 번 직렬화하고, `Snapshot.Combine`이 수신자별 `PersonalSnapshot`을 직렬화한 뒤 두 JSON의 바깥 중괄호 안쪽을 원본 배열에서 바로 복사해 쉼표로 잇는다. `SnapshotMessage`에는 수신자별 속성이 없으므로 공통 부분에 수신자별 값이 섞일 수 없다. 연결 직후 한 명에게 보내는 `Snapshot.Create`도 같은 방식으로 만든다. **수신자별 값을 새로 추가하면 `PersonalSnapshot`에 넣는다.** `SnapshotMessage`에 넣으면 모든 수신자에게 같은 값이 간다. `LifecycleTests`의 `SharedSnapshot`이 수신자별 값을 확인하고, 그 값을 뺀 나머지가 공통 부분과 같은지 확인한다.
-
-**전송 형식을 바꾸면 세 곳을 함께 갱신한다**: `SnapshotMessage.cs`, `client/src/types.ts`, `docs/protocol.md`. 이전 버전과는 호환되지 않으므로 서버와 브라우저 빌드를 같이 배포한다. 통신 형식을 깨는 변경은 버전을 올린다.
-
-### 클라이언트
-
-- `client/src/main.ts`: 로비, 방 생성·참가, 네 슬롯 입력, HUD, 재접속. 안내는 서버가 붙인 순번(`id`)으로 새 것을 가려 모두 띄운다. 접속 직후 받은 지난 안내는 가장 최근 것만 띄운다. 알림(`toast`)은 줄마다 3.5초씩 보이고 최대 세 줄까지 쌓인다. 같은 말을 거듭 띄우면 줄을 늘리지 않고 시간만 늘리지만, 안내는 순번이 달라 같은 문구라도 따로 띄운다. 마우스 버튼 상태는 `pointerdown`·`pointermove`·`pointerup`의 `event.buttons`로 다시 맞춘다(`syncButtons`). **버튼을 겹쳐 누르거나 뗄 때 브라우저는 `pointerdown`/`pointerup` 대신 `pointermove`만 보낸다.** `event.button`만 보면 두 번째 버튼이 빠지고 놓은 버튼이 눌린 채로 남는다. 입력 정리(`clearInput`)는 작전 중 살아 있을 때만 서버에 멈춤 입력을 보낸다. 살아 있지 않을 때 누른 기술 키와, 살아 있는 상태를 벗어날 때 눌려 있던 기술 입력은 떼었다 다시 눌러야 나간다(`staleKeys`, `releaseSkills`). `slotHeld`도 이런 키를 누르고 있는 것으로 치지 않는다(`keyHeld`). 같은 슬롯의 다른 입력을 새로 눌렀다 떼었을 때 누르고 있던 키로 기운이 이어지지 않게 하려는 것이다. 키의 자동 반복(`event.repeat`)은 누름으로 치지 않는다. 기술은 누를 때 한 번 시작하므로, 창을 다녀온 뒤 계속 누르고 있던 기술 키가 자동 반복으로 들어와도 기술이 나가지 않고, 떼었다 다시 눌러야 한다. **자동 반복으로 처음 보는 기술 키도 다시 눌러야 하는 키로 둔다**(`keydown`의 `revived`). 입력을 비우기 전(창을 떠나기 전)부터, 또는 창 밖에서부터 누르고 있던 키다. 자동 반복이 그 키를 `keys`에 되살리는데, 누르고 있는 것으로 치면 같은 슬롯의 마우스로 짧게 낸 기술의 기운을 그 키가 최대 시간까지 잇는다(PR #28 리뷰). 마우스 버튼도 같다(`pointerBaseline`). 투입 버튼은 요청을 보내는 즉시 막고, 서버의 답(투입 중 상태나 오류 안내)이 오거나 연결이 끊기면 푼다(`deployRequested`). 입력을 비운 뒤(`clearInput`) 처음 받은 `pointermove`·`pointerup`의 버튼은 새 누름으로 치지 않고 기준값으로만 받는다(`pointerBaseline`). 0으로 비우면 창을 다녀온 뒤 누르고 있던 버튼이 첫 움직임에서 새로 누른 것이 된다. `pointerdown`은 아무 버튼도 누르지 않은 상태에서만 오므로 그대로 새 누름으로 본다. 작전이 끝나는 순간에는 한 번만 입력을 비운다. 지난 입력을 보낸 뒤에 누른 슬롯들은 보내기 전에 떼었어도 다음 입력의 `pressed`에 누른 차례대로 한 번 보낸다(`pressedSinceSend`, 목록이다). 한 슬롯에는 입력이 여럿 묶여 있다(1번 키와 좌클릭, 3번 키와 스페이스, 한 버튼의 두 손가락). 이미 누르고 있는 슬롯을 다른 입력으로 또 눌렀을 때 새 누름인지는 `pressSlot`이 가린다. 서버에게 슬롯은 버튼 하나라, 같은 슬롯의 새 누름을 뗐다 다시 누른 것으로 읽어 누르고 있던 기운을 놓고 기술을 한 번 더 낸다. 그래서 그 슬롯을 누르고 있는 것이 서버에서 아직 뜻이 있는 동안에는(`holdMatters`) 겹쳐 누른 것으로 보고 누름을 보내지 않는다. 뜻이 있는 때는 그 슬롯의 기술이 기운을 잇는 중(내 기술의 `held`)이거나 그 슬롯의 누름이 앞의 기술이 끝나기를 기다리는 중(스냅샷의 `waiting`)일 때다. 누름을 아직 보내지 않았거나 서버가 확인하지 않았으면(`pressSequence`가 내 `ack`보다 큼) 어떻게 될지 모르므로 뜻이 있다고 본다. 뜻이 없으면(장판이 나갔거나 기술이 끝난 뒤에도 누르고 있는 입력) 새 누름으로 보내고, 누르고 있던 입력은 앞의 시전에 다 쓴 입력으로 돌려 떼었다 다시 눌러야 하게 한다(`spendSlot`). 그 슬롯을 이미 누르고 있다는 이유만으로 버리면, 타격이 끝난 뒤에도 1번 키에 손가락을 얹고 있는 동안 좌클릭이 먹지 않는다. 다 쓴 입력으로 돌리지 않으면, 짧게 클릭한 타격의 기운을 그 키가 최대 시간까지 잇는다(PR #28 재리뷰 다). **"그 슬롯의 기술이 진행 중인가"로 가리지 않는다.** 장판이 나간 뒤에 누른 것은 한 입력으로 뗐다 다시 누른 것처럼 기다렸다가 나가야 한다. `game.spec.ts`가 겹쳐 누름으로 치는 네 때와 새 누름으로 치는 두 때를, `touch.spec.ts`가 한 버튼의 두 손가락을 본다. 입력은 1/30초마다 보내므로, 그 사이의 짧은 누름이나 브라우저가 잠깐 멈춘 사이의 누름이 빠지지 않게 한다. 한 자리에 적으면 그 사이에 거의 함께 누른 두 버튼 가운데 앞의 것이 덮인다. 기술은 `pressed`로만 시작하고, `held`는 지금 누르고 있는 슬롯 전부다(`heldSlots`). 어느 버튼이 먼저인지는 클라이언트가 고르지 않는다(위 "서버 권위와 시야"의 입력 항목). 입력 정리의 멈춤 입력에도 누르고 있는 버튼(기술 버튼을 쥔 손가락)을 그대로 싣는다. 빈 것으로 보내면 서버가 그 버튼을 놓은 것으로 적어, 손가락으로 잇던 기운이 그 입력 하나에 끝난다. 버튼이 눌린 채 남았는지는 마나로 알 수 없으므로(기술은 누를 때 한 번만 시전한다) 검사는 보낸 입력의 `held`로 본다(`game.spec.ts`의 `sentInputs`). 기술 칸에는 지금 단계를 적는다(기운·장판·일반 반격·후딜레이). 복구 토큰을 탭별 `sessionStorage`에 둔다.
-- 초대 링크(`client/src/invite.ts`, `main.ts`의 `showInvite`·`copyText`, 2026-11-17 사용자 요청): 옆 패널의 "초대 링크 복사" 버튼이 방 코드를 실은 주소(출처 + 경로 + `?room=방 코드`)를 복사한다. 방 코드만 복사해 보내면 받은 사람이 코드를 복사하고, 게임 주소를 열고, 코드를 붙여 넣어야 했다. 보내는 사람의 주소에 붙은 다른 인자(`?touch`·`?layout`)는 싣지 않는다. 서버는 이 인자를 읽지 않는다.
-  - 그 주소를 연 로비(`#lobby.invited`)는 그 방의 참가를 앞세운다. 참가 버튼이 주된 버튼이 되어 방 코드를 보이며 위로 오고, 새 작전 시작은 보조 버튼이 되어 아래로 간다. 방 코드 입력란은 숨기고 값만 채워 둔다. 모양은 `showInvite`가 두 버튼의 `primary`·`secondary` 클래스를 서로 바꿔 정하고, 자리는 CSS의 `order`가 바꾼다(PC는 세 요소를 `.entry-actions`로 묶었다). 초대받았을 때만 보이는 글은 `if-invited`, 평소에만 보이는 글은 `unless-invited`다.
-  - **링크를 열자마자 참가시키지 않는다.** 호출명과 장비는 로비에서 고른다. 휴대폰의 전체 화면은 누름 안에서만 켤 수 있다. 링크를 열어 보기만 한 사람이 네 자리뿐인 분대의 한 자리를 차지하면 안 된다. 대신 PC에서는 호출명 입력란에 커서를 두고 글을 골라 두어, 이름을 적고 Enter를 누르면 들어간다(한글을 조합하는 중의 Enter는 뺀다. 평소 로비의 Enter는 새 작전 시작인지 참가인지 알 수 없어 아무 일도 하지 않는다). 터치 화면은 자판이 로비를 덮으므로 커서를 두지 않는다.
-  - 초대는 한 번 쓰면 치우고 주소에서도 뺀다(`showInvite()`, `history.replaceState`). 방에 들어갔을 때(초대받은 방이든 새로 만든 방이든)와, 그 방에 들어갈 수 없다는 답(HTTP 409: 없거나 가득 찼거나 끝남)을 받았을 때다. 그대로 두면 방에서 나온 뒤나 새로 고칠 때마다 로비가 끝난 초대를 앞세워, 새 작전 시작이 보조 버튼으로 남는다. 409 뒤에도 방 코드는 입력란에 남는다. 모양이 틀린 코드는 안내만 띄우고 뺀다.
-  - 같은 탭에 복구 정보(`sessionStorage`)가 있을 때: 초대가 그 방이면 그대로 돌아간다(이미 그 방의 대원이다. 새로 참가하면 한 사람이 두 자리를 차지한다). 다른 방이면 돌아가지 않고 초대받은 방의 참가를 보인다. 복구 정보는 지우지 않으므로, 참가하지 않고 뒤로 가면 있던 방으로 돌아간다.
-  - 복사는 `navigator.clipboard`로 하고, 그것이 없거나(보안 문맥이 아닌 사설 주소의 화면) 실패하면 화면 밖의 읽기 전용 입력란을 골라 `document.execCommand('copy')`로 한다. 둘 다 안 되면 알림에 방 코드를 보인다. 브라우저 입력 창(`prompt`)은 쓰지 않는다(닫을 때까지 게임이 멈춘다).
-  - 이 기기에서만 열리는 주소(`localOnly`: localhost, 127.x.x.x, ::1)로 연 화면에서 복사하면 알림이 그렇다고 알린다. 링크는 복사한 화면의 주소로 만들어지고, 서버는 자기의 공개 주소(터널 주소 등)를 모른다. 서버를 띄운 사람이 자기 화면은 localhost로 열고 친구에게는 터널 주소를 주는 경우에 복사한 링크가 친구에게 열리지 않는다.
-  - 복사 알림의 문구는 터치 화면의 배치 검사가 재는 글이다(`touch.spec.ts`의 `showNotice`. 검사 서버가 127.0.0.1이라 가장 긴 문구가 뜬다). 문구를 늘리면 좁은 휴대폰에서 두 줄을 넘지 않는지 두 글꼴로 본다.
-  - `invite.spec.ts`가 주소 읽기와 쓰기, 복사한 글, 초대받은 로비의 모양과 자리(PC와 휴대폰 네 크기), 들어간 뒤와 들어가지 못한 뒤의 로비, 모양이 틀린 코드, 복구 정보와의 우선순위, 복사의 두 번째 방법을 본다.
-- 터치 화면(`main.ts`): 손가락 기기(`matchMedia('(pointer: coarse)')`, PC에서는 주소의 `?touch`)이면 `body.touch`를 켜고 터치 로비와 조작을 띄운다. 터치 로비는 휴대폰 가로 화면 한 장에 들어가고, 버튼만으로 쓸 수 있는 기술만 고른다(`offered`, `loadout.ts`의 `touchSkills`). 둘레 기술 셋과, 자유 칸의 대시다. 대시는 조준 없이 조이스틱을 민 쪽으로 간다(조이스틱을 놓고 있으면 마지막으로 움직인 쪽. 터치 화면의 조준이 그 방향이다). 터치 로비는 기술 설명을 숨기는데(둘레 기술은 모두 같은 설명이라 위의 한 줄이 대신한다), 상성 없는 기술(대시)의 선택지(`label.plain`)만은 한 줄을 다 쓰며 이름 옆에 설명을 보인다. 가장 좁은 가로 화면(533×320)이 가장 빠듯하다. 위의 안내 문장에 대시를 덧붙여 한 줄 늘렸을 때는 CI 실행기 글꼴로 로비가 넘쳤고, 안내를 되돌린 뒤에도 대시 줄만큼 5px 넘쳐서, 높이 340px 이하의 가로 화면에서는 장비 칸의 줄 사이와 맨 아래 안내의 줄 높이를 줄였다. `touch.spec.ts`가 568×320과 533×320에서도 로비가 한 장에 들어오는지 본다. 화면의 선택일 뿐 서버 규칙은 같다. 왼쪽 아래를 누르면 그 자리에 조이스틱이 생기고(`touch-move`), 끄는 방향으로 길이 1의 이동을 보낸다(가운데 10px은 멈춤). 기술 버튼(`.touch-skill`)은 누르고 있는 동안 그 손가락이 `touch.pointers`(포인터 id → 슬롯)에 들어가고, `slotHeld`가 키·마우스와 함께 본다. 한 버튼을 두 손가락으로 누르면 둘 다 떼어야 뗀 것이다. 조이스틱과 기술 버튼을 쥔 손가락은 입력 정리(`clearInput`)가 비우지 않는다. 포인터를 잡아 두어 뗀 것은 늘 알 수 있고, 움직이지 않는 손가락은 새 이벤트가 오지 않아 비우면 되살릴 길이 없기 때문이다. 쓰러질 때는 기술 버튼만, 작전에서 나갈 때는 둘 다 비운다. 기술 버튼도 키보드·마우스처럼 살아 있을 때의 누름만 받는다. 마우스가 없으면 조준은 마지막으로 움직인 방향이다. 터치 화면에서는 마우스가 아닌 포인터(손가락·펜)를 손가락처럼 다룬다(`fingerLike`). 지도(캔버스)의 손가락은 투입 위치 고르기에만 쓰고 마우스 버튼 상태(`syncButtons`)에 넣지 않는다. 다른 포인터 이벤트도 손가락은 건너뛰므로, 넣으면 뗀 것을 맞추지 못한다. PC 화면에는 터치 조작이 없으므로 터치스크린 노트북의 손가락은 마우스 구실을 한다. 손가락을 끌면 브라우저가 화면 밀기로 받아 `pointerup` 대신 `pointercancel`을 보내므로 둘 다 뗀 것으로 본다. 안드로이드에서는 작전을 시작하거나 참가하는 누름에서 전체 화면을 켜고 가로로 고정한다. 전체 화면은 누름 안에서만 켤 수 있다. 옆 패널은 ☰ 메뉴로 여는 서랍이다(`menu-open`). 서랍을 연 채 쓰러지거나 작전이 끝나면 닫는다. 그대로 두면 투입 버튼이나 다음 작전 버튼을 덮는다. 작전 종료 카드는 여백과 글자를 줄여 메뉴 버튼 줄 아래에 둔다. PC 크기 그대로는 높이 320px 화면에서 다음 작전 버튼이 잘린다. 서랍과 작전 종료 카드는 위쪽 줄과 알림 아래에서 시작한다. 그 높이는 화면 폭과 글자와 알림 수에 달려 있어 `main.ts`가 `ResizeObserver`로 재서 `--top-stack`으로 넘긴다. 작전이 끝날 때의 알림은 카드에 같은 말이 있으므로 카드가 보이는 동안 숨긴다. 지도 위쪽의 메뉴 버튼·체력과 마나·경과 시간은 한 줄에 차례로 놓고(`.top-row`, 자리가 모자라면 다음 줄로), 알림은 그 줄 아래에 둔다(`.top-stack`). PC에서는 두 묶음이 `display:contents`라 상자를 만들지 않고 안의 요소가 제자리에 그려진다. 작은 임무 진행(시설 n/3·보급품 n/2, 주목표를 이룬 뒤의 탈출)은 옆 패널이 보이지 않을 때만 보인다. 탈출은 주목표를 이룬 뒤에만 보인다. 그 전에는 탈출 지점을 찾았는지가 쓸모없는 정보이기 때문이다(2026-11-08 사용자). 탈출 지점이 보이면 서버가 보낸 `extraction.unlocked`로 정하고(옆 패널과 같다), 보이지 않을 때만 부순 시설 수로 정한다. 확보 시간은 옆 패널과 같은 함수(`extractSeconds`)로 정수로 내려 보인다. 소수 한 자리를 보이면 탈출 상자가 넓어져 폭 533px 휴대폰 가로 화면에서 위쪽 줄이 두 줄로 꺾였다. 목표 수(시설 3·보급품 2)는 합의한 임무 규칙이라 `facilityGoal`·`supplyGoal`로 둔다. 스냅샷에는 분대가 본 시설만 와서 전체 수를 알 수 없다. 내용이 같으면 다시 쓰지 않고(`setMarkup`), 방을 나갈 때 비운다. 터치 화면은 시설·보급품을 메뉴 버튼 아래(`#touch-mission`), 탈출을 경과 시간 아래(`#touch-extract`)의 상자로 나눠 둔다. 가로 화면에서는 체력·마나 상자가 두 묶음보다 키가 커서 그 아래가 비어 있으므로 위쪽 줄이 높아지지 않는다. 경과 시간 옆에 한 줄로 두면 폭 568px 이하에서 경과 시간 상자가 다음 줄로 밀려 알림이 기술 버튼을 덮었고, 셋을 메뉴 버튼 아래에 두면 두 줄이 되어 위쪽 줄이 높아졌다. 메뉴 아래 상자는 한 줄로 둔다. 아이폰은 전체 화면 버튼이 없어 버튼 줄이 짧은데, 상자를 버튼 줄 폭에 맞춰 꺾었을 때 두 줄이 되어 위쪽 줄이 높아졌다. 경과 시간 상자와 그 아래 탈출 상자를 합한 높이도 체력·마나 상자보다 짧아야 해서 상자의 위아래 여백과 상자 사이 간격을 줄여 두었다. 탈출 상자는 경과 시간 상자보다 넓으면 안 된다. 넓으면 오른쪽 묶음이 넓어져 여유가 적은 화면에서 위쪽 줄이 꺾일 수 있다. 그래서 확보 시간의 단위 "초"는 숫자 밖에 이름과 같은 작은 글자로 붙인다(숫자 안에서는 한글 글꼴로 1px, CI 실행기의 글꼴로 2px 넓었다). CI 실행기는 Chromium을 `--with-deps`로 깔면서 한글을 WenQuanYi Zen Hei로 그린다. 그 글꼴에서는 이 기능 전부터 폭 533px(Nokia Lumia 520)의 위쪽 줄이 한 줄에 들어가지 않으므로, 위쪽 줄 높이 검사는 그 크기를 보지 않는다. `touch.spec.ts`가 전체 화면 버튼이 있을 때와 없을 때 위쪽 줄 높이를 잰다. 폭 760px 이하의 PC 창은 경과 시간 상자 안(`#mission-mini`)에 두고, 자리가 모자라면(화면을 크게 확대한 창) 상자 안에서 줄을 바꾼다. 그러면 상자의 키가 바뀌므로 PC 알림은 `main.ts`가 잰 상자 아래 끝(`--map-top`)에서 23px 밑에 둔다. 작전 종료 카드가 보이는 동안에는 숨긴다(`body.ended`). **CSS에서 `:has()`를 쓰지 않는다.** 모르는 브라우저(iOS Safari 15.4 전, 오래된 안드로이드 WebView)는 그 선택자가 든 규칙 줄을 통째로 버린다. 화면 상태는 `main.ts`가 붙이는 클래스(`body.ended`, `html.touch-operating`)로 고르고, `touch.spec.ts`가 스타일시트에 `:has(`가 없는지 본다. 터치 작전 화면에 쓸 값은 `body.touch` 규칙에 직접 정한다. PC의 좁은 화면 규칙(`max-width` 1100·760·440·360px)이 밑에서 작용하면 같은 터치 화면이 폭에 따라 달라진다. 지도 아래쪽 줄(조작 안내, ping·FPS·적 수)은 터치 화면에서 쓰지 않는다. `touch.spec.ts`가 이 경계의 양쪽에서 계산된 값을 비교한다. **터치 화면에서 글자에 따라 폭이 바뀌는 요소를 피하는 자리를 px 값으로 정하지 않는다.** 차례로 놓아(flex) 브라우저가 자리를 정하게 한다. 체력과 마나를 왼쪽에서 172px에 두었을 때, 한글 글꼴로 그리면 약 188px인 버튼 줄이 덮었다. 조이스틱 자리가 기술 버튼 무리(폭 188px)를 피하는 값은 괜찮다. 버튼의 크기와 자리가 px로 정해져 있어 글꼴과 관계없기 때문이다. 이 개발 환경의 검사 브라우저는 한글 글꼴이 없어 글자가 좁게 그려지므로 스크린샷에 이런 겹침이 드러나지 않는다. 터치 화면의 체력·마나 상자는 내용만큼 넓고, 그 폭은 아래의 상태 글자(`#combat-status`)가 정한다. 위쪽 줄 높이 검사와 휴대폰 크기 점검은 마나가 없는 상태(투입 직후)로 재므로, **마나가 있을 때의 대기 문구는 마나가 없을 때의 문구보다 넓지 않게 쓴다.** 넓으면 마나가 생기는 순간 상자가 넓어져 좁은 가로 화면의 위쪽 줄이 꺾이고 세로 화면에서 한 줄 더 높아지는데, 어느 검사에도 걸리지 않는다(2026-11-13에 대기 문구를 길게 고쳤을 때 한글 글꼴에서 상자가 211px에서 260px이 됐다). `touch.spec.ts`가 두 문구의 폭을 같은 화면에서 비교한다. 입력란 글자는 16px로 둔다. 아이폰 Safari는 그보다 작은 입력란에 초점이 가면 화면을 확대하고 되돌리지 않는다. 당겨서 새로고침을 막는 `overscroll-behavior`는 `html`에 둔다. Chromium은 뷰포트의 이 값을 `html`에서만 읽는다. 조이스틱 자리는 화면 왼쪽 끝에서 안쪽으로 들인다. 왼쪽 끝은 OS의 뒤로 가기 제스처 자리이고 `touch-action`으로 막을 수 없다. 터치 버튼의 크기와 글자 크기는 px로 둔다. 손가락 크기는 화면과 관계없고, CSS px는 기기의 화소 밀도만큼 늘려 그려지기 때문이다. `touch.spec.ts`가 CDP 터치 이벤트로 조이스틱과 기술 버튼을 두 손가락으로 함께 눌러 본다. Playwright의 `touchscreen`은 한 번 누르기만 한다. 작전 종료 화면은 실제로 작전을 끝내지 않고, `page.routeWebSocket`으로 서버가 보낸 스냅샷의 `phase`를 `ended`로 바꿔 띄운다. 터치 화면에서 작전을 시작하면 전체 화면이 켜지고, 전체 화면에서는 `setViewportSize`가 실패하므로 크기를 바꾸기 전에 끈다. 위쪽 줄이 겹치지 않는지는 전체 화면을 다시 켜서도 잰다. 버튼 글이 "전체 화면 끄기"로 길어져, 한글 글꼴이 없는 브라우저에서도 예전 겹침이 드러난다.
-- `client/src/fixed.ts`·`movement.ts`: 서버의 고정소수점 수와 대원 이동 계산을 같은 순서와 반올림으로 옮긴 것이다(결정론의 "클라이언트 예측 일치"). 화면 그리기에는 쓰지 않고 예측과 투입 위치 검사에만 쓴다. 보지 못한 칸(3)은 빈 땅으로 본다(`solid`). 이동 예측이 보지 못한 벽에 막히지 않아 생긴 차이는 서버 위치로 보정되는데, 대원 둘레는 늘 보이므로 드물다.
-- `client/src/world.ts`: PixiJS 렌더링, 스냅샷 보간, 이동 예측과 서버 재조정. 기술은 기운과 장판을 따로 그린다(`drawAction`, `drawZone`). 기운은 몸 둘레의 옅은 빛(몸 반지름 + 8의 원을 상성 색으로 채움)이고, 대원은 그 바깥에 기운이 향한 쪽(둘레 기술은 반지름 28의 고리, 그 밖에는 앞 120°의 호)과 기운이 남은 시간(반지름 34의 가는 호)을 그린다. 적은 예고가 지난 만큼 차는 고리(반지름 32)를 그린다. 장판이 깔릴 자리는 옅게, 나간 장판은 진하게 그리고, 장판이 나가면 기운은 그리지 않는다. 대시는 기운도 장판도 없어, 대시하는 대원 뒤에 가는 반대쪽으로 짧은 꼬리만 그린다(기술 정의의 `dashDistance`와 기술 객체의 `dashX`·`dashY`). 내 대시의 꼬리만은 스냅샷의 기술 객체가 아니라 예측 상태(`forecast.tip`의 기술)로 그린다(`drawPredictedDash`). 내 몸은 누른 순간부터 움직여 보이는데, 꼬리가 다음 스냅샷을 기다리면 0.17초짜리 대시의 절반 넘게 꼬리 없이 움직인다. 예측이 대시를 마쳤으면 서버가 아직 대시 중이라고 알려도 그리지 않는다. 예측을 끈 동안에는 다른 대원처럼 스냅샷으로 그린다. 글자는 더하지 않았다(예고 위에 받아칠 키를 띄우는 안은 2026-11-10에 기각). 단계는 스냅샷의 `phase`가 아니라 화면 시계와 `contactAt`·`activeUntil`로 정한다. 화면 시계가 스냅샷보다 앞서 가기 때문이다. 받아치기의 반격처럼 장판에 상성이 없는 기술(`plainZone`)은 장판을 상성 없는 색으로 칠하고 깔릴 자리를 미리 그리지 않는다. 엘리트의 몸 색(2티어 행동의 종류)과 기운의 색이 같을 수 있지만, 몸은 불투명하게 채우고 기운은 몸 밖의 옅은 빛이라 구분된다. 카메라는 지도 끝에 붙잡지 않고 늘 대원을 가운데에 둔다. 붙잡으면 지도 끝 가까이에서 대원이 화면 구석으로 밀려 PC의 전투 HUD나 터치 화면의 기술 버튼 밑에 그려진다. 다시 쓰는 `World`의 크기는 작전 화면을 보인 뒤에 맞춘다(`app.resize()`). Pixi는 숨은 작전 화면의 크기를 0으로 읽고 예전 크기를 그대로 두므로, 로비에서 화면을 돌리면 지도가 잘린다. 하드웨어 WebGL이 없으면 Canvas 렌더러로 내려간다(Playwright는 `--disable-webgl`로 이 경로를 검사한다). 벽과 보지 못한 칸은 8×8칸 구역마다 따로 그리고, 벽 배열이 바뀌면 칸 값이 바뀐 구역만 다시 그린다(`drawTiles`). 분대가 새 칸을 볼 때마다 바뀐 칸이 오므로, 맵 전체를 다시 그리면 큰 맵에서 초당 여러 번 수천 개의 사각형을 새로 만든다. 보지 못한 칸의 덮개(`fog`)는 시야(밝은 면, `light`) 아래에, 벽은 시야 위에 그린다. 지금 보이는 곳은 아직 본 칸으로 오지 않았어도 밝게 보인다. `main.ts`와 임무 봇은 `wallChanges`를 이전 배열에 적용한다(`applyWallChanges`). 바닥과 격자는 방이 바뀔 때만 그린다(`drawGround`). 라벨(`Text`)은 쓰지 않게 되면 숨겨 두었다가 다시 쓰고, 64개를 넘는 것만 해제한다. 매번 새로 만드는 비용이 Canvas에서 라벨 하나에 약 30µs였다. **원호는 `arcOnNewPath`로만 그린다.** Pixi는 `fill`·`stroke` 뒤의 다음 경로를 직전 경로의 마지막 점에서 시작한다. 그런데 직전 경로가 원·사각형·다각형 같은 도형으로 끝나면 마지막 점을 계산하지 않고, 읽을 때마다 0으로 되돌리는 임시 점(`Point.shared`)을 그대로 쓴다. 그러면 원호가 지도 원점(왼쪽 위)에서부터 직선으로 이어진다. `arcOnNewPath`는 `beginPath()`로 새 경로를 연 뒤 원호를 그린다. `world.spec.ts`의 원호 검사가 기대하는 원호를 반지름과 중심으로 찾고, 그 앞에 다른 점이 붙지 않았는지 확인한다.
-- `client/src/minimap.ts`: 미니맵이다. 맵 전체를 북쪽이 위인 채로 상자에 맞춰 줄여 그린다(2026-11-09 사용자 결정). 그리는 것은 다섯이다.
-  - 분대가 본 칸의 지형. 보지 못한 칸은 비워 상자 바탕이 보인다.
-  - 지금 시야(캠프와 살아 있는 대원). 본 땅보다 한 단계 밝게 칠한다(2026-11-11 사용자 결정). 본 땅만 고르게 칠하면 지금 보이지 않는 곳이 지켜보는 곳처럼 읽힌다. 본 땅은 메인 화면의 바닥색이 아니라 시야 색(`lit`)으로 칠한다. 바닥색은 보지 못한 바탕과 거의 같아(대비 1.11) 본 곳이 보이지 않는다. 메인 화면처럼 땅, 시야, 벽 차례로 그린다.
-  - 본 목표: 캠프, 시설, 보급 상자, 탈출 지점
-  - 대원과 지금 보이는 적. `World`가 메인 화면과 같은 위치(내 예측 위치, 동료와 적의 보간 위치)를 넘긴다. 대원 점에는 밝은 고리를 두르고 적 점에는 두르지 않는다(2026-11-11 사용자 결정). 4번 대원의 색이 병사의 몸 색과 비슷해, 고리가 없으면 대원이 적으로 보인다.
-  - 메인 화면이 보고 있는 범위(옅은 테두리)
-  - 스냅샷에 이미 있는 공개 정보만 쓰므로 안개 규칙은 메인 화면과 같다.
-  - 지형은 칸 하나를 화소 하나로 그린 그림을 `World`의 벽 배열이 바뀔 때만 다시 만든다. `World`는 지형이 바뀔 때마다 배열을 새로 만든다.
-  - 상자 크기와 자리는 CSS가 정한다. 폭(`--minimap-w`)은 화면마다 정한 최대 폭과 최대 높이 안에서 맵 비율을 따르고, 높이(`--minimap-h`)는 테두리 안쪽이 맵 비율이 되게 구한다. JS는 방마다 맵 비율(`--minimap-ratio`)만 알린다. 맵 크기가 방마다 달라서다. 처음에는 JS가 다음 프레임에 크기와 자리를 쟀는데, 화면 크기가 바뀐 직후의 점검이 옛 자리를 재 겹침으로 잡았다.
-  - 그림의 화소 수는 브라우저가 알려 주는 상자 안쪽의 실제 화소 수(`ResizeObserver`의 `devicePixelContentBoxSize`)로 맞춘다. 상자 크기는 소수 CSS px이고 브라우저는 상자 끝과 테두리를 화소 경계에 맞추므로, 반올림한 CSS 크기에 화소 밀도를 곱하면 화소 밀도가 소수인 화면(Windows 150% 등)에서 그림 전체가 번진다. 알려 주지 않는 브라우저에서는 잰 크기를 반올림한다. 화소 밀도는 메인 화면처럼 2까지만 쓴다. 상자가 화면에 없을 때(크기 0)는 재지 않는다. 0으로 잰 크기를 굳히면 다시 보였을 때 1×1 그림이 상자만큼 늘어난다.
-  - **미니맵이 보이는지는 `World.draw` 한 곳에서 정한다(`Minimap.show`).** 메인 화면이 맵 전체를 보이는 동안(M 키·지도 버튼, 투입 전, 작전 종료)과 터치 화면의 서랍이 열린 동안(`World.menuOpen`, `main.ts`의 `setMenu`가 알린다)에는 숨는다. CSS로 따로 숨기지 않는다. 그래야 `body.minimap-on`이 늘 "미니맵이 화면에 있다"는 뜻이다. 예전에는 서랍이 CSS로만 숨겨, 서랍을 연 채 착지하면 숨은 상자를 0으로 재고 그 크기가 굳었다(PR #26 리뷰).
-  - 자리: PC는 지도 오른쪽 위, 경과 시간 상자 아래다. 터치 화면은 메뉴 버튼 줄 아래 왼쪽이다. 캔버스가 위쪽 줄(`.top-row`) 안에 있어, 줄이 꺾여 높아져도 그 아래 끝에 붙는다. PC에서는 `.top-row`가 상자를 만들지 않아 지도 기준으로 놓인다.
-  - 누름을 받지 않는다. PC에서는 그 자리에서도 조준·클릭이 된다. 터치 화면에서는 조이스틱 자리와 겹친 부분(가로 화면에서는 미니맵의 대부분, 세로 화면에서는 아래쪽 3분의 1)을 누르면 조이스틱이 생긴다. 미니맵은 위쪽 줄 묶음(z-index 25) 안이라 조이스틱보다 위에 그려지므로, 조이스틱이 미니맵과 겹치는 동안에는 미니맵을 옅게 해 받침과 손잡이가 비쳐 보이게 한다(`body.stick-on-minimap`, 2026-11-11 사용자 결정).
-  - 미니맵이 보이는 동안(`body.minimap-on`) 알림이 비켜 간다.
-    - PC는 미니맵 왼쪽 빈 자리의 가운데에 둔다. 아주 좁은 창(440px 이하)은 미니맵 아래다.
-    - 터치 가로 화면은 미니맵과 오른쪽 아래 기술 버튼 무리(`--touch-skills-w`, 188px) 사이의 가운데에 둔다. 알림이 쌓이거나 문장이 꺾여 길어져도 기술 버튼을 덮지 않는다. 미니맵 옆으로만 비키면 알림이 오른쪽으로 밀려, 높이 320px 안팎의 화면에서 기술 버튼 위쪽을 덮었다.
-    - 그 사이가 260px에 못 미치는 폭 521~600px 가로 화면은 알림이 미니맵을 잠시 덮고, 기술 버튼 쪽은 그대로 비운다. 세로 화면(520px 이하)은 알림을 예전 자리(위쪽 줄 아래 가운데)에 두고 미니맵을 잠시 덮는다. 기술 버튼은 늘 눌러야 하지만 미니맵은 잠깐 가려도 된다. 세로 화면에서 알림을 미니맵 아래로 내리면, 가장 작은 세로 화면(320×533·568)에서 알림이 화면 아래의 기술 버튼에 닿았다.
-    - 알림은 위쪽 줄 묶음의 flex 항목이라 `position:static`에서도 `z-index`가 들어 미니맵 위에 그려진다. `relative`로 바꾸면 PC용 `top`·`left`가 살아나 알림이 밀린다. 터치 화면의 알림은 폭을 글자만큼으로 굳히지 않아(`width:auto`), 양옆 여백을 뺀 자리 안에서 저절로 꺾인다.
-    - 서랍을 연 동안에는 미니맵이 숨어 `minimap-on`도 빠지므로 알림도 비키지 않는다. 서랍은 위쪽 줄과 알림 아래에서 시작해, 알림 자리가 바뀌면 서랍 높이도 바뀐다.
-  - 색과 목표를 그리는 규칙은 메인 화면과 함께 `palette.ts`에 있다(지도·대원·적 몸·상성 색, 부순 시설·기다리는 보급 상자의 회색, 윤곽, 탈출 구역 반지름, 시설·보급 상자의 색과 그리는 조건). 한쪽만 바꾸면 두 화면이 말없이 달라진다. 여러 규칙이 함께 쓰는 배치 값(`--map-inset`, `--minimap-h`, `--touch-skills-w`, `--map-top`의 기본값)도 CSS 변수 한 곳에 둔다.
-  - 방을 나가면 `World.reset()`이 지난 방의 스냅샷과 그림을 비운다. `leave()`는 투입 답을 기다리던 표시(`deployRequested`)를 되돌리고, 방마다 바뀌는 HUD 글자(초대 코드·명단·임무 수 등)를 처음 값(`firstTexts`)으로 되돌리고, 지도 위의 체력·마나 상자와 투입 안내를 첫 스냅샷까지 숨긴다. 비우지 않으면 다음 방의 첫 스냅샷이 오기 전에(연결이 느리면 그동안 내내) 화면이 지난 방을 보이고, 다음 방의 투입 버튼이 잠긴다(PR #26 리뷰). **방마다 바뀌는 HUD 요소를 더하면 `firstTexts`에도 넣는다.**
-  - `minimap.spec.ts`가 그린 화소(시야와 고리 포함), 숨는 때, 벽이 바뀔 때 다시 그리기, 맵 비율, 그림의 화소 수(소수 배율, 화소 밀도 3), 화면에 없을 때 재지 않기, 방을 나갔다 들어오기, PC·휴대폰의 자리와 겹침, 조이스틱이 겹칠 때 옅어지기, 서랍을 연 채 착지하기를 본다.
-- 서버 재조정: `main.ts`의 `sendInput`이 실제로 보낸 입력만 `World.recordInput`으로 기록하고, `update`가 스냅샷의 `ack` 이하를 버린다. 예측은 스냅샷의 내 상태 위에 남은 입력을 서버와 같은 계산(`receiveInput`·`stepPilot`)으로 적용한다(위 "클라이언트 예측 일치"). 내 상태는 Raw 좌표만이 아니라 마나, 쓰는 중인 기술, 기다리는 누름까지다(`serverPilot`이 스냅샷의 `mana`·`actions`·`waiting`·`waitingReleased`에서 옮긴다). 쓰는 중인 기술의 틱은 서버가 보낸 세 시각(`contactAt`·`endsAt`·`holdUntil`)에 30을 곱해 반올림한 값 그대로다. 시작 시각과 기운 시간으로 되짚지 않는다. 기다리는 누름 가운데 버튼을 이미 뗀 것(방금 짧게 누른 누름이 한 틱 더 남은 것)은 서버가 `waitingReleased`로 따로 알린다. 모두 쥔 것으로 되살리면, 뗀 누름의 버튼을 다시 눌렀을 때 서버는 앞의 누름을 버리고 새 누름을 맨 뒤에 넣는데 예측은 자리를 그대로 둬서 기술이 나가는 차례가 달라진다(PR #30 리뷰 2번). 서버가 가진 값을 그대로 받으므로, 확인한 입력의 `held`를 따로 기억해 두고 짐작하지 않아도 된다(그 입력을 모르는 새로 고친 직후에도 맞다). 대시가 누름으로 시작해 몸을 움직이기 때문이다. 그래서 `recordInput`은 이동과 함께 보낸 조준과 버튼(`held`·`pressed`)도 받는다. 입력 하나는 보통 한 틱이다. 그래서 입력은 평균 정확히 초당 30번 보낸다(`pumpInput`). `setInterval(…, 1000 / 30)`은 브라우저가 33ms로 내려 초당 30.3번이 되고 예측이 조금씩 앞선다. 타이머가 늦게 깨어 보낼 차례를 놓치면, 밀린 입력을 몰아 보내지 않고 예측을 놓친 틱만큼 더 진행한다(`holdLastInput`). 서버도 그동안 틱을 진행하기 때문이다. 서버는 입력 하나를 받은 틱부터 10틱까지 쓰고(`inputHoldTicks`, 서버의 `Match.InputTimeoutTicks - 1`), 그 뒤에는 대원을 멈추고 버튼을 모두 뗀 것으로 본다. `stepPilot`이 마지막 입력이 도착한 틱(`Pilot.lastInput`)으로 이 차례를 따라간다. 쥐고 기다리던 누름은 버려지고, 쥐고 있던 기운은 장판이 나가고, 이미 나간 대시는 끝까지 간다. 예전처럼 10틱에서 예측을 멈추면 그 뒤에 끝나는 대시와 버려지는 누름을 놓친다(PR #30 리뷰 1번). 아주 오래 멈췄다 깨어난 창이 수만 틱을 걷지 않도록 300틱까지만 따라간다(`maxQuietTicks`). 입력이 끊긴 대원은 그 전에 멈추고 쓰던 기술도 끝나 있어 더 가도 달라지지 않는다. 틱 빈도와 입력 유지 한도는 `movement.ts` 한 곳에 둔다. 새 입력은 마지막 예측 위치에서 한 틱만 더 걷고(`advance`), 남은 입력 전체를 다시 걷는 것은 새 스냅샷이 왔을 때뿐이다(`resimulate`). 확인받지 않은 입력이 60개를 넘어 가장 오래된 것을 버리면, 서버가 그 입력까지 확인해 줄 때까지 예측을 끄고 서버 위치를 그린다. 버린 입력은 서버가 이미 썼을 수 있어, 빼고 다시 걸으면 그만큼 뒤처지기 때문이다. 입력 주기는 입력이나 예측에서 예외가 나도 다음 차례를 예약한다. 화면에는 마지막 입력이 한 틱 동안 나아가는 모습을 이어 그린다(`target`). 서버 위치가 오거나, 새 입력을 기록하거나, 예측을 켜고 끄면 그리는 목표가 바뀐다. 그 차이는 보정 차이(`correction`)로 옮겨 천천히 줄이고(`keepDrawn`), 100단위를 넘으면 바로 따라간다. **입력을 보내는 새 경로를 만들면 반드시 `sendInput`을 거친다.** 기록되지 않은 입력은 예측에서 빠져 화면이 서버와 어긋난다. 보낸 것과 다른 값을 기록해도 같다(조준이 조금만 달라도 서서 누른 대시의 방향이 달라진다). 서버는 이 과정에 관여하지 않고, 클라이언트 시각은 보내는 주기와 화면 계산에만 쓴다. 투입 위치 검사(`movement.ts`의 `deployable`, `World.deployCheck`)도 서버의 `Deploy`와 같은 계산이다. 투입할 자리의 칸은 본 칸이어야 하고(`known`), 몸은 본 칸의 벽만으로 본다. `main.ts`는 보지 못한 곳을 누르면 그렇다고 알린다.
-- 클라이언트는 모양·진행률·예고만 그린다. 판정 결과를 결정하지 않는다.
-
-### 접속과 복구
-
-게스트 참가 후 서버가 32바이트 난수 토큰을 발급하고, 클라이언트는 `/ws`에서 `hello`로 제시한다. 같은 토큰의 새 연결이 기존 연결을 교체한다. 연결이 끊긴 대원은 입력이 멈춘 채 피격 가능한 몸으로 120초(`Rules.ReconnectSeconds`) 남고, 재접속은 체력·마나·장비·기술 시간을 유지한다. HTTP로 참가만 하고 한 번도 접속하지 않은 자리는 `Rules.FirstConnectSeconds`(15초) 뒤에 풀린다. `RoomHost.Join`이 켜고 `Attach`가 끄는 `Player.AwaitingFirstConnection`으로 두 경우를 구분한다. `Connection == 0`으로 판단하면 `RoomHost`를 거치지 않는 검사 대원이 짧은 유예를 받아 기존 검사가 깨진다.
-
-### 운영 범위
-
-메모리 기반 **단일 인스턴스**다. DB도 영구 저장도 없고 서버를 재시작하면 방과 토큰이 사라진다. 디스크에 남는 것은 재현용 기록뿐이며, 이것으로 방을 되살리지는 않는다. 여러 복제본 사이에 방 상태를 공유하지 않으므로 수평 확장하려면 방 배정과 연결 라우팅이 먼저 필요하다. 방 32개·방당 적 60마리는 설정 상한이지 부하 보장값이 아니다.
+- 고친 뒤 확인: 서버 코드는 서버 검사 전체, 클라이언트는 `npm --prefix client run build`와 관련 스펙, 입력·통신·화면 흐름은 브라우저 검사 전체. 검사를 하나만 돌리려고 한 임시 수정은 되돌리고 전체를 다시 통과시킨 뒤 커밋한다.
+- 규칙을 고정하는 검사를 더하면 그 규칙을 일부러 틀리게 바꿔 검사가 잡는지 본다.
+- 가독성 정리처럼 동작을 바꾸지 않아야 하는 작업에서는 게임 규칙과 통신 형식을 보존하고, 서버 검사와 브라우저 검사로 회귀가 없음을 확인한다.
+- 검증을 수행했으면 `docs/verification.md` 맨 위에 날짜와 확인한 범위, 확인하지 못한 것을 남긴다.
+- 커밋은 영역마다 나누고 제목에 접두어를 붙인다(`서버:`, `화면:`, `검사:`, `문서:`). 본문은 무엇을 왜 바꿨는지와 검사를 목록으로 적는다. 작업은 브랜치(`feature/…`, `fix/…`)에서 PR로 master에 합친다.
 
 ## 문서
 
@@ -306,12 +194,6 @@ cd client && PLAYWRIGHT_BROWSERS_PATH=$D/browsers LD_LIBRARY_PATH=$D/root/usr/li
 | [docs/requirements.md](docs/requirements.md) | 합의한 목표와 범위. 무엇을 넣지 않기로 했는지 포함 |
 | [docs/combat.md](docs/combat.md) | 확정된 전투 판정 규칙, 시험 수치, 아직 규칙이 아닌 임시 처리 |
 | [docs/protocol.md](docs/protocol.md) | protocol v6 통신 형식과 버전별 변경 |
-| [docs/verification.md](docs/verification.md) | 날짜별 검증 기록과 실제 확인한 범위 |
+| [docs/verification.md](docs/verification.md) | 날짜별 검증 기록과 실제 확인한 범위. 새 기록이 맨 위다 |
 
-`docs/combat.md`는 세 층으로 나뉜다. **합의한 규칙**은 바꾸기 전에 확인을 받고, **시험 설정**의 수치는 자유롭게 조정하며, **규칙으로 확정하지 않은 임시 처리**는 지금 적당히 맞춰 둔 동작이라 바꿔도 규칙 위반이 아니다. 어느 층에 해당하는지 먼저 판단한다. 게임 규칙을 바꾸면 해당 절을 함께 고친다. 검증을 수행했으면 `docs/verification.md`에 날짜와 확인 범위를 남긴다. 가독성 정리처럼 동작을 바꾸지 않아야 하는 작업에서는 게임 규칙과 통신 형식을 보존하고, 서버 검사와 브라우저 검사로 회귀가 없음을 확인한다.
-
-## Docker
-
-`docker compose up --build`는 클라이언트 빌드와 서버 publish를 한 이미지로 묶어 `127.0.0.1:5077`에 노출한다. 컨테이너 내부 포트는 8080이다. 재현용 기록은 컨테이너의 `/app/recordings`에 쓰며, compose는 이름 있는 볼륨(`recordings`)을 붙여 컨테이너를 다시 만들어도 남긴다. 이미지는 앱 사용자(`APP_UID`)로 실행되므로 Dockerfile이 이 폴더를 그 사용자 것으로 만든다. GKE 같은 곳에서는 이 경로에 영구 볼륨을 붙여야 재배포 뒤에도 기록이 남는다.
-
-이 구성에서는 서버가 모든 요청을 Docker 브리지 주소(172.17.0.1 등)에서 온 것으로 본다. 127.0.0.1에 연 포트는 docker-proxy를 거치고, Docker Desktop도 마찬가지다. 그래서 주소 기준 제한이 사용자를 구분하지 못한다. 브리지 주소는 사설망이라 방 수 상한에서 빠지고, 참가 제한(분당 30회)은 모든 사용자가 함께 쓴다. 지금은 같은 기계에서만 접속하므로 문제가 없다. **공개 배포 전에는 실제 접속 주소가 서버에 닿게 해야 한다.** 앞에 역방향 프록시를 두고 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`를 켜는 방법이 있다. Linux에서 공개 주소에 포트를 여는 방법도 있는데, 이때는 보통 iptables가 원래 주소를 그대로 넘긴다. 어느 쪽이든 배포 환경에서 서버가 보는 주소를 먼저 확인한다.
+`docs/combat.md`는 세 층으로 나뉜다. **합의한 규칙**은 바꾸기 전에 확인을 받고, **시험 설정**의 수치는 자유롭게 조정하며, **규칙으로 확정하지 않은 임시 처리**는 지금 적당히 맞춰 둔 동작이라 바꿔도 규칙 위반이 아니다. 어느 층에 해당하는지 먼저 판단한다. 게임 규칙을 바꾸면 해당 절을 함께 고친다.
