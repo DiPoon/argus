@@ -1,5 +1,57 @@
 # 검증 기록
 
+## PR #33 재리뷰 2 반영: 실리는 판은 세션이 worktree에 들어간 방법에 따라 다르다 — 2026-11-18
+
+재리뷰 2(2026-11-18)는 16·17번의 반영을 확인하고, 16번을 고친 줄에서 1건(18번)을 찾았다. 맞는 지적이었다. 아래 항목은 세션을 옮기지 않은 경우만 재 놓고 `CLAUDE.md`에 "worktree에서 일해도 그렇다"고 넓게 적었다. `EnterWorktree`로 들어간 세션을 재 보니 달랐다.
+
+### 고친 것
+
+| # | 지적 | 반영 |
+| --- | --- | --- |
+| 18 | `CLAUDE.md`의 그 줄이 잰 경우(명령마다 `cd`)보다 넓게 적었다. 공식 문서는 `EnterWorktree`로 옮기면 `CLAUDE.md`도 그 자리의 것으로 바뀐다고 적는다 | `EnterWorktree`로 들어간 세션과 worktree에서 시작한 세션을 쟀고(아래), 그 줄을 들어간 방법마다 나눠 다시 썼다. 실린 판을 가리는 법과 대비는 따로 한 줄로 두었다. 아래 항목의 넓게 적은 곳과 PR 본문 5번도 같은 범위로 고쳤다 |
+
+### 잰 것: 들어간 방법마다 실리는 판
+
+아래 항목과 같은 방법이다(headless 실행, `~/.cache/argus-work/tools/rules-probe.sh`). 이번에는 판을 셋 두고 표식을 모두 다르게 적었다. 커밋된 판, 바깥 체크아웃의 작업본(커밋하지 않은 수정), 그 안의 worktree `w`(커밋하지 않은 수정)다. `EnterWorktree`가 새로 만드는 worktree는 커밋된 판을 받으므로 바깥 작업본과 가려진다. 세션에게는 보이는 표식마다 문맥에 적힌 그 파일의 경로도 함께 적게 했고, 부른 도구도 찍었다. Claude Code 2.1.327에서 쟀다(사이에 판이 올라갔다. 옮기지 않은 경우는 아래 항목이 2.1.326에서 잰 것과 같았다). 독립된 저장소 둘에서 쟀고, 아래에 따로 적은 한 가지(이어 한 세션에 바깥의 `CLAUDE.md`가 함께 보이는지)를 빼면 결과가 같았다.
+
+| worktree에 들어간 방법 | `CLAUDE.md` | 규칙 |
+| --- | --- | --- |
+| 옮기지 않음. 바깥 체크아웃에서 시작해 경로로 열거나, Bash로 `cd`한 뒤 Read로 엶 | 바깥의 것 | 바깥의 것(worktree의 파일을 열어도) |
+| `EnterWorktree`로 들어감(있는 worktree든 새로 만든 worktree든) | 그 문맥에서는 바깥의 것 그대로. 문맥을 다시 만들면(`--resume`으로 이어 하기, `/compact`) worktree의 것이 실림. 이때 바깥의 것도 문맥에 함께 보일 수 있음 | 들어간 때부터 worktree의 것. 바깥 체크아웃의 규칙은 바깥의 파일을 열어도 더 실리지 않음 |
+| worktree에서 시작(`claude --worktree w`, 또는 그 폴더에서 `claude`) | worktree의 것 | worktree의 것 |
+| `/cd`로 옮김 | 재지 못함 | 재지 못함 |
+
+- **옮기지 않은 세션.** Bash로 `cd <worktree>`만 한 뒤 Read로 열어도 바깥의 규칙이 실렸다. Bash의 `cd`는 세션을 옮기지 않는다. 이 저장소의 작업 세션이 지금까지 일한 방식이 이것이다.
+- **이어 읽기.** `cd <worktree> && cat src/a.txt`처럼 한 명령으로 이어 읽으면 규칙이 실리지 않았다. `cat <경로>`만 쓰면 실렸다. 이 저장소의 세션은 셸 명령마다 `cd`를 앞에 붙이므로 규칙이 실리게 하려면 Read로 연다. `CLAUDE.md`의 "보장이 없는 길"에 더했다.
+- **`EnterWorktree`로 들어간 세션의 `CLAUDE.md`.** 들어간 문맥에서는 worktree의 것이 한 번도 실리지 않았다. 같은 세션의 다음 차례에도 바깥의 것이었다(차례를 하나씩 보내는 한 세션으로 쟀다). 그 세션을 `--resume`으로 이으면 worktree의 것이 실렸다(다섯 번 모두). `/compact` 뒤에도 worktree의 것이 새로 실렸다(세 번 모두).
+- **그때 바깥의 `CLAUDE.md`가 남는가.** 가르지 못했다. 이어 한 다섯 번 가운데 세 번은 바깥 것의 표식도 함께 보였다. 앞 차례에서 표식을 말하지 않게 한 두 번은 둘 다 보였으므로, 이어진 문맥에 처음 실린 바깥의 것이 남아 있는 것으로 보인다. 압축한 세 번 가운데 두 번도 함께 보였는데, 한 번은 압축 요약이 표식을 옮겨 적은 것이었다(세션 기록에서 확인). 어느 쪽이 앞서는지는 알 수 없어, `CLAUDE.md`에 "두 판이 함께 보이면 지금 일하는 worktree의 것을 따른다"고 적었다. worktree에서 시작한 세션에는 바깥의 것이 한 번도 보이지 않았다(다섯 번).
+- **새 worktree를 만들어 들어간 세션**(`EnterWorktree`에 이름을 줌. worktree로 격리해 돌리는 백그라운드 세션이 안내받는 방식). 규칙은 새 worktree의 것(커밋된 판)이 실렸고 바깥 작업본의 것이 아니었다.
+- **`/cd`.** headless에서는 "/cd isn't available in this environment."라고 답해 재지 못했다.
+- **실린 판을 가리는 법.** 문맥에는 실린 파일의 경로가 함께 적힌다. 세션이 표식마다 댄 경로가 모두 실제 파일과 맞았다. 그래서 어느 판이 실렸는지는 그 경로로 가릴 수 있다. `CLAUDE.md`의 대비를 이것으로 적었다.
+
+### 공식 문서에 있는 것(원문을 받아 대조했다)
+
+- worktree 문서(code.claude.com/docs/en/worktrees)의 "Ask Claude to create a worktree": "When Claude enters a path outside the repository's `.claude/worktrees/` directory, Claude Code asks for your approval first. The move takes the session's working directory, write access, and project configuration such as `CLAUDE.md` and settings to that location." 뒤 문장이 리뷰가 인용한 문장이다. 앞 문장과 이어 읽으면 `.claude/worktrees/` 밖으로 옮길 때의 설명으로도 읽힌다. 잰 것은 `.claude/worktrees/` 안의 worktree이고, 거기서는 규칙이 바로 바뀌고 `CLAUDE.md`는 문맥을 다시 만들 때 실렸다. 밖의 자리는 승인이 필요해 headless로 재지 못했다.
+- 권한 문서(code.claude.com/docs/en/permissions)의 "Move the session to another directory": `/cd <path>`는 대화를 그대로 두고 새 폴더의 `CLAUDE.md`를 싣는다("loads the new directory's `CLAUDE.md`").
+- 도구 문서의 "EnterWorktree tool behavior"에는 지침 파일에 대한 말이 없다.
+
+### 이 저장소의 작업 방식에 주는 뜻
+
+- 지금까지의 방식(바깥 체크아웃에서 시작해 명령마다 `cd`)은 아래 항목 그대로다. 바깥 체크아웃의 판이 실리므로 그 체크아웃을 최신 master로 둔다.
+- `EnterWorktree`로 들어가는 세션은 규칙을 worktree의 브랜치에서 받는다. 이 PR이 병합된 뒤에 만든 브랜치에는 규칙이 있으므로, 바깥 체크아웃이 낡아도 규칙은 실린다. `CLAUDE.md`는 문맥을 다시 만들기 전까지 바깥 체크아웃의 것이어서, 한 세션 안에서 `CLAUDE.md`와 규칙이 서로 다른 판일 수 있다.
+- 어느 경우든 실린 판은 문맥에 적힌 경로로 가리고, 지금 고치는 브랜치의 것이 아니면 그 브랜치의 파일을 직접 읽는다.
+
+### 확인한 것
+
+- 고친 `CLAUDE.md`는 199줄이다(한 줄 늘었다). 규칙 파일은 손대지 않았다.
+- 코드는 바꾸지 않았다. CI가 돈다.
+
+### 확인하지 못한 것
+
+- 모두 headless 실행이다. 실제 작업 세션에서 본 것은 옮기지 않은 경우의 `CLAUDE.md`뿐이다(아래 항목의 세션 기록).
+- `/cd`로 옮긴 세션, `.claude/worktrees/` 밖의 worktree에 `EnterWorktree`로 들어간 세션, `ExitWorktree`로 나온 뒤.
+- 앱에서 시작한 worktree 세션. worktree 문서는 이때 `CLAUDE.md`와 `.claude/rules/`가 worktree에서 실린다고 적는다.
+
 ## PR #33 재리뷰 반영: worktree에서 규칙이 어느 체크아웃의 것으로 실리는지 재다 — 2026-11-18
 
 재리뷰(2026-11-17)는 첫 리뷰의 15건이 모두 반영됐다고 확인하고, 반영하며 새로 적은 문장에서 2건을 찾았다. 둘 다 맞았다. 16번은 문구만 고치지 않고 직접 쟀고, 그 결과 지난 항목의 결론을 뒤집었다.
@@ -11,7 +63,9 @@
 | 16 | `CLAUDE.md`가 worktree에서 규칙이 불려 오는 방식을 근거 없이 사실로 적었다. 근거인 관찰은 원인을 가르지 못한다(시작한 체크아웃에 그때 규칙이 없었다) | 임시 저장소에서 쟀고(아래), `CLAUDE.md`의 그 줄을 잰 대로 다시 썼다. 잰 동작이고 공식 문서가 보장하는 것은 아니라는 것과, 규칙이 실리지 않았을 때의 대비도 함께 적었다. 지난 항목의 "새로 찾은 것" 절은 틀린 결론이었다고 밝히고 빠뜨린 것을 적었다 |
 | 17 | `protocol.md`의 수신자별 값 목록에서 보급 항목이 `cooldown`인데 실제 속성은 보급 목록 전체 `supplies`다 | "보급 목록 `supplies`(대기 시간 `cooldown`이 대원마다 달라 목록 전체)"로 고쳤다 |
 
-### 잰 것: 규칙과 CLAUDE.md는 세션을 시작한 체크아웃의 것이 실린다
+### 잰 것: 세션을 옮기지 않으면 규칙과 CLAUDE.md는 시작한 체크아웃의 것이 실린다
+
+(재리뷰 2에서 범위를 좁혔다. 이 절에서 잰 것은 세션을 worktree로 옮기지 않은 경우뿐이다. `EnterWorktree`로 들어간 세션과 worktree에서 시작한 세션은 위 항목에서 쟀고, 결과가 다르다.)
 
 Claude Code 2.1.326을 headless(`claude -p`)로 돌려 쟀다. 임시 저장소에 바깥 체크아웃과 그 안의 worktree(`.claude/worktrees/w`)를 만들고, 두 곳의 `CLAUDE.md`와 규칙 파일(`paths: src/**`)에 서로 다른 표식을 적었다. 세션을 시작한 자리와 연 파일을 바꿔 가며, 세션에 어느 표식이 실렸는지를 그 세션에게 물었다(`~/.cache/argus-work/tools/rules-probe.sh`).
 
@@ -34,8 +88,8 @@ Claude Code 2.1.326을 headless(`claude -p`)로 돌려 쟀다. 임시 저장소�
 
 ### 이 저장소의 작업 방식에 주는 뜻
 
-- 작업 세션은 바깥 체크아웃(`/mnt/e/argus`)에서 시작해 `.claude/worktrees/` 안에서 일한다. 이 PR을 병합하고 바깥 체크아웃이 그 master를 받으면, worktree의 파일을 열 때 규칙이 저절로 실린다. 지난 항목에 적은 걱정("요약만 남고 세부는 저절로 실리지 않는다")은 맞지 않았다.
-- 실리는 것은 바깥 체크아웃의 판이다. 바깥 체크아웃이 옛 브랜치에 머물러 있으면 세션은 옛 `CLAUDE.md`를 받고 규칙은 하나도 받지 못한다. 위의 세션 기록이 그 장면이다. 바깥 체크아웃은 2026-11-10부터 11-17 아침까지 `feature/minimap_test`의 한 커밋(`4eb33e6`)에 있었고, 그동안 master에 병합된 PR #28(기운·장판 모델)과 #29(적 조향)의 설명이 세션이 받은 `CLAUDE.md`에는 없었다. 그래서 병합한 뒤에는 바깥 체크아웃에서 master를 받아 둔다.
+- 작업 세션은 바깥 체크아웃(`/mnt/e/argus`)에서 시작해 `.claude/worktrees/` 안에서 일한다(세션을 옮기지 않고 명령마다 `cd`로 들어간다). 이 PR을 병합하고 바깥 체크아웃이 그 master를 받으면, worktree의 파일을 열 때 규칙이 저절로 실린다. 지난 항목에 적은 걱정("요약만 남고 세부는 저절로 실리지 않는다")은 맞지 않았다.
+- 이 방식에서 실리는 것은 바깥 체크아웃의 판이다. 바깥 체크아웃이 옛 브랜치에 머물러 있으면 세션은 옛 `CLAUDE.md`를 받고 규칙은 하나도 받지 못한다. 위의 세션 기록이 그 장면이다. 바깥 체크아웃은 2026-11-10부터 11-17 아침까지 `feature/minimap_test`의 한 커밋(`4eb33e6`)에 있었고, 그동안 master에 병합된 PR #28(기운·장판 모델)과 #29(적 조향)의 설명이 세션이 받은 `CLAUDE.md`에는 없었다. 그래서 병합한 뒤에는 바깥 체크아웃에서 master를 받아 둔다.
 - 브랜치에서 `CLAUDE.md`나 규칙 파일을 고치는 세션은 고치기 전의 판을 받는다. 재리뷰가 짚은 장면 그대로다. 그때는 그 브랜치의 파일을 직접 읽는다.
 - `CLAUDE.md`의 "이 문서의 구성"에 이 셋을 적었다.
 
@@ -48,7 +102,7 @@ Claude Code 2.1.326을 headless(`claude -p`)로 돌려 쟀다. 임시 저장소�
 ### 확인하지 못한 것
 
 - 실제 작업 세션에서 바깥 체크아웃의 규칙이 worktree의 파일에 실리는 것은 보지 못했다. 규칙 쪽은 headless 실행으로만 쟀다(`CLAUDE.md` 쪽은 위의 세션 기록으로도 보았다). 바깥 체크아웃에 규칙이 생기는 병합 뒤에야 볼 수 있다. 그때 worktree의 파일을 Read로 열어 그 파일의 규칙이 실리는지 한 번 본다.
-- `/cd`나 `EnterWorktree`로 세션을 worktree로 옮겼을 때 어느 판이 실리는지는 재지 않았다.
+- `/cd`나 `EnterWorktree`로 세션을 worktree로 옮겼을 때 어느 판이 실리는지는 재지 않았다(`EnterWorktree`는 재리뷰 2에서 쟀다. 위 항목).
 - Claude Code의 다른 판에서의 동작. 판이 바뀌면 `rules-probe.sh`로 다시 잴 수 있다.
 
 ## PR #33 리뷰 반영: 규칙이 불려 오지 않는 길, `paths`에서 빠진 파일, 요약에서 빠진 조건 — 2026-11-17
