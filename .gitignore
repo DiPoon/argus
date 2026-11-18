@@ -16,3 +16,8 @@ playwright-report/
 
 .idea/
 **/.idea/
+
+# .claude/rules/는 저장소에 올린다. 같은 폴더에 생기는 Claude Code의 중첩 git worktree와 개인 권한 설정은 올리지 않는다.
+# 무시하지 않으면 `git add .claude`나 `git add -A`가 worktree를 저장소 안의 저장소로, 개인 설정을 파일로 함께 올린다.
+.claude/worktrees/
+.claude/settings.local.json
