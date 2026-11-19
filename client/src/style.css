@@ -424,8 +424,10 @@ input::placeholder {
   gap:20px
 }
 
-.loadout-panel>.primary {
-  width:100%
+/* 새 작전 시작, 구분선, 참가 줄의 묶음이다. 세로로 늘어놓아 버튼이 폭을 다 쓴다. 초대받은 로비에서는 main.ts(showInvite)가 DOM 차례를 바꾼다. */
+.entry-actions {
+  display:flex;
+  flex-direction:column
 }
 
 .primary span {
@@ -457,6 +459,10 @@ input::placeholder {
   flex:1
 }
 
+.or b {
+  font-weight:400
+}
+
 .join-row {
   display:flex;
   gap:9px
@@ -467,6 +473,26 @@ input::placeholder {
   min-width:0;
   text-transform:uppercase;
   letter-spacing:1px
+}
+
+/* 초대 링크로 들어온 로비(#lobby.invited)다. 그 방의 참가가 주된 버튼이 되어 위로 오고, 새 작전 시작은 보조 버튼이 되어 아래로 간다.
+   방 코드는 참가 버튼에 적히므로 입력란은 숨긴다. 버튼의 모양(primary·secondary)과 차례는 main.ts(showInvite)가 정하고,
+   여기서는 숨길 글과 폭만 맞춘다. 차례를 order로 바꾸지 않는다. Tab과 화면 읽기 프로그램은 DOM 차례를 따른다(PR #31 리뷰 6).
+   if-invited는 초대받았을 때만, unless-invited는 평소에만 보이는 글이다. */
+.if-invited, .invited .unless-invited {
+  display:none
+}
+
+.invited .if-invited {
+  display:inline
+}
+
+.invited #room-input {
+  display:none
+}
+
+.invited .join-row #join {
+  flex:1
 }
 
 .entry-note {
@@ -1463,6 +1489,11 @@ body { --touch-skills-w:188px }
 .touch-entry .join-row button { padding:9px 14px }
 .touch-entry .error { margin:0 }
 .touch-entry #lobby-full { align-self:flex-start; margin-top:auto }
+/* 초대받은 터치 로비: 참가 줄이 호출명 바로 아래에 온다(main.ts의 showInvite가 새 작전 시작과 자리를 맞바꾼다).
+   두 버튼의 크기는 평소의 주된 버튼(새 작전 시작)·보조 버튼(참가)과 같게 둔다. 그래서 줄 수와 높이가 평소와 같거나 낮아
+   한 장에 들어오는 것이 그대로다. */
+.invited .touch-entry #create { padding:9px 14px }
+.invited .touch-entry .join-row #join { padding:11px 14px }
 /* 장비 칸은 조준하지 않아도 되는 기술만 고른다. 종류 칸 셋은 둘레 기술이 하나씩이라 한 줄에 나란히 두고, 그 아래 자유 칸에
    둘레 기술 셋과 대시를 둔다. 둘레 기술의 설명은 모두 "둘레 모두 · 조준 없음"이라 위의 한 줄로 대신하고 이름만 보인다.
    상성 없는 기술(대시, label.plain)은 설명이 달라 한 줄을 다 쓰고 이름 옆에 설명을 보인다. 위의 안내를 한 줄 늘리면

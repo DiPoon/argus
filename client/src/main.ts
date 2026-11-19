@@ -4,6 +4,7 @@ import { World } from './world';
 import { Minimap } from './minimap';
 import { handIcon } from './rps';
 import { freeSkills, kindOfSkill, kindSlots, touchSkills } from './loadout';
+import { copiedNotices, inviteLink, linkReach, normalizeRoomCode, readInvite, withoutInvite } from './invite';
 import { applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -55,6 +56,8 @@ const loadoutFields = `${kindSlots.map((slot, index) => `<fieldset class="equipm
       <fieldset class="equipment-options primary-weapons"><legend class="field-label">4번 자유 칸 <span>${touchMode ? '둘레 기술 하나 더나 대시' : '아무 기술이나 하나 더 · Q 또는 4'}</span></legend>
         ${offered(freeSkills).map((skill, choice) => skillChoice('free-slot', skill, choice === 0, true)).join('')}
       </fieldset>`;
+// 초대 링크로 들어온 로비(#lobby.invited)는 같은 요소로 그 방의 참가를 앞세운다(showInvite). 참가 버튼이 주된 버튼이 되어 위로 오고
+// 새 작전 시작은 그 아래로 간다. 자리는 showInvite가 DOM 차례로 바꾼다. if-invited는 초대받았을 때만, unless-invited는 평소에만 보이는 글이다.
 const desktopLobby = `  <main id="lobby" class="lobby">
     <section class="briefing">
       <div class="eyebrow"><span class="dash"></span> OPERATION 001</div>
@@ -73,14 +76,16 @@ const desktopLobby = `  <main id="lobby" class="lobby">
       <div class="mission-steps"><div><b>01</b><span>적 시설 파괴</span></div><div><b>02</b><span>보급품 회수</span></div><div><b>03</b><span>탈출 지점 확보</span></div></div>
     </section>
     <section class="loadout-panel">
-      <div class="eyebrow">DEPLOYMENT PREP</div><h2>분대에 합류하세요</h2><p class="muted">혼자 시작해도, 작전 중 함께해도 됩니다.</p>
+      <div class="eyebrow">DEPLOYMENT PREP</div><h2>분대에 합류하세요</h2><p class="muted"><span class="unless-invited">혼자 시작해도, 작전 중 함께해도 됩니다.</span><span class="if-invited"><b class="invite-code"></b> 방에 초대받았습니다. 장비를 고르고 아래에서 참가하세요. 호출명을 적고 Enter를 눌러도 됩니다.</span></p>
       <label class="field-label" for="callsign">호출명 <span>가입 없이 게스트로 참가</span></label>
       <input id="callsign" maxlength="16" autocomplete="nickname" placeholder="대원 이름" value="대원" />
       ${loadoutFields}
       <p class="combat-intro">투입 마나 <b>0</b> · 보급 상자에서 충전 · 기술마다 마나 <b>1</b><br>자연 회복 없음. 빗나가도 마나를 소비합니다.<br>둘레 기술은 조준 없이 둘레 모두에 닿습니다. 기술은 한 번에 하나씩 사용합니다.</p>
-      <button id="create" class="primary">새 작전 시작 <span>↗</span></button>
-      <div class="or"><span></span> 초대받았다면 <span></span></div>
-      <div class="join-row"><input id="room-input" aria-label="방 코드" placeholder="6자리 방 코드" maxlength="6" autocomplete="off"/><button id="join" class="secondary">참가</button></div>
+      <div class="entry-actions">
+        <button id="create" class="primary">새 작전 시작 <span>↗</span></button>
+        <div class="or"><span></span><b class="unless-invited">초대받았다면</b><b class="if-invited">또는</b><span></span></div>
+        <div class="join-row"><input id="room-input" aria-label="방 코드" placeholder="6자리 방 코드" maxlength="6" autocomplete="off"/><button id="join" class="secondary">참가</button></div>
+      </div>
       <p id="lobby-error" class="error" role="alert"></p>
       <p class="entry-note"><span>◌</span> 투입 준비 5초 · 아군 피해 없음 · 전원 사망 시 실패</p>
     </section>
@@ -118,7 +123,7 @@ ${touchMode ? touchLobby : desktopLobby}
   <main id="operation" class="operation" hidden>
     <aside class="sidebar">
       <div class="eyebrow">OPERATION 001</div><h2>침묵의 전초기지</h2>
-      <button id="copy-code" class="room-code" title="친구에게 방 코드를 공유하세요"><span>초대 코드</span><b id="room-code">------</b><span>⧉</span></button>
+      <button id="copy-code" class="room-code" title="누르면 초대 링크를 복사합니다. 받은 사람은 링크를 열고 참가만 누르면 됩니다."><span>초대 링크 복사</span><b id="room-code">------</b><span>⧉</span></button>
       <div class="side-section"><div class="section-label">MISSION <span id="mission-state">준비 중</span></div>
         <div class="objective"><span class="objective-icon primary-dot">◇</span><div><b>적 시설 파괴</b><small>구역 내 시설을 모두 무력화</small></div><strong id="primary-count">0/3</strong></div>
         <div id="facility-list" class="facility-list"></div>
@@ -167,6 +172,18 @@ if (touchMode) {
 }
 
 let guest: Guest | undefined;
+// 이 탭의 복구 정보다(탭별 sessionStorage, 방에 들어갈 때 적고 나갈 때 지운다). 읽을 수 없으면 지운다.
+function savedGuest(): Guest | undefined {
+  try {
+    const saved = sessionStorage.getItem('argus-guest');
+    const value = saved ? JSON.parse(saved) as Guest : undefined;
+    if (value?.room && value.token) return value;
+  } catch { sessionStorage.removeItem('argus-guest'); }
+  return undefined;
+}
+// 초대 링크(주소의 ?room=방 코드)로 들어와 아직 쓰지 않은 초대의 방 코드다. 있는 동안 로비가 그 방의 참가를 앞세운다(showInvite).
+// 그 방이든 다른 방이든 방의 첫 스냅샷을 받으면 다 쓴 것으로 치운다(connect).
+let invitedRoom: string | undefined;
 let snapshot: Snapshot | undefined;
 let socket: WebSocket | undefined;
 let world: World | undefined;
@@ -336,8 +353,9 @@ const testLayout = new URLSearchParams(location.search).get('layout');
 
 async function enter(code?: string) {
   if (connecting) return;
-  const inputCode = code?.trim().toUpperCase();
-  if (inputCode !== undefined && !/^[A-Z2-9]{6}$/.test(inputCode)) { $('lobby-error').textContent = '6자리 방 코드를 입력하세요.'; return; }
+  // 입력란에 친 코드도 초대 링크로 받은 코드와 같은 함수로 맞춘다(invite.ts). 서버가 쓰지 않는 글자(I·O·0·1)가 있으면 보내지 않는다.
+  const inputCode = code === undefined ? undefined : normalizeRoomCode(code);
+  if (code !== undefined && inputCode === undefined) { $('lobby-error').textContent = '방 코드 6자리를 확인해 주세요.'; return; }
   // 전체 화면은 누름 안에서만 켤 수 있으므로 서버의 답을 기다리기 전에 켠다.
   if (touchMode) enterFullscreen();
   connecting = true;
@@ -356,10 +374,25 @@ async function enter(code?: string) {
     });
     if (!response.ok) {
       const message = await response.json().catch(() => null);
+      // 초대받은 방에 들어갈 수 없다는 답이다(방이 없거나, 가득 찼거나, 끝났다). 초대를 치워 새 작전 시작이 다시 주된 버튼이 되게 한다.
+      // 방 코드는 입력란에 남으므로 자리가 나면 다시 참가를 누를 수 있다. 장비 오류(400)나 참가 제한(429)은 다시 해 볼 수 있어 그대로 둔다.
+      if (response.status === 409 && inputCode !== undefined && inputCode === invitedRoom) {
+        showInvite();
+        // 다른 방에 들어가 있던 탭이면 그 방으로 돌아간다. 이 탭은 링크를 열기 직전까지 그 방에 있었고, 그 대원은 끊긴 채 그 방에 서 있다.
+        // 로비에 남기면 화면은 돌아갈 방이 없는 것처럼 보이는데, 새로 고치면 아무 조작 없이 그 방에 들어간다(PR #31 리뷰 5).
+        const saved = savedGuest();
+        if (saved && saved.room !== inputCode) {
+          guest = saved;
+          toast(`${inputCode} 방에는 들어갈 수 없어 있던 방으로 돌아왔습니다.`);
+          await openOperation();
+          return;
+        }
+      }
       throw new Error(message?.error ?? '잠시 뒤 다시 참가해 주세요.');
     }
     guest = await response.json() as Guest;
     sessionStorage.setItem('argus-guest', JSON.stringify(guest));
+    // 초대는 여기서 치우지 않는다. 그 방의 첫 스냅샷을 받은 때 치운다(connect).
     await openOperation();
   } catch (error) { $('lobby-error').textContent = error instanceof Error ? error.message : '서버에 연결할 수 없습니다.'; }
   finally { connecting = false; $<HTMLButtonElement>('create').disabled = $<HTMLButtonElement>('join').disabled = false; }
@@ -440,6 +473,10 @@ function connect() {
     const wasAlive = me()?.state === 'alive';
     const wasEnded = previous?.phase === 'ended';
     snapshot = { ...wire, walls, rules, map };
+    // 방에 들어간 것이 확인됐다(그 방의 첫 스냅샷). 초대는 여기 한 곳에서 다 쓴 것으로 치운다. 초대받은 방이든, 초대를 두고 새로 만든 방이든,
+    // 같은 방의 링크로 돌아간 방이든 같다. 그 전에 치우면, 복구 정보가 만료되어(1008) 들어가지 못했거나 그래픽 초기화에 실패해 로비로
+    // 돌아왔을 때 받은 링크의 초대가 사라져 그 방에 들어갈 길이 없다(PR #31 리뷰 1·13). 화면을 그리기 전에 치워 방 코드가 보일 때 주소도 깨끗하다.
+    if (invitedRoom !== undefined) showInvite();
     if (me()?.state !== 'waiting') deployRequested = false;
     // 서랍을 연 채 쓰러지거나 작전이 끝나면 서랍을 닫는다. 서랍이 투입 버튼이나 다음 작전 버튼을 덮으면 플레이어가 알아채기 어렵다.
     if (wasAlive && me()?.state !== 'alive') { releaseSkills(); closeMenu(); }
@@ -461,7 +498,8 @@ function connect() {
     if (socket !== ws || !guest) return;
     deployRequested = false;
     clearInput();
-    if (event.code === 1008) { leave(); $('lobby-error').textContent = '참가 정보가 만료되었습니다. 새 작전에 참가해 주세요.'; return; }
+    // 초대 링크로 돌아가려던 방이면 로비가 그 방의 참가를 그대로 보인다(초대는 첫 스냅샷에서만 치운다).
+    if (event.code === 1008) { leave(); $('lobby-error').textContent = invitedRoom ? '참가 정보가 만료되었습니다. 다시 참가해 주세요.' : '참가 정보가 만료되었습니다. 새 작전에 참가해 주세요.'; return; }
     if (event.code === 4001) { leave(); $('lobby-error').textContent = '같은 대원이 다른 창에서 접속했습니다. 이 창에서는 별도 대원으로 참가할 수 있습니다.'; return; }
     status('재접속 중');
     toast('연결을 복구하고 있습니다. 캐릭터와 임무는 계속 진행됩니다.');
@@ -494,6 +532,39 @@ function setMarkup(id: string, html: string) {
   if (markup.get(id) === html) return;
   markup.set(id, html);
   $(id).innerHTML = html;
+}
+
+// 초대 링크로 들어온 로비는 그 방의 참가를 앞세운다. 참가 버튼이 주된 버튼이 되어 방 코드를 보이고, 새 작전 시작은 보조 버튼이 된다.
+// 방 코드 입력란은 숨기고(코드는 버튼에 적힌다) 값만 채워 둔다. 초대받았는지는 여기서 한 번 정하고(invited), 버튼의 모양·글·차례를
+// 모두 여기서 바꾼다. style.css의 .invited는 숨길 글과 버튼의 폭·크기만 맞춘다.
+// 링크를 열자마자 참가시키지는 않는다. 호출명과 장비는 로비에서 고르고, 휴대폰의 전체 화면은 누름 안에서만 켤 수 있으며,
+// 링크를 그냥 열어 본 사람이 네 자리뿐인 분대의 한 자리를 차지하면 안 된다.
+// room 없이 부르면 평소 로비로 되돌리고 주소에서도 초대를 뺀다. 그 방의 첫 스냅샷을 받았거나, 그 방에 들어갈 수 없다는 답을 받았을 때다.
+function showInvite(room?: string) {
+  const invited = room !== undefined;
+  invitedRoom = room;
+  $('lobby').classList.toggle('invited', invited);
+  const join = $('join'), create = $('create'), joinRow = join.parentElement!;
+  join.className = invited ? 'primary' : 'secondary';
+  create.className = invited ? 'secondary' : 'primary';
+  // 방 코드는 주소에서 온 글이다. 모양을 거른 값만 오지만 그 검사에 기대지 않고 이스케이프한다(PR #31 리뷰 11).
+  join.innerHTML = invited ? `${escape(room)} 방에 참가 <span>↗</span>` : '참가';
+  document.querySelectorAll('.invite-code').forEach(holder => { holder.textContent = room ?? ''; });
+  // 주된 버튼을 앞에 둔다. 평소에는 새 작전 시작, 초대받았으면 참가 줄이다. 화면의 자리만 CSS(order)로 바꾸면 Tab과 화면 읽기
+  // 프로그램은 DOM 차례를 따라, 아래에 있는 보조 버튼에 먼저 간다(PR #31 리뷰 6). PC 로비는 둘 사이에 구분선이 있어 두 요소의 자리를 맞바꾼다.
+  if (invited) placeBefore(joinRow, create);
+  else placeBefore(create, joinRow);
+  if (invited) $<HTMLInputElement>('room-input').value = room;
+  else if (new URLSearchParams(location.search).has('room')) history.replaceState(history.state, '', withoutInvite(location.href));
+}
+
+// first가 second보다 앞에 오도록 두 요소의 자리를 맞바꾼다. 이미 그 차례면 그대로 둔다.
+function placeBefore(first: Element, second: Element) {
+  if (first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING) return;
+  const mark = document.createComment('');
+  first.replaceWith(mark);
+  second.replaceWith(first);
+  mark.replaceWith(second);
 }
 
 function leave() {
@@ -636,10 +707,39 @@ function updateUi() {
 $('create').addEventListener('click', () => void enter());
 $('join').addEventListener('click', () => void enter($<HTMLInputElement>('room-input').value));
 $('room-input').addEventListener('keydown', event => { if (event.key === 'Enter') void enter($<HTMLInputElement>('room-input').value); });
-$('copy-code').addEventListener('click', () => {
+// 호출명을 적고 Enter를 누르면 초대받은 방에 참가한다. 평소에는 새 작전을 시작할지 참가할지 알 수 없어 아무 일도 하지 않는다.
+// 한글을 조합하는 중의 Enter(글자를 확정하는 Enter)는 참가로 치지 않는다.
+$('callsign').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing && invitedRoom) void enter(invitedRoom); });
+// 글을 클립보드에 넣는다. navigator.clipboard는 보안 문맥(https, localhost)에만 있다. 사설 주소로 연 화면(같은 공유기의 휴대폰)에는
+// 없으므로, 그때와 권한이 없어 실패했을 때는 화면 밖의 입력란을 골라 복사한다. 입력란은 읽기 전용이라 휴대폰에서 자판이 뜨지 않는다.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* 아래 방법으로 한 번 더 해 본다. */ }
+  const focused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+  const holder = document.createElement('textarea');
+  holder.value = text;
+  holder.readOnly = true;
+  // 글자는 16px로 둔다. 아이폰 Safari는 그보다 작은 입력란에 커서가 가면 화면을 확대하고 되돌리지 않는다(입력란 글자 16px과 같은 까닭, PR #31 리뷰 3).
+  holder.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+  document.body.append(holder);
+  // 아이폰 Safari는 읽기 전용 입력란에서 select()만으로는 글을 고르지 않는다. 고른 범위를 따로 정한다(PR #31 리뷰 2).
+  holder.select();
+  holder.setSelectionRange(0, text.length);
+  let copied = false;
+  try { copied = document.execCommand('copy'); } catch { copied = false; }
+  holder.remove();
+  focused?.focus();
+  return copied;
+}
+// 옆 패널의 버튼은 방 코드가 아니라 초대 링크를 복사한다. 받은 사람은 링크를 열고 참가만 누르면 된다.
+// 이 기기에서만 열리는 주소(localhost)나 같은 망에서만 열리는 주소(사설 주소)로 연 화면이면, 그 링크가 어디까지 열리는지 함께 알린다(invite.ts의 linkReach).
+// 복사하지 못했으면 방 코드를 보인다. 긴 주소는 알림에 띄워도 옮겨 적을 수 없다.
+$('copy-code').addEventListener('click', async () => {
   if (!guest) return;
-  navigator.clipboard?.writeText(guest.room).then(() => toast('초대 코드를 복사했습니다. 친구에게 공유하세요.')).catch(() => toast(`초대 코드: ${guest!.room}`));
-  if (!navigator.clipboard) toast(`초대 코드: ${guest.room}`);
+  const room = guest.room;
+  const copied = await copyText(inviteLink(location.origin, location.pathname, room));
+  toast(copied ? copiedNotices[linkReach(location.hostname)] : `복사하지 못했습니다. 초대 코드: ${room}`);
 });
 $('camp').addEventListener('click', () => {
   if (!world || !snapshot) return;
@@ -832,5 +932,22 @@ function pumpInput() {
 pumpInput();
 window.setInterval(() => send({ type: 'ping', sent: performance.now() }), 2000);
 
-try { const saved = sessionStorage.getItem('argus-guest'); if (saved) guest = JSON.parse(saved) as Guest; } catch { sessionStorage.removeItem('argus-guest'); }
-if (guest?.room && guest?.token) void openOperation();
+const saved = savedGuest();
+const invite = readInvite(location.search);
+// 초대가 없거나 모양이 틀렸으면 주소의 ?room을 바로 뺀다.
+if (invite.room === undefined) showInvite();
+if (saved && (invite.room === undefined || invite.room === saved.room)) {
+  // 이 탭이 들어가 있던 방으로 돌아간다. 그 방의 초대 링크를 다시 연 것이어도 이미 그 방의 대원이므로 새로 참가하지 않는다.
+  // 그 방의 초대는 남겨 두었다가 첫 스냅샷에서 치운다. 복구 정보가 만료되어 들어가지 못하면(1008) 로비가 그 방의 참가를 보인다(PR #31 리뷰 1).
+  guest = saved;
+  if (invite.room !== undefined) showInvite(invite.room);
+  void openOperation();
+} else {
+  // 다른 방의 초대 링크로 왔으면 있던 방으로 돌아가지 않고 초대받은 방의 참가를 보인다. 링크를 누른 사람은 그 방에 들어가려는 것이다.
+  // 저장된 복구 정보는 지우지 않는다. 참가하지 않고 뒤로 가면 있던 방으로 돌아갈 수 있고, 참가하거나 새 작전을 시작하면 덮어쓴다.
+  // 초대받은 방이 들어갈 수 없는 방이면(409) 그 방으로 돌아간다(enter).
+  showInvite(invite.room);
+  if (invite.malformed) $('lobby-error').textContent = '초대 링크의 방 코드가 올바르지 않습니다. 방 코드를 직접 입력해 주세요.';
+  // 초대받은 사람이 곧바로 이름을 적고 Enter로 들어가게 한다. 터치 화면에서는 자판이 로비를 덮으므로 커서를 두지 않는다.
+  if (invite.room && !touchMode) { $<HTMLInputElement>('callsign').focus(); $<HTMLInputElement>('callsign').select(); }
+}

@@ -22,6 +22,7 @@ paths:
 | `game.spec.ts` | 20 | 필요 | 입력(겹쳐 누름, 창을 다녀온 키), 재접속, 치트 방지 경계(위조 상태·잘못된 장비·순번 재생·신원 탈취) |
 | `touch.spec.ts` | 23 | 필요 | 터치 로비와 조작, 휴대폰 크기별 배치, 스타일시트에 `:has(`가 없는지 |
 | `hands.spec.ts` | 6 | 필요 | 손 그림의 짝과 자리, 마스크 |
+| `invite.spec.ts` | 11 | 필요(주소 계산의 두 검사만 브라우저도 쓰지 않음) | 초대 링크의 주소와 열리는 범위, 복사, 초대받은 로비의 모양과 자리와 Tab 차례, 초대를 치우는 때, 복구 정보와의 우선순위 |
 | `mission.spec.ts` | 1 | 필요(손으로 만든 맵) | 임무 봇이 작전을 끝까지 진행 |
 
 그리기나 예측만 고쳤으면 서버 없이 `cd client && npx playwright test tests/world.spec.ts tests/fixed.spec.ts`로 먼저 본다.
@@ -55,3 +56,5 @@ mkdir -p $D/browsers $D/debs $D/root
 for deb in $D/debs/*.deb; do dpkg -x "$deb" $D/root; done
 cd client && PLAYWRIGHT_BROWSERS_PATH=$D/browsers LD_LIBRARY_PATH=$D/root/usr/lib/x86_64-linux-gnu npm run test:e2e
 ```
+
+저장소가 Windows 드라이브(WSL의 `/mnt/e` 같은 곳)에 있으면 검사 결과 폴더를 리눅스 쪽 디스크로 돌린다(`npx playwright test --output $D/test-results`). Playwright는 실패했을 때 남기려고 검사 내내 기록(trace)을 그 폴더에 쓰는데, Windows 드라이브에는 쓰기가 느리다. 화면 크기 33가지를 재는 미니맵 휴대폰 배치 검사가 35초에서 45~90초로 늘어, 전체 실행에서 제한 시간 90초에 한 번 걸렸다(2026-11-17). 결과 폴더만 옮기면 다시 35초다. CI 실행기는 리눅스 디스크라 해당하지 않는다.
