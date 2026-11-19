@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { test, expect, type CDPSession, type Page } from '@playwright/test';
 import type { Snapshot } from '../src/types';
+import { copiedNotices, linkReach } from '../src/invite';
 import { quietRoom } from './rooms';
 import { relay } from './wire';
 
@@ -303,7 +304,10 @@ test('on a phone the dash goes the way the joystick is pushed, and the way it wa
   }
 });
 
-test('the top row, notices and deploy buttons stay on screen and apart on short and narrow phones', async ({ browser }) => {
+test('the top row, notices and deploy buttons stay on screen and apart on short and narrow phones', async ({ browser, baseURL }) => {
+  // 알림은 가장 긴 알림(초대 링크가 이 PC에서만 열린다는 복사 알림)으로 잰다. 그 알림은 검사 서버가 이 기기의 주소(127.0.0.1 등)일 때만 뜬다.
+  // 다른 주소(사설 주소, 터널)로 돌리면 짧은 알림으로 재고도 통과하므로 건너뛴다(PR #31 리뷰 7).
+  test.skip(linkReach(new URL(baseURL!).hostname) !== 'device', '가장 긴 복사 알림은 검사 서버가 이 기기의 주소일 때만 뜬다');
   const context = await browser.newContext(phone);
   const page = await context.newPage();
   // 지도 위쪽 줄(메뉴 버튼·체력과 마나·경과 시간)과 알림, 기술 버튼의 자리다. 숨은 요소는 null이다.
@@ -327,13 +331,26 @@ test('the top row, notices and deploy buttons stay on screen and apart on short 
     };
   });
   const menu = page.getByRole('button', { name: '☰ 메뉴' });
-  // 초대 링크를 복사해 알림을 띄운다. 복사 버튼은 옆 패널(☰ 메뉴) 안에 있다. 검사 서버는 127.0.0.1이라 알림은 가장 긴 문장
-  // ("…단, 이 주소는 이 PC에서만 열립니다.")이다.
+  // 초대 링크를 복사해 알림을 띄운다. 복사 버튼은 옆 패널(☰ 메뉴) 안에 있다. 검사 서버가 이 기기의 주소라 알림은 가장 긴 문장
+  // ("…단, 이 주소는 이 PC에서만 열립니다.")이다. 다른 복사 알림은 그보다 넓지 않다. 넓으면 그 알림이 좁은 휴대폰에서 꺾여도
+  // 이 검사에 걸리지 않는다. 알림 줄과 같은 모양의 상자에 한 줄로 그려 폭을 견준다.
   // 패널은 위쪽 줄과 알림 아래에서 시작한다. 체력과 마나, 알림이 패널 머리와 초대 링크 버튼을 덮지 않는다.
   const showNotice = async (name: string) => {
     await menu.tap();
     await page.getByRole('button', { name: /초대 링크 복사/ }).tap();
-    await expect(page.locator('#toast')).toContainText('초대 링크를 복사했습니다');
+    await expect(page.locator('#toast div').filter({ hasText: '초대 링크' }), name).toHaveText(copiedNotices.device);
+    const widths = await page.evaluate(texts => texts.map(text => {
+      const line = document.querySelector('#toast div')!;
+      const probe = line.cloneNode(false) as HTMLElement;
+      probe.style.cssText += ';position:absolute;visibility:hidden;white-space:nowrap;width:auto;max-width:none';
+      probe.textContent = text;
+      line.parentElement!.append(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return width;
+    }), [copiedNotices.device, copiedNotices.network, copiedNotices.anywhere]);
+    expect(widths[1], `${name}: 같은 망 알림의 폭`).toBeLessThanOrEqual(widths[0]);
+    expect(widths[2], `${name}: 어디서나 알림의 폭`).toBeLessThanOrEqual(widths[0]);
     const gap = () => page.evaluate(() => document.querySelector('.sidebar')!.getBoundingClientRect().top - document.querySelector('.top-stack')!.getBoundingClientRect().bottom);
     await expect.poll(gap, name).toBeGreaterThanOrEqual(0);
     await menu.tap();
