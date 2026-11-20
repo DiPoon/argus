@@ -36,6 +36,15 @@
 - 첫 스냅샷이 온 것(`#touch-mission`의 글)과 합류 알림이 숨은 것을 기다린 뒤 재게 고쳤다. 서버의 글을 0.3~2.3초 늦춰 여섯 번씩 돌리면 고치기 전에는 한 번 실패하고(투입 대기 761→760), 고친 뒤에는 모두 통과한다. 늦추지 않고 여덟 번 되풀이해도 통과한다.
 - 같은 꼴의 검사를 쓸 때의 주의를 `.claude/rules/browser-tests.md`에 적었다.
 
+### 덧붙임: 규칙이 실제 작업 세션에 실리는 것을 보았다
+
+PR #33의 검증(아래 2026-11-18의 두 항목)에서 headless 실행으로만 쟀던 것을 실제 작업 세션에서 보았다(Claude Code 2.1.328). 이 PR을 만든 세션은 `/mnt/e/argus`에서 시작해 세션을 옮기지 않고 worktree에서 일했다. 사용자가 11-20에 그 체크아웃에서 master를 받아 `.claude/rules/`가 생긴 뒤의 일이다.
+
+- worktree의 파일을 Read로 처음 열 때 `/mnt/e/argus/.claude/rules/`의 규칙이 그 파일의 `paths`대로 실렸다. `client/src/types.ts`에 `protocol.md`, `SkillDefinition.cs`에 `combat.md`와 `determinism.md`, `Match.Movement.cs`에 `steering.md`, `world.ts`에 `client-render.md`와 `prediction.md` 하는 식으로, 이 작업에서 연 파일에 맞는 열두 규칙이 한 번씩 실렸다. 실린 글머리에는 그 규칙 파일의 경로가 적혀 있었다. 검사 파일을 고칠 때(Edit)도 실렸다.
+- 규칙은 세션 도중에 그 체크아웃에 생겼는데(사용자가 세션 중에 받았다) 세션을 다시 시작하지 않아도 실렸다.
+- Bash로 읽을 때는 고르지 않았다. `cd <worktree> && echo …; sed -n 340,440p <검사 파일>`은 `server-tests.md`를 실었다. 여러 명령을 잇고 파이프를 쓴 줄에서 `sed -n`으로 읽은 `Match.cs`와 `AuraTests.cs`는 `authority.md`와 `input.md`를 싣지 않았고, 그 뒤 Read로 열었을 때 실렸다. PR #33의 headless 측정에서는 `cd <폴더> && cat <파일>`이 싣지 않았다. `CLAUDE.md`가 적은 대로 Read가 아닌 길은 보장이 없다.
+- `EnterWorktree`로 들어간 실제 세션과 `/cd`는 여전히 보지 못했다.
+
 ### 확인하지 못한 것
 
 - 사람이 해 보지 않았다. 세 엘리트가 섞인 판의 난이도, 사슬병이 한 작전에 둘셋 나오는 것이 적당한지, 초록 몸이 잘 알아보이는지.
