@@ -9,18 +9,18 @@ paths:
 
 서버 검사는 xUnit이 아니라 `tests/Argus.Server.Tests/Program.cs`의 자체 콘솔 하네스다. 인자 없이 돌리면 `Main()`이 열세 개의 `Register` 호출로 모든 검사를 등록한 뒤 순서대로 실행한다. 이름으로 고르는 필터는 없고, `-- determinism`을 주면 결정론 검사(`DeterminismTests`, `FixedTests`, `ClientParityTests`, `GeneratorTests`)만 돌린다. `-- vectors`는 검사 대신 클라이언트 예측 대조 자료를 다시 쓴다. 전체가 빌드를 포함해 20초 안팎이면 끝나므로 보통 그대로 돌린다. 하나만 보려면 `Program.cs`의 `Register` 호출을 임시로 줄이거나 해당 `*Tests.cs`의 `Register`에서 `tests.Add` 줄을 임시로 주석 처리한다. **임시 수정을 되돌리고 전체를 다시 통과시킨 뒤 커밋한다.**
 
-검사 하나는 `Register` 안의 `tests.Add(new TestCase("영어 문장으로 쓴 이름", 메서드))` 한 줄이고, 실패는 예외다. 출력은 검사마다 `PASS 이름`이나 `FAIL 이름`, 마지막 줄은 `214/214 checks passed`다(2026-11-17. `-- determinism`은 26개, 약 13초).
+검사 하나는 `Register` 안의 `tests.Add(new TestCase("영어 문장으로 쓴 이름", 메서드))` 한 줄이고, 실패는 예외다. 출력은 검사마다 `PASS 이름`이나 `FAIL 이름`, 마지막 줄은 `218/218 checks passed`다(2026-11-20. `-- determinism`은 26개, 약 13초).
 
 ## 파일마다 다루는 것
 
 | 파일 | 검사 수 | 다루는 것 | 함께 읽을 규칙 |
 | --- | --- | --- | --- |
-| `LifecycleTests.cs` | 45 | 투입·재접속·보급·임무 종료, `RoomHost`(방 만들기와 상한, 연결), 스냅샷 전송 모양(`TimedWireShape`·`SkillWireTimes`·`SharedSnapshot`) | `server-runtime.md` |
+| `LifecycleTests.cs` | 46 | 투입·재접속·보급·임무 종료, `RoomHost`(방 만들기와 상한, 연결), 스냅샷 전송 모양(`TimedWireShape`·`SkillWireTimes`·`SharedSnapshot`·`EnemyWireShape`) | `server-runtime.md` |
 | `EquipmentTests.cs` | 18 | 장비 칸, 마나, 누른 차례와 기다리는 누름 | `input.md` |
 | `CombatTests.cs` | 39 | 상성 아홉 가지, 받아치기, 잡기, 2티어 합산, 같은 순간의 판정, 기술 속성(`SkillFlags`·`AroundSkills`) | `combat.md` |
-| `AuraTests.cs` | 15 | 기운·장판 모델, 누르고 있는 기운, 같은 순간의 장판 | `combat.md`, `input.md` |
+| `AuraTests.cs` | 16 | 기운·장판 모델, 누르고 있는 기운, 같은 순간의 장판, 사슬병의 잡기 Ⅱ(`GrabElite`) | `combat.md`, `input.md` |
 | `DashTests.cs` | 7 | 대시 | `combat.md` |
-| `EncounterTests.cs` | 37 | 적 출현, 예고와 방향, 조향 장면 | `steering.md` |
+| `EncounterTests.cs` | 39 | 적 출현과 증원의 종류(`ReinforcementShares`·`ReinforcementsOverTime`), 예고와 방향, 조향 장면 | `steering.md` |
 | `DeterminismTests.cs` | 7 | 시드 난수 고정값, 같은 시드 같은 상태, `TickClock`, 이식성(`PortabilityCheck`가 IL을 읽는다) | `determinism.md` |
 | `FixedTests.cs` | 9 | 고정소수점과 각도, 고정값 | `determinism.md` |
 | `ClientParityTests.cs` | 2 | 클라이언트 대조 자료가 지금 계산과 같은지. `-- vectors`가 이 파일의 `Write`로 자료를 다시 쓴다 | `prediction.md` |

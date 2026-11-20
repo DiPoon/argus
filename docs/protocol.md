@@ -171,7 +171,7 @@ deploy(남은 초), kills, deaths, ack, landingX, landingY
 적:
 
 ```text
-id, x, y, rawX, rawY, kind(grunt/breaker/warden), name, radius, hp, maxHp,
+id, x, y, rawX, rawY, kind(grunt/breaker/warden/chainer), name, radius, hp, maxHp,
 tiers([타격, 방어, 채널]), action(null 또는 기술 객체)
 ```
 

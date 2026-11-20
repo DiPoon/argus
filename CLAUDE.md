@@ -41,13 +41,13 @@ npm --prefix client run typecheck                              # tsc --noEmit
 npm --prefix client run build                                  # 타입 검사 + vite build → server/Argus.Server/wwwroot
 dotnet build server/Argus.Server/Argus.Server.csproj           # 경고 하나로 실패한다
 dotnet run --project server/Argus.Server --urls http://127.0.0.1:5077
-dotnet run --project tests/Argus.Server.Tests                  # 서버 검사 전체 (214개, 빌드 포함 약 20초)
+dotnet run --project tests/Argus.Server.Tests                  # 서버 검사 전체 (218개, 빌드 포함 약 20초)
 dotnet run --project tests/Argus.Server.Tests -- determinism   # 결정론 묶음만 (CI의 Windows·macOS가 쓴다)
 dotnet run --project tests/Argus.Server.Tests -- vectors       # client/tests/fixed-vectors.json을 지금 서버 계산으로 다시 쓰기
 dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz> [--until <틱> [--snapshot <대원 id>]]   # 기록 하나 재생. 그 틱에서 멈춰 상태와 그 대원의 화면 보기
 dotnet run --project tools/Argus.Replay -- <기록 폴더> [--strict]   # 폴더 전체 확인. --strict는 폴더에만 듣는다(파일에 주면 말없이 무시한다)
 cd client && npx playwright install --with-deps chromium       # 브라우저 설치(처음 한 번. root 권한이 없으면 browser-tests.md)
-cd client && npm run test:e2e                                  # 브라우저 검사 전체 (120개, 서버가 5077에 떠 있어야 한다)
+cd client && npm run test:e2e                                  # 브라우저 검사 전체 (121개, 서버가 5077에 떠 있어야 한다)
 cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 ```
 
@@ -75,7 +75,7 @@ server/Argus.Server/
     Match.StateHash.cs      진행 상태 전체의 요약값
     Model.cs                Player·WaitingPress·PlayerAction·EnemyAction·EnemyPlan·Enemy·Facility·Supply·Effect·Notice
     Rules.cs                틱 상수(초당 30), 규칙 값, 대원 기술 정의(AllSkills), 장비 검사(ValidSlots)
-    SkillDefinition.cs      SkillDefinition, Affinity.Beats, EnemySkill, EnemyDefinition(Grunt·Breaker·Warden)
+    SkillDefinition.cs      SkillDefinition, Affinity.Beats, EnemySkill, EnemyDefinition(Grunt·Breaker·Warden·Chainer)
     Fixed.cs FixedVector.cs Angle.cs   고정소수점(1/4096), 벡터, 각도(한 바퀴 65536칸)
     SeededRandom.cs         HMAC-SHA256 카운터 난수, 용도별 시드(Derive)
     BattleMap.cs            벽 배열, CanStand, RayWall, Reveal, DeepestWall
