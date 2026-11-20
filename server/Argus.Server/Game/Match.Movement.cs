@@ -346,21 +346,55 @@ public sealed partial class Match
         return true;
     }
 
+    // 증원의 종류를 가르는 주사위의 칸 수다. 비율을 정수로만 가르려고 60칸으로 두었다(15%는 9칸, 25%의 3분의 1은 5칸).
+    public const int ReinforcementSides = 60;
+    // 이 시간이 지난 뒤의 증원에는 엘리트 세 종류가 모두 섞인다. 그 전에는 분쇄자만 섞인다.
+    public const double LateReinforcementSeconds = 45;
+
+    // 엘리트를 켠 작전에서 증원 하나의 종류다. roll은 0 이상 ReinforcementSides 미만의 수이고, late는 작전을 시작한 지
+    // LateReinforcementSeconds가 지났는지다.
+    // - 처음 45초: 15%(9칸)가 분쇄자이고 나머지는 병사다. 예전과 같다.
+    // - 그 뒤: 25%(15칸)가 엘리트이고 분쇄자·철위병·사슬병이 5칸씩 똑같이 나눈다(각 8.3%).
+    // 사슬병을 넣기 전에는 처음부터 분쇄자 15%, 45초 뒤부터 철위병 10%였다. 엘리트 전체의 비율(15%, 25%)은 그대로 두고
+    // 종류만 나눴다. 난이도가 적당하다는 플레이 테스트 평(2026-11-15)이 있어 엘리트 수를 늘리지 않았다.
+    public static EnemyDefinition ReinforcementKind(int roll, bool late)
+    {
+        if (roll < 0 || roll >= ReinforcementSides)
+        {
+            throw new ArgumentOutOfRangeException(nameof(roll), roll, $"0 이상 {ReinforcementSides} 미만이어야 합니다");
+        }
+        if (!late)
+        {
+            if (roll < 9)
+            {
+                return EnemyDefinition.Breaker;
+            }
+            return EnemyDefinition.Grunt;
+        }
+        if (roll < 5)
+        {
+            return EnemyDefinition.Breaker;
+        }
+        if (roll < 10)
+        {
+            return EnemyDefinition.Warden;
+        }
+        if (roll < 15)
+        {
+            return EnemyDefinition.Chainer;
+        }
+        return EnemyDefinition.Grunt;
+    }
+
     private void SpawnEnemy()
     {
         EnemyDefinition definition = EnemyDefinition.Grunt;
         // 시간이 지나도 첫 작전에는 2티어 적이 섞이지 않도록 추가 생성에도 같은 규칙을 적용한다.
         if (Rules.AllowEliteEnemies)
         {
-            double roll = _random.NextDouble();
-            if (roll < 0.15)
-            {
-                definition = EnemyDefinition.Breaker;
-            }
-            else if (roll < 0.25 && ElapsedTicks > Rules.ToTicks(45))
-            {
-                definition = EnemyDefinition.Warden;
-            }
+            int roll = _random.NextInt(0, ReinforcementSides);
+            bool late = ElapsedTicks > Rules.ToTicks(LateReinforcementSeconds);
+            definition = ReinforcementKind(roll, late);
         }
         // 분대가 보고 있거나 벽·몸에 막힌 자리면 각도를 다시 뽑는다. 끝까지 못 찾으면 이번 회차는 넘긴다.
         for (int attempt = 0; attempt < 12; attempt++)

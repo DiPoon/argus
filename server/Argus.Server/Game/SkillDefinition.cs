@@ -237,9 +237,23 @@ public sealed class EnemyDefinition
             new EnemySkill("channel", 1, 0, 1, 68, 18)
         });
 
+    // 사슬병은 잡기만 강화한다(2026-11-15 사용자 요청 "잡기 엘리트 몹"). 혼자 타격으로 치면(부분 대응) 피해 1을 받는다.
+    // 몸 색이 잡기 색(초록)이므로 강화한 행동도 잡기 하나다(철위병과 같은 까닭이다).
+    // 몸은 분쇄자와 같다(반지름 22, 체력 2, 빠르기 82). 다른 것은 어느 행동이 2티어인가뿐이다. 사용자가 정한 것은
+    // "잡기 엘리트를 더한다"까지여서 균형용 차이를 따로 두지 않았다(docs/combat.md의 "사슬병을 만들며 정한 것").
+    // 수치는 다른 엘리트가 병사의 같은 행동에서 벌어진 만큼 두었다. 1티어 행동은 사거리 +6~8·반폭 +5(분쇄자의 방어·잡기),
+    // 2티어 행동은 예고 +0.25초·사거리 +16~17·반폭 +9(분쇄자의 타격 Ⅱ, 철위병의 방어 Ⅱ)다.
+    public static readonly EnemyDefinition Chainer = new EnemyDefinition("chainer", "사슬병", Fixed.FromInt(22), 2, 82,
+        new EnemySkill[]
+        {
+            new EnemySkill("strike", 1, 0, 0.85, 73, 20),
+            new EnemySkill("block", 1, 0, 0.95, 70, 20),
+            new EnemySkill("channel", 2, 1, 1.2, 78, 22)
+        });
+
     // 모든 적 종류다. 새 종류를 만들면 여기에 넣는다. 기록의 적 종류 되읽기(FromId), 가장 큰 몸(LargestRadius),
     // 모든 종류를 도는 검사가 이 목록을 쓴다. 정적 필드는 적힌 순서대로 만들어지므로 위의 정의들보다 뒤에 둔다.
-    public static readonly IReadOnlyList<EnemyDefinition> All = Array.AsReadOnly(new EnemyDefinition[] { Grunt, Breaker, Warden });
+    public static readonly IReadOnlyList<EnemyDefinition> All = Array.AsReadOnly(new EnemyDefinition[] { Grunt, Breaker, Warden, Chainer });
     // 가장 큰 몸의 반지름이다. 증원 타원에 이 몸이 설 자리가 있는지 볼 때 쓴다.
     public static readonly Fixed LargestRadius = FindLargestRadius();
 
