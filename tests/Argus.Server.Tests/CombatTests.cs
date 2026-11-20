@@ -346,7 +346,11 @@ internal static class CombatTests
         // 엘리트의 2티어 행동마다, 혼자 맞는 대응이 실제로 닿으면(부분 대응) 대원과 엘리트가 함께 피해 1을 받는다.
         // 그래서 체력만큼 부분 대응하면 엘리트가 쓰러진다. 2026-10-28 전에는 부분 대응으로 쓰러지지 않았다.
         // 분쇄자는 피해가 없었고, 철위병은 체력 1에서 멈췄다.
-        // 받아치기(타격 Ⅱ)는 닿는 공격을 막을 때, 잡기(방어 Ⅱ)는 예고 중에 먼저 닿을 때 판정받으므로 행동마다 따로 본다.
+        // 받아치기(타격 Ⅱ)는 닿는 공격을 막을 때, 잡기(방어 Ⅱ)와 타격(잡기 Ⅱ)은 예고 중에 먼저 닿을 때 판정받으므로 행동마다 따로 본다.
+        // 엘리트의 장판은 0.25초(8틱) 뒤에 나간다. 0.2초(6틱)로 두면 타격의 장판(기운 0.18초, 6틱)과 같은 틱에 나간다.
+        // 같은 순간에 나간 두 장판은 부분 대응이 아니다. 대원의 장판은 상성 없는 타격이고 대원은 2티어 장판에 그대로 맞는다
+        // (AuraTests의 SameInstantZones). 사슬병을 넣으며 0.2초에서 옮겼다(2026-11-20).
+        double arrivesIn = 0.25;
         int checkedSkills = 0;
         for (int i = 0; i < EnemyDefinition.All.Count; i++)
         {
@@ -361,11 +365,14 @@ internal static class CombatTests
                 checkedSkills++;
                 Fixture f = new Fixture();
                 string counter = CounterFor(f.Match.Rules, skill.Kind);
+                // 수치를 바꿔 두 장판이 다시 같은 틱에 나가게 되면 아래의 피해 확인이 엉뚱한 값으로 실패한다. 까닭을 여기서 먼저 알린다.
+                long zoneTicks = Rules.ToTicks(f.Match.Rules.Skill(counter).AuraSeconds);
+                Check(zoneTicks != Rules.ToTicks(arrivesIn), $"{counter}의 장판과 {definition.Name}의 장판이 같은 틱에 나갑니다. arrivesIn을 옮기세요");
                 Enemy elite = Target(f, definition);
                 for (int round = 1; round <= definition.Health; round++)
                 {
                     f.Player.Hp = f.Player.MaxHp;
-                    BeginAction(f, elite, skill, 0.2);
+                    BeginAction(f, elite, skill, arrivesIn);
                     Prepare(f, f.Player, counter);
                     Advance(f.Match, 0.3);
                     Near(f.Player.Hp, f.Player.MaxHp - 1);
@@ -503,13 +510,42 @@ internal static class CombatTests
     {
         // 엘리트가 어떤 2티어 행동을 쓰는지 몸 색으로 알아보게 한다(합의 규칙: 크기와 특징으로 알아보게 한다).
         // 분쇄자는 몸이 타격 색(빨강)이고 타격만 2티어다. 철위병은 몸이 방어 색(파랑)이고 방어만 2티어다.
-        // 색은 클라이언트(world.ts)가 적 종류로 고른다. 철위병의 타격이 2티어였을 때 휴대폰 시험에서 헷갈렸다(2026-11-05).
+        // 사슬병은 몸이 잡기 색(초록)이고 잡기만 2티어다(2026-11-15 사용자 요청).
+        // 색은 클라이언트(palette.ts의 bodyColor)가 적의 tiers에서 고른다. 철위병의 타격이 2티어였을 때 휴대폰 시험에서 헷갈렸다(2026-11-05).
         Equal(EnemyDefinition.Breaker.Skills[0].Tier, 2);
         Equal(EnemyDefinition.Breaker.Skills[1].Tier, 1);
         Equal(EnemyDefinition.Breaker.Skills[2].Tier, 1);
         Equal(EnemyDefinition.Warden.Skills[0].Tier, 1);
         Equal(EnemyDefinition.Warden.Skills[1].Tier, 2);
         Equal(EnemyDefinition.Warden.Skills[2].Tier, 1);
+        Equal(EnemyDefinition.Chainer.Skills[0].Tier, 1);
+        Equal(EnemyDefinition.Chainer.Skills[1].Tier, 1);
+        Equal(EnemyDefinition.Chainer.Skills[2].Tier, 2);
+        // 어느 엘리트든 2티어 행동은 하나뿐이다. 둘이면 몸 색 하나로 알아볼 수 없다.
+        // 행동은 타격·방어·잡기 차례로 적는다. 스냅샷의 tiers가 이 차례이고 클라이언트가 그 자리로 몸 색과 이름표를 고른다.
+        string[] order = new string[] { "strike", "block", "channel" };
+        for (int i = 0; i < EnemyDefinition.All.Count; i++)
+        {
+            EnemyDefinition definition = EnemyDefinition.All[i];
+            Equal(definition.Skills.Length, order.Length);
+            int strong = 0;
+            for (int j = 0; j < definition.Skills.Length; j++)
+            {
+                Equal(definition.Skills[j].Kind, order[j]);
+                if (definition.Skills[j].Tier >= 2)
+                {
+                    strong++;
+                }
+            }
+            if (definition.IsElite)
+            {
+                Check(strong == 1, $"{definition.Name}의 2티어 행동이 {strong}개입니다. 몸 색 하나로 알아보려면 하나여야 합니다");
+            }
+            else
+            {
+                Check(strong == 0, $"엘리트가 아닌 {definition.Name}에 2티어 행동이 있습니다");
+            }
+        }
         // 그래서 철위병의 타격은 혼자 방어 하나로 완벽 대응이다. 대원은 피해가 없고, 철위병은 체력과 관계없이 쓰러진다.
         Fixture f = new Fixture();
         EnemySkill strike = EnemyDefinition.Warden.Skills[0];

@@ -251,8 +251,9 @@ internal static class LayoutTests
             Equal(elites.Enemies[i].Definition.Id, layout.InitialEnemySpots[i].Kind.Id);
             Equal(grunts.Enemies[i].Definition.Id, EnemyDefinition.Grunt.Id);
         }
-        Check(EnemyDefinition.Breaker.IsElite && EnemyDefinition.Warden.IsElite && !EnemyDefinition.Grunt.IsElite, "엘리트 판정이 틀립니다");
+        Check(EnemyDefinition.Breaker.IsElite && EnemyDefinition.Warden.IsElite && EnemyDefinition.Chainer.IsElite && !EnemyDefinition.Grunt.IsElite, "엘리트 판정이 틀립니다");
         Equal(EnemyDefinition.FromId("warden"), EnemyDefinition.Warden);
+        Equal(EnemyDefinition.FromId("chainer"), EnemyDefinition.Chainer);
         Throws<ArgumentException>(() => EnemyDefinition.FromId("dragon"));
     }
 
