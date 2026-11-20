@@ -174,8 +174,34 @@ test('an elite body takes the color of the kind of its tier 2 action', async ({ 
     world.update(state); world.draw(1 / 60);
     return [900, 901, 902].map(id => world.labelsById.get(`enemy-type-${id}`)!.style.fill);
   }, state);
-  // 예고 라벨이 쓰는 상성 색과 같아야 한다. 이 색을 바꾸면 몸 색도 함께 바뀐다. 분쇄자 빨강, 철위병 파랑이다.
+  // 예고 라벨이 쓰는 상성 색과 같아야 한다. 이 색을 바꾸면 몸 색도 함께 바뀐다. 분쇄자 빨강, 철위병 파랑, 사슬병 초록이다.
   expect(colorsOf).toEqual([0xff6b61, 0x4785ff, 0xa6f9ba]);
+});
+
+test('the grab elite is a diamond with a ring in the grab color, and its name tag tells its tiers', async ({ page }) => {
+  // 사슬병은 잡기만 2티어인 엘리트다(2026-11-15 사용자 요청). 몸 색은 잡기 색이고, 윤곽은 다른 엘리트와 다르게 마름모에 고리 하나다.
+  const state = snapshot();
+  state.enemies = [{ ...elite(910), kind: 'chainer', name: '사슬병', tiers: [1, 1, 2] }, { ...elite(911), x: 560, rawX: 560 * 4096 }];
+  const drawn = await page.evaluate(state => {
+    type Painted = { action: string; data: { style?: { color?: number }; path?: { instructions: { action: string; data: unknown[] }[] } } };
+    const world = window.testWorld as unknown as { update(s: unknown): void; draw(dt: number): void;
+      units: { context: { instructions: Painted[] } }; labelsById: Map<string, { text: string }> };
+    world.update(state); world.draw(1 / 60);
+    const painted = world.units.context.instructions;
+    const numbers = (data: unknown[]) => data.flat(2).filter(value => typeof value === 'number') as number[];
+    const steps = (action: string, kind: string) => painted.filter(i => i.action === action).flatMap(i => (i.data.path?.instructions ?? [])
+      .filter(step => step.action === kind).map(step => ({ color: i.data.style?.color ?? -1, numbers: numbers(step.data) })));
+    return { polygons: steps('fill', 'poly'), rings: steps('stroke', 'circle'), tag: world.labelsById.get('enemy-type-910')!.text };
+  }, state);
+  const round = (values: number[]) => values.map(value => Math.round(value * 10) / 10);
+  // 사슬병(반지름 22)은 (460, 730)에 있다. 마름모의 꼭짓점은 반지름의 1.15배(25.3)다.
+  const diamond = drawn.polygons.filter(polygon => polygon.color === affinityColors.channel);
+  expect(diamond.map(polygon => round(polygon.numbers))).toEqual([[460, 704.7, 485.3, 730, 460, 755.3, 434.7, 730]]);
+  expect(drawn.rings.filter(ring => Math.hypot(ring.numbers[0] - 460, ring.numbers[1] - 730) < .01).map(ring => round(ring.numbers.slice(2, 3)))).toContainEqual([9.9]);
+  // 옆의 분쇄자는 꼭짓점 여섯인 다각형이다. 윤곽이 서로 다르다.
+  const breaker = drawn.polygons.filter(polygon => polygon.color === affinityColors.strike);
+  expect(breaker.map(polygon => polygon.numbers.length)).toEqual([12]);
+  expect(drawn.tag).toBe('사슬병 · 타1 방1 잡2');
 });
 
 test('a guard effect wears the block color and the effects without an affinity keep away from the affinity colors', async ({ page }) => {

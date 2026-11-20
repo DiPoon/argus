@@ -688,6 +688,11 @@ export class World {
       } else if (enemy.kind === 'breaker') {
         u.poly([p.x - r, p.y - r, p.x, p.y - r * .6, p.x + r, p.y - r,
           p.x + r, p.y + r * .6, p.x, p.y + r, p.x - r, p.y + r * .6]).fill(color).stroke(unitOutline);
+      } else if (enemy.kind === 'chainer') {
+        // 사슬병(잡기 엘리트)은 마름모에 고리 하나다. 다른 엘리트처럼 색을 못 가려도 윤곽으로 종류가 갈리게 한다.
+        // 마름모는 몸의 원에 내접하면 넓이가 3분의 2뿐이라 작아 보인다. 꼭짓점을 반지름의 1.15배까지 내어 다른 엘리트와 비슷한 크기로 그린다.
+        u.poly([p.x, p.y - r * 1.15, p.x + r * 1.15, p.y, p.x, p.y + r * 1.15, p.x - r * 1.15, p.y]).fill(color).stroke(unitOutline);
+        u.circle(p.x, p.y, r * .45).stroke({ color: 0x172222, width: 3 });
       } else {
         u.circle(p.x, p.y, r).fill(color).stroke(unitOutline);
       }

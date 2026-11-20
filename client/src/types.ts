@@ -46,7 +46,7 @@ export interface Player extends Position {
 }
 export interface Enemy extends Position {
   rawX: number; rawY: number;
-  id: number; kind: 'grunt' | 'breaker' | 'warden'; name: string; radius: number;
+  id: number; kind: 'grunt' | 'breaker' | 'warden' | 'chainer'; name: string; radius: number;
   hp: number; maxHp: number; tiers: number[]; action: CombatAction | null;
 }
 export interface Snapshot {
