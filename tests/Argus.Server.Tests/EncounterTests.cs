@@ -126,8 +126,12 @@ internal static class EncounterTests
         int[] late = new int[EnemyDefinition.All.Count];
         for (int roll = 0; roll < Match.ReinforcementSides; roll++)
         {
-            early[KindIndex(Match.ReinforcementKind(roll, false))]++;
-            late[KindIndex(Match.ReinforcementKind(roll, true))]++;
+            EnemyDefinition earlyKind = Match.ReinforcementKind(roll, false);
+            int earlyIndex = KindIndex(earlyKind);
+            early[earlyIndex]++;
+            EnemyDefinition lateKind = Match.ReinforcementKind(roll, true);
+            int lateIndex = KindIndex(lateKind);
+            late[lateIndex]++;
         }
         Equal(early[KindIndex(EnemyDefinition.Grunt)], 51);
         Equal(early[KindIndex(EnemyDefinition.Breaker)], 9);
@@ -162,22 +166,26 @@ internal static class EncounterTests
         // 대원을 공격해 작전을 끝내지도 않는다.
         Rules rules = new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1, SpawnInterval = 2.5 };
 
-        // 처음 45초: 방 스무 개를 45초까지 돌린다. 한 방에서는 증원이 열여섯쯤이라 경계를 잘못 써도 우연히 지나갈 수 있다.
+        // 처음 45초: 방 스무 개를 45초까지 돌린다. 한 방에서는 증원이 열넷쯤이라 경계를 잘못 써도 우연히 지나갈 수 있다.
         int[] early = new int[EnemyDefinition.All.Count];
         for (int seed = 1; seed <= 20; seed++)
         {
-            // 작전의 시계는 첫 투입을 요청한 때부터 간다. 착지했을 때는 이미 5초쯤 지나 있으므로 남은 40초쯤을 센다.
+            // 작전의 시계는 착지한 때부터 간다(StartMission이 돌아온 때 한 틱). 첫 증원이 10초이고 그 뒤 2.5초마다라,
+            // 10초부터 44초 남짓까지의 증원 열넷을 센다. 45초 정각의 증원은 그 1초를 세기 전에 멈추므로 빠진다.
             // 1초마다 세므로, 45초 안에 본 적은 모두 45초 안에 생긴 적이다.
             Match match = StartMission("EARLY" + seed, rules, seed);
-            while (true)
+            // 횟수를 정해 둔다. 작전이 45초 안에 끝나면 경과 시간이 멈춰 45초를 넘기를 기다리는 반복은 끝나지 않는다.
+            for (int second = 0; second < 60; second++)
             {
                 Advance(match, 1);
+                Check(match.Phase == "active", $"방 {seed}의 작전이 {match.Elapsed}초에 끝났습니다({match.Phase}). 처음 45초를 세지 못했습니다");
                 if (match.Elapsed > Match.LateReinforcementSeconds)
                 {
                     break;
                 }
                 CountAndClear(match, early);
             }
+            Check(match.Elapsed > Match.LateReinforcementSeconds, $"방 {seed}가 60번 돌아도 45초를 넘지 않았습니다");
         }
         int earlyAll = early[KindIndex(EnemyDefinition.Grunt)] + early[KindIndex(EnemyDefinition.Breaker)];
         Equal(early[KindIndex(EnemyDefinition.Warden)], 0);
@@ -204,6 +212,9 @@ internal static class EncounterTests
             }
         }
         Check(longer.Phase == "active", $"작전이 끝났습니다({longer.Phase}). 증원을 끝까지 세지 못했습니다");
+        // 이 방의 처음 45초에도 철위병과 사슬병은 없어야 한다. 위의 방 스무 개와 다른 시드를 하나 더 본다.
+        Equal(before[KindIndex(EnemyDefinition.Warden)], 0);
+        Equal(before[KindIndex(EnemyDefinition.Chainer)], 0);
         int elites = late[KindIndex(EnemyDefinition.Breaker)] + late[KindIndex(EnemyDefinition.Warden)] + late[KindIndex(EnemyDefinition.Chainer)];
         int all = elites + late[KindIndex(EnemyDefinition.Grunt)];
         Check(late[KindIndex(EnemyDefinition.Breaker)] > 0, "45초 뒤에 분쇄자가 나오지 않았습니다");
