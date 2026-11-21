@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { fromDouble, toDouble, type FixedVector } from './fixed';
 import {
   clonePilot, deployable, receiveInput, slotSkill, stepPilot, tickMilliseconds, ticksPerSecond, toTicks, unknownTile,
@@ -8,6 +8,7 @@ import { affinityNames, type Affinity, type CombatAction, type Control, type Pos
 // 색(상성 색, 지도 색, 대원 색, 적 몸 색)은 미니맵·CSS·검사가 함께 쓰도록 pixi 없는 palette.ts에 둔다.
 import { affinityColors, bodyColor, colors, extractionRadius, facilityColor, supplyColor, supplyShown, team } from './palette';
 import type { Minimap, MinimapScene } from './minimap';
+import { handImage, handOf } from './rps';
 
 // 효과 색이다. 방어 성공은 방어 상성 색이다. 피격·비김은 상성 색과 겹치지 않는 분홍이다(2026-11-08 사용자 결정). 예전 연어 빨강은
 // 새 타격 빨강과 거의 같아(적색약에게는 같은 색) 적 옆에 뜬 피격이 타격 예고로 읽혔다. 분홍은 빨강과 파랑을 섞은 색이라 3원색과
@@ -30,6 +31,11 @@ const arcOnNewPath = (g: Graphics, x: number, y: number, radius: number, start: 
 // 앞 120°의 호로 그린다. 그 바깥의 가는 호는 기운이 남은 시간이고, 호 위의 짧은 눈금은 가장 짧은 기운 시간이 끝나는 자리다.
 // 적의 예고 고리(반지름 32)는 가장 큰 적의 빛(23 + 8)보다 바깥이다.
 const auraGlow = 8, auraRing = 28, auraTimer = 34, auraNotch = 3, telegraphRing = 32;
+
+// 예고하는 적의 머리 위에 띄우는 손 그림의 크기(월드 단위)와 티어 글자와의 사이, 텍스처의 화소 수다. 화소는 가장 크게 보일 때
+// (확대 1.15배, 화면 배율 2)의 46화소보다 넉넉히 잡아 흐리지 않게 한다.
+const handSize = 20, handGap = 3, handPixels = 64;
+const handKinds = ['strike', 'block', 'channel'] as const;
 
 // 확인받지 않은 입력을 이만큼(30Hz로 2초 분량)까지 보관한다. 확인이 오지 않는 이상한 상황에서도 끝없이 늘지 않게 한다.
 const maxPending = 60;
@@ -64,6 +70,12 @@ export class World {
   // 쓰지 않게 된 라벨을 바로 해제하지 않고 숨겨 두었다가 새 라벨에 다시 쓴다. 상한을 넘는 것만 해제한다.
   private spareLabels: Text[] = [];
   private static readonly spareLimit = 64;
+  // 예고하는 적의 손 그림이다. 상성마다 텍스처 하나를 만들어 두고(loadHands), 스프라이트는 프레임마다 앞에서부터 다시 쓴다.
+  // 이번 프레임에 쓰지 않은 것은 숨긴다. 스프라이트 수는 한 화면에 함께 예고한 적의 수까지만 는다(그리는 적은 renderBudget까지다).
+  private hands = new Container();
+  private handSprites: Sprite[] = [];
+  private handsUsed = 0;
+  private handTextures = new Map<Affinity, Texture>();
   private snapshot?: Snapshot;
   private previous?: Snapshot;
   private received = 0;
@@ -120,8 +132,49 @@ export class World {
     });
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.root);
-    this.root.addChild(this.ground, this.fog, this.light, this.walls, this.props, this.units, this.labels);
+    this.root.addChild(this.ground, this.fog, this.light, this.walls, this.props, this.units, this.hands, this.labels);
+    await this.loadHands();
     this.app.ticker.add(t => this.draw(Math.min(t.deltaMS / 1000, .05)));
+  }
+
+  // 손 그림의 텍스처를 만든다. 상성 색을 칠한 SVG(rps.ts의 handImage)를 이미지로 읽는다. 틈을 뚫는 마스크는 브라우저가 이미지를
+  // 그릴 때 처리하므로 Pixi의 도형으로 다시 그리지 않아도 된다. 읽지 못한 상성은 예전처럼 상성 이름 글자로 그린다.
+  private async loadHands() {
+    await Promise.all(handKinds.map(async kind => {
+      try {
+        const image = new Image();
+        const color = `#${affinityColors[kind].toString(16).padStart(6, '0')}`;
+        image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(handImage(kind, color, handPixels))}`;
+        await image.decode();
+        this.handTextures.set(kind, Texture.from(image));
+      } catch (error) {
+        console.warn(`손 그림(${kind})을 읽지 못해 글자로 그립니다`, error);
+      }
+    }));
+  }
+
+  // 손 그림 하나를 (x, y)를 가운데로 그린다. 텍스처가 있는 상성에만 부른다.
+  private hand(kind: Affinity, x: number, y: number) {
+    let sprite = this.handSprites[this.handsUsed];
+    if (!sprite) {
+      sprite = new Sprite();
+      sprite.anchor.set(.5);
+      this.hands.addChild(sprite);
+      this.handSprites.push(sprite);
+    }
+    this.handsUsed += 1;
+    sprite.texture = this.handTextures.get(kind)!;
+    sprite.setSize(handSize, handSize);
+    // 검사가 어느 손인지 읽는 이름이다.
+    sprite.label = `hand-${kind === 'none' ? 'none' : handOf[kind]}`;
+    sprite.position.set(x, y);
+    sprite.visible = true;
+  }
+
+  // 이번 프레임에 쓰지 않은 손 그림을 숨기고, 다음 프레임은 처음부터 다시 쓴다.
+  private hideUnusedHands() {
+    for (let i = this.handsUsed; i < this.handSprites.length; i++) this.handSprites[i].visible = false;
+    this.handsUsed = 0;
   }
 
   // 방을 나갈 때 부른다. 지난 방의 스냅샷과 그림을 모두 비운다. 비우지 않으면 다음 방의 첫 스냅샷이 오기 전에(연결이 늦으면 그동안 내내)
@@ -155,6 +208,7 @@ export class World {
     this.wallChunks = [];
     this.labelsById.forEach(label => { label.visible = false; });
     this.removeUnusedLabels();
+    this.hideUnusedHands();
     this.minimap?.show(false);
     // 그래픽 초기화(init)가 끝나기 전에는 그릴 것이 없다.
     if (this.app.renderer) this.app.render();
@@ -541,6 +595,7 @@ export class World {
     label.style.fontSize = size;
     label.position.set(x, y);
     label.visible = true;
+    return label;
   }
 
   private removeUnusedLabels() {
@@ -706,7 +761,18 @@ export class World {
       }
       if (action && now < action.activeUntil) {
         const suffix = action.tier === 2 ? 'Ⅱ · 대응 2' : 'Ⅰ';
-        this.label(`enemy-action-${enemy.id}`, `${affinityNames[action.kind]} ${suffix}`, p.x, p.y - r - 26, affinityColors[action.kind], 13);
+        const y = p.y - r - 26;
+        const tell = affinityColors[action.kind];
+        if (this.handTextures.has(action.kind)) {
+          // 상성은 이름 글자 대신 손 그림으로 보인다(2026-11-21 사용자가 고름). 기술 버튼과 같은 손이라, 적이 낸 손을 보고
+          // 이기는 손을 낸다(가위를 내면 주먹). 손과 티어 글자를 한 묶음으로 머리 위 가운데에 둔다.
+          const label = this.label(`enemy-action-${enemy.id}`, suffix, p.x, y, tell, 13);
+          const left = p.x - (handSize + handGap + label.width) / 2;
+          this.hand(action.kind, left + handSize / 2, y);
+          label.position.set(left + handSize + handGap + label.width / 2, y);
+        } else {
+          this.label(`enemy-action-${enemy.id}`, `${affinityNames[action.kind]} ${suffix}`, p.x, y, tell, 13);
+        }
       }
     }
     const minimapPlayers: MinimapScene['players'] = [];
@@ -745,6 +811,7 @@ export class World {
 
     }
     this.removeUnusedLabels();
+    this.hideUnusedHands();
     if (this.minimap) {
       const shown = !overview && !this.menuOpen;
       this.minimap.show(shown);
