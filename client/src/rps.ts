@@ -3,6 +3,7 @@ import type { Affinity } from './types';
 // 상성마다의 가위바위보 손 그림이다(2026-11-05 사용자 요청). 타격은 가위, 방어는 주먹, 잡기는 보다. 상성이 그대로 맞는다.
 // 타격이 잡기를 이기는 것이 가위가 보를 이기는 것이고, 잡기가 방어를 이기는 것이 보가 주먹을, 방어가 타격을 이기는 것이
 // 주먹이 가위를 이기는 것이다. 터치 기술 버튼, PC 기술 막대, 로비 장비 칸에 붙인다(11-09 사용자 결정).
+// 지도 위에서 예고하는 적의 머리 위에도 그 행동의 손을 띄운다(2026-11-21 사용자가 고름, handImage).
 export type Hand = 'scissors' | 'rock' | 'paper';
 export const handOf = { strike: 'scissors', block: 'rock', channel: 'paper' } as const satisfies Record<Exclude<Affinity, 'none'>, Hand>;
 
@@ -48,3 +49,10 @@ export const handIcon = (kind: Affinity) => {
   drawn += 1;
   return `<svg class="rps" data-hand="${hand}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${shapes[hand](`rps-cut-${drawn}`)}</svg>`;
 };
+
+// 캔버스(world.ts)에 그릴 손 그림이다. 이미지로 읽어 텍스처로 쓰므로 문서 밖의 SVG 한 장이다. 마스크 id는 그 이미지 안에서만
+// 쓰여 다른 그림과 겹치지 않으므로 하나로 둔다. 틈은 이미지에서 투명하게 뚫려, 그 아래 지도와 장판이 비친다.
+// 색은 놓일 자리를 따르지 않고 그 상성 색을 미리 칠한다(color 속성이 currentColor가 된다). 그러면 Canvas 렌더러에서도 틴트에
+// 기대지 않고 같은 색이 나온다. size는 그리는 화소 수다.
+export const handImage = (kind: Exclude<Affinity, 'none'>, color: string, size: number) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" color="${color}">${shapes[handOf[kind]]('rps-cut')}</svg>`;
