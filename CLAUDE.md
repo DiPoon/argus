@@ -9,7 +9,7 @@ Argus는 1–4인 협동 PvE 브라우저 게임이다. C# 서버(.NET 10, ASP.N
 이 파일은 세션마다 통째로 읽히므로 "어디에 무엇이 있는가"와 "깨면 안 되는 규칙"만 둔다. 까닭·수치·버린 안 같은 세부는 `.claude/rules/*.md`에 주제별로 있고, 머리말의 `paths`에 맞는 파일을 Read·Edit·Write로 다루거나 `cat`·`head`로 한 파일을 읽을 때 저절로 불려 온다.
 
 - 그 밖의 길로는 불려 온다는 보장이 없다. 검색(Grep·`rg`)으로 찾은 줄만 보거나 `sed -n`으로 일부만 읽을 때, `cd <폴더> && cat <파일>`처럼 다른 명령과 이어 읽을 때, 셸(`sed -i`, heredoc)로 고칠 때, 새 파일을 쓰기 전, 설계 질문에 답할 때다. 그때는 그 파일을 Read로 한 번 열거나 아래 표에서 골라 규칙 파일을 먼저 읽는다.
-- 이 파일과 규칙이 어느 체크아웃의 것으로 실리는지는 세션이 worktree(`.claude/worktrees/…`)에 들어간 방법에 달려 있다. 바깥 체크아웃에서 시작해 세션을 옮기지 않고 일하면(명령마다 `cd`, 경로로 열기) worktree의 파일을 열어도 시작한 체크아웃의 것이 실린다. 그래서 그 체크아웃을 최신 master로 둔다. `EnterWorktree`로 들어가면 그때부터 규칙은 worktree의 것이 실리고, 이 파일은 문맥을 다시 만들 때(이어 하기, 압축)에야 worktree의 것이 실린다. worktree에서 시작한 세션(`claude --worktree`)에는 처음부터 worktree의 것이 실린다. 2026-11-18에 Claude Code 2.1.327의 headless 실행으로 잰 동작이고 공식 문서가 보장하는 것은 아니다. `/cd`로 옮긴 세션은 재지 못했다(`docs/verification.md`).
+- 이 파일과 규칙이 어느 체크아웃의 것으로 실리는지는 세션이 worktree(`.claude/worktrees/…`)에 들어간 방법에 달려 있다. 바깥 체크아웃에서 시작해 세션을 옮기지 않고 일하면(명령마다 `cd`, 경로로 열기) worktree의 파일을 열어도 시작한 체크아웃의 것이 실린다. Bash의 `cd`로 작업 폴더가 worktree로 바뀌었다는 알림이 와도, 그 뒤에 압축하거나 이어 해도 그렇다. 그래서 그 체크아웃을 최신 master로 둔다. `EnterWorktree`로 들어가면 그때부터 규칙은 worktree의 것이 실리고, 이 파일은 문맥을 다시 만들 때(이어 하기, 압축)에야 worktree의 것이 실린다. worktree에서 시작한 세션(`claude --worktree`)에는 처음부터 worktree의 것이 실린다. headless 실행으로 잰 동작이고 공식 문서가 보장하는 것은 아니다. `/cd`로 옮긴 세션은 재지 못했다. 잰 판과 날짜, 실제 작업 세션에서 본 것은 `docs/verification.md`에 있다.
 - 실린 판은 문맥에 함께 적힌 그 파일의 경로로 가린다. 두 판이 함께 보이면 지금 일하는 worktree의 것을 따른다. 규칙이 실리지 않았거나 실린 판이 지금 고치는 브랜치의 것이 아니면 아래 표에서 골라 그 브랜치의 파일을 직접 읽는다. 이 파일이나 규칙 파일을 고치는 브랜치에서는 실린 것이 고치기 전의 판일 수 있다.
 - 새로 알게 된 세부는 이 파일이 아니라 맞는 규칙 파일에 적는다. 이 파일은 200줄 안으로 둔다.
 
@@ -41,13 +41,13 @@ npm --prefix client run typecheck                              # tsc --noEmit
 npm --prefix client run build                                  # 타입 검사 + vite build → server/Argus.Server/wwwroot
 dotnet build server/Argus.Server/Argus.Server.csproj           # 경고 하나로 실패한다
 dotnet run --project server/Argus.Server --urls http://127.0.0.1:5077
-dotnet run --project tests/Argus.Server.Tests                  # 서버 검사 전체 (214개, 빌드 포함 약 20초)
+dotnet run --project tests/Argus.Server.Tests                  # 서버 검사 전체 (218개, 빌드 포함 약 20초)
 dotnet run --project tests/Argus.Server.Tests -- determinism   # 결정론 묶음만 (CI의 Windows·macOS가 쓴다)
 dotnet run --project tests/Argus.Server.Tests -- vectors       # client/tests/fixed-vectors.json을 지금 서버 계산으로 다시 쓰기
 dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz> [--until <틱> [--snapshot <대원 id>]]   # 기록 하나 재생. 그 틱에서 멈춰 상태와 그 대원의 화면 보기
 dotnet run --project tools/Argus.Replay -- <기록 폴더> [--strict]   # 폴더 전체 확인. --strict는 폴더에만 듣는다(파일에 주면 말없이 무시한다)
 cd client && npx playwright install --with-deps chromium       # 브라우저 설치(처음 한 번. root 권한이 없으면 browser-tests.md)
-cd client && npm run test:e2e                                  # 브라우저 검사 전체 (120개, 서버가 5077에 떠 있어야 한다)
+cd client && npm run test:e2e                                  # 브라우저 검사 전체 (121개, 서버가 5077에 떠 있어야 한다)
 cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 ```
 
@@ -75,7 +75,7 @@ server/Argus.Server/
     Match.StateHash.cs      진행 상태 전체의 요약값
     Model.cs                Player·WaitingPress·PlayerAction·EnemyAction·EnemyPlan·Enemy·Facility·Supply·Effect·Notice
     Rules.cs                틱 상수(초당 30), 규칙 값, 대원 기술 정의(AllSkills), 장비 검사(ValidSlots)
-    SkillDefinition.cs      SkillDefinition, Affinity.Beats, EnemySkill, EnemyDefinition(Grunt·Breaker·Warden)
+    SkillDefinition.cs      SkillDefinition, Affinity.Beats, EnemySkill, EnemyDefinition(Grunt·Breaker·Warden·Chainer)
     Fixed.cs FixedVector.cs Angle.cs   고정소수점(1/4096), 벡터, 각도(한 바퀴 65536칸)
     SeededRandom.cs         HMAC-SHA256 카운터 난수, 용도별 시드(Derive)
     BattleMap.cs            벽 배열, CanStand, RayWall, Reveal, DeepestWall

@@ -35,6 +35,7 @@ internal static class LifecycleTests
         tests.Add(new TestCase("Presses that wait behind a running skill go out to their own player only, in the order pressed, from the input that brought them", WaitingWire));
         tests.Add(new TestCase("Extraction progress times sixty rounds back to the exact half-tick count, odd counts included", ExtractionProgressWire));
         tests.Add(new TestCase("Coordinates go out rounded to hundredths for drawing and as exact raw values for prediction", CoordinateWireRounding));
+        tests.Add(new TestCase("Every enemy kind goes out with its kind, name, health and its tiers in strike, block, grab order", EnemyWireShape));
         tests.Add(new TestCase("Two identical notices on the same tick keep distinct ids that keep growing", NoticeIds));
         tests.Add(new TestCase("A slot that never connects is released quickly while a dropped member keeps the long grace", FirstConnectGrace));
         tests.Add(new TestCase("A long session keeps its room for the full retention time after the last disconnect", RoomRetention));
@@ -889,8 +890,16 @@ internal static class LifecycleTests
         Fixed y = Fixed.FromRaw(730 * Fixed.Scale + 2560);
         f.Player.Position = new FixedVector(x, y);
         Enemy enemy = Target(f);
-        Enemy breaker = Target(f, EnemyDefinition.Breaker);
-        Enemy warden = Target(f, EnemyDefinition.Warden);
+        // 병사 뒤로 나머지 적 종류를 하나씩 둔다. 새 종류를 만들면 저절로 함께 확인한다.
+        List<Enemy> kinds = new List<Enemy>();
+        kinds.Add(enemy);
+        for (int i = 0; i < EnemyDefinition.All.Count; i++)
+        {
+            if (EnemyDefinition.All[i] != EnemyDefinition.Grunt)
+            {
+                kinds.Add(Target(f, EnemyDefinition.All[i]));
+            }
+        }
         byte[] bytes = Snapshot.Create(f.Match, f.Player, RoomHost.Json);
         using (JsonDocument json = JsonDocument.Parse(bytes))
         {
@@ -925,12 +934,47 @@ internal static class LifecycleTests
             // 클라이언트는 받은 반지름을 FromDouble로 다시 Raw로 바꿔 예측에 쓴다. 지금 반지름은 모두 정수라 소수 둘째 자리로 보내도
             // 그대로 돌아온다. 그 자리에서 그대로 돌아오지 않는 반지름을 쓰게 되면 이 검사가 실패하므로, 그때는 반지름의 Raw도 함께 보내야 한다.
             Equal(Fixed.FromDouble(rules.GetProperty("playerRadius").GetDouble()), Rules.PlayerRadius);
-            Enemy[] kinds = new Enemy[] { enemy, breaker, warden };
-            for (int i = 0; i < kinds.Length; i++)
+            Equal(kinds.Count, EnemyDefinition.All.Count);
+            for (int i = 0; i < kinds.Count; i++)
             {
                 JsonElement sent = Find(root.GetProperty("enemies"), "kind", kinds[i].Definition.Id);
                 Equal(Fixed.FromDouble(sent.GetProperty("radius").GetDouble()), kinds[i].Definition.Radius);
             }
+        }
+    }
+
+    private static void EnemyWireShape()
+    {
+        // 화면은 적의 kind로 윤곽을, tiers로 몸 색과 이름표를 고른다(world.ts, palette.ts의 bodyColor).
+        // tiers는 타격·방어·잡기 차례다. 사슬병(잡기 엘리트, 2026-11-20)은 [1, 1, 2]로 가야 초록 몸으로 그려진다.
+        Fixture f = new Fixture();
+        for (int i = 0; i < EnemyDefinition.All.Count; i++)
+        {
+            Target(f, EnemyDefinition.All[i]);
+        }
+        using (JsonDocument json = JsonDocument.Parse(Snapshot.Create(f.Match, f.Player, RoomHost.Json)))
+        {
+            JsonElement enemies = json.RootElement.GetProperty("enemies");
+            Equal(enemies.GetArrayLength(), EnemyDefinition.All.Count);
+            for (int i = 0; i < EnemyDefinition.All.Count; i++)
+            {
+                EnemyDefinition definition = EnemyDefinition.All[i];
+                JsonElement sent = Find(enemies, "kind", definition.Id);
+                Equal(sent.GetProperty("name").GetString(), definition.Name);
+                Equal(sent.GetProperty("hp").GetDouble(), (double)definition.Health);
+                Equal(sent.GetProperty("maxHp").GetDouble(), (double)definition.Health);
+                JsonElement tiers = sent.GetProperty("tiers");
+                Equal(tiers.GetArrayLength(), definition.Skills.Length);
+                for (int j = 0; j < definition.Skills.Length; j++)
+                {
+                    Equal(tiers[j].GetInt32(), definition.Skills[j].Tier);
+                }
+            }
+            JsonElement chainer = Find(enemies, "kind", "chainer");
+            Equal(chainer.GetProperty("name").GetString(), "사슬병");
+            Equal(chainer.GetProperty("tiers")[0].GetInt32(), 1);
+            Equal(chainer.GetProperty("tiers")[1].GetInt32(), 1);
+            Equal(chainer.GetProperty("tiers")[2].GetInt32(), 2);
         }
     }
 

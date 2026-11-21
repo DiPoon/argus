@@ -752,6 +752,11 @@ test('the touch operation screen stays the same across the widths of the PC rule
     await expect(page.locator('#deploy-panel')).toBeVisible();
     await leaveFullscreen(page);
     await expect(page.locator('#deploy')).toBeVisible();
+    // 투입 안내는 첫 스냅샷이 오기 전부터 보인다. 임무 진행 상자와 합류 알림은 첫 스냅샷이 와야 생긴다. 그 전에 재기 시작하면
+    // 두 갈무리 사이에 스냅샷이 도착해 늘어난 요소를 폭 때문에 달라진 것으로 읽는다(2026-11-20에 전체 실행에서 한 번 그렇게 실패했다.
+    // 서버가 보내는 글을 붙잡아 두고 재 보니 첫 스냅샷 전에는 그 일곱 줄만 없었다). 알림은 3.5초 뒤 사라지므로 사라진 뒤에 잰다.
+    await expect(page.locator('#touch-mission')).toContainText('0/3');
+    await expect(page.locator('#toast')).toBeHidden();
     // PC의 좁은 화면 규칙이 바뀌는 폭이다(style.css의 max-width 1100·760·440·360px). 기술 막대의 규칙(440·360)도 터치 화면에 새지 않는다.
     const compare = async (name: string) => {
       for (const [wide, narrow] of [[1101, 1100], [761, 760], [441, 440], [361, 360]]) {

@@ -14,6 +14,7 @@ internal static class AuraTests
         tests.Add(new TestCase("An aura of the same kind waits inside a telegraph and draws only when the zone lands", SameKindWaits));
         tests.Add(new TestCase("One winning aura waits inside a tier-two telegraph; a second one makes it a perfect counter at once", TierTwoNeedsTwo));
         tests.Add(new TestCase("One winning aura still inside a tier-two zone as it lands is a partial counter", TierTwoAlone));
+        tests.Add(new TestCase("The grab elite's tier-two grab waits on one strike aura, falls to two at once, trades one for one with a lone strike, beats a block for two and draws with a grab", GrabElite));
         tests.Add(new TestCase("A perfect counter by the zone also ends the skill, while a plain hit lets it run on", ZoneCounterEndsSkill));
         tests.Add(new TestCase("Once the zone is out the aura is gone, so a zone it would have beaten lands", AuraGoneWithZone));
         tests.Add(new TestCase("A held aura answers a telegraph the moment it starts or the moment the player walks into it", HeldAuraAnswers));
@@ -265,6 +266,101 @@ internal static class AuraTests
         Equal(f.Match.Tick, attack.ContactTick + 1);
         Equal(f.Player.Actions.Count, 1);
         Equal(f.Player.Mana, 22);
+    }
+
+    private static void GrabElite()
+    {
+        // 사슬병은 잡기만 2티어다(2026-11-15 사용자 요청). 잡기 Ⅱ를 이기는 것은 타격이고, 완벽 대응에는 타격 둘이 함께 있어야 한다.
+        EnemySkill snare = EnemyDefinition.Chainer.Skills[2];
+        Equal(snare.Kind, "channel");
+        Equal(snare.Tier, 2);
+
+        // 잡기 Ⅱ 장판 안에서 혼자 타격을 누르고 있는다. 이기는 기운이 하나라 예고 중에는 아무 일도 없다.
+        // 동료가 회전 베기를 누르는 순간 이기는 기운이 둘이 되어 완벽 대응이다. 아무도 다치지 않고 사슬병은 체력과 관계없이 쓰러진다.
+        // 대원 순서를 바꿔도 같다.
+        for (int reversed = 0; reversed < 2; reversed++)
+        {
+            Fixture f = new Fixture();
+            f.Player.Mana = 24;
+            Player ally = Ally(f, "ally");
+            Enemy chainer = Threat(f, EnemyDefinition.Chainer, snare, 1);
+            if (reversed == 1)
+            {
+                f.Match.Players.Reverse();
+            }
+            Pad pad = new Pad(f);
+            pad.Play(1, 1);
+            PlayerAction strike = f.Player.Actions[0];
+            for (int i = 0; i < 20; i++)
+            {
+                pad.Play(1, 0);
+            }
+            Check(strike.HasAura(f.Match.Tick), "누르고 있는데 타격의 기운이 끝났습니다");
+            Near(chainer.Hp, 2);
+            Near(f.Player.Hp, f.Player.MaxHp);
+            Check(strike.JudgedEnemies.Count == 0, "아무 일도 없었는데 판정한 것으로 적었습니다");
+            PlayerAction joined = Prepare(f, ally, "spin");
+            pad.Play(1, 0);
+            Near(chainer.Hp, 0);
+            Check(!f.Match.Enemies.Contains(chainer), "완벽 대응한 사슬병이 적 목록에 남아 있습니다");
+            Near(f.Player.Hp, f.Player.MaxHp);
+            Near(ally.Hp, ally.MaxHp);
+            Check(Gone(f.Player, strike) && Gone(ally, joined), "완벽 대응을 낸 기술이 끝나지 않았습니다");
+            Equal(f.Player.Kills, 1);
+            Equal(ally.Kills, 0);
+        }
+
+        // 혼자 타격을 누른 채 잡기 Ⅱ 장판이 나가 닿는다. 그때 부분 대응이다. 대원과 사슬병이 1씩 잃고 타격이 끊긴다.
+        Fixture alone = new Fixture();
+        alone.Player.Mana = 24;
+        Enemy second = Threat(alone, EnemyDefinition.Chainer, snare, 0.5);
+        EnemyAction attack = second.Action!;
+        Pad solo = new Pad(alone);
+        solo.Play(1, 1);
+        PlayerAction held = alone.Player.Actions[0];
+        while (alone.Match.Tick < attack.ContactTick - 1)
+        {
+            solo.Play(1, 0);
+        }
+        Near(second.Hp, 2);
+        Near(alone.Player.Hp, alone.Player.MaxHp);
+        solo.Play(1, 0);
+        Near(second.Hp, 1);
+        Near(alone.Player.Hp, alone.Player.MaxHp - 1);
+        Check(Gone(alone.Player, held), "부분 대응한 타격이 끊기지 않았습니다");
+
+        // 틀린 버튼이다. 방어는 잡기에 진다. 받아치기를 누른 채 잡기 Ⅱ 장판에 닿으면 대원만 그 행동의 티어만큼(2) 잃고,
+        // 받아치기가 끊겨 반격도 나가지 않는다. 사슬병은 멀쩡하다.
+        Fixture wrong = new Fixture();
+        wrong.Player.Mana = 24;
+        Enemy third = Threat(wrong, EnemyDefinition.Chainer, snare, 0.5);
+        EnemyAction landing = third.Action!;
+        Pad loser = new Pad(wrong);
+        loser.Play(2, 2);
+        PlayerAction parry = wrong.Player.Actions[0];
+        while (wrong.Match.Tick < landing.ContactTick)
+        {
+            loser.Play(2, 0);
+        }
+        Near(wrong.Player.Hp, wrong.Player.MaxHp - 2);
+        Near(third.Hp, 2);
+        Check(Gone(wrong.Player, parry), "잡기 Ⅱ에 진 받아치기가 끊기지 않았습니다");
+        loser.Run(0, 30);
+        Near(third.Hp, 2);
+
+        // 같은 종류다. 잡기를 누른 채 잡기 Ⅱ 장판에 닿으면 비김이다. 2티어와 비기면 대원은 2, 엘리트는 1을 잃는다(합의한 규칙).
+        Fixture same = new Fixture();
+        same.Player.Mana = 24;
+        Enemy fourth = Threat(same, EnemyDefinition.Chainer, snare, 0.5);
+        EnemyAction meeting = fourth.Action!;
+        Pad drawer = new Pad(same);
+        drawer.Play(3, 3);
+        while (same.Match.Tick < meeting.ContactTick)
+        {
+            drawer.Play(3, 0);
+        }
+        Near(same.Player.Hp, same.Player.MaxHp - 2);
+        Near(fourth.Hp, 1);
     }
 
     private static void ZoneCounterEndsSkill()

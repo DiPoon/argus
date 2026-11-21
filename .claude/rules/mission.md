@@ -25,4 +25,4 @@ paths:
 
 ## 규칙과 처음 적
 
-운영 방(생성 작전)은 `Rules.ForGeneratedMission`(엘리트 켬, 선딜 배율 1)을 쓰고, 처음 적은 시설마다 병사·분쇄자·철위병이다. 기본 규칙(`new Rules()`)은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 선딜 두 배)이다. 처음 배치하는 자리와 종류는 작전 배치(`MissionLayout.InitialEnemySpots`의 `EnemySpot`)가 정한다. 엘리트를 끈 작전에서는 엘리트 자리(`EnemyDefinition.IsElite`, 2티어 기술이 있는 적)에도 병사를 둔다. 자리가 막혀 있으면 생성자가 예외를 낸다(`PlaceInitialEnemy`). `AddEnemy`는 막힌 자리를 아무 표시 없이 건너뛰므로, 처음 배치에 그대로 쓰면 적이 빠져도 알 수 없다. 증원(`SpawnEnemy`)은 막히면 다른 각도를 다시 뽑으므로 그대로 둔다.
+운영 방(생성 작전)은 `Rules.ForGeneratedMission`(엘리트 켬, 선딜 배율 1)을 쓰고, 처음 적은 시설마다 병사·분쇄자·철위병이다. 사슬병(잡기 엘리트, 2026-11-20)은 처음 적에는 없고 증원에만 나온다. 증원의 종류는 `Match.ReinforcementKind`가 가른다(처음 45초는 15%가 분쇄자, 그 뒤로는 25%를 세 엘리트가 똑같이 나눔. `EncounterTests`의 `ReinforcementShares`·`ReinforcementsOverTime`). 기본 규칙(`new Rules()`)은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 선딜 두 배)이다. 처음 배치하는 자리와 종류는 작전 배치(`MissionLayout.InitialEnemySpots`의 `EnemySpot`)가 정한다. 엘리트를 끈 작전에서는 엘리트 자리(`EnemyDefinition.IsElite`, 2티어 기술이 있는 적)에도 병사를 둔다. 자리가 막혀 있으면 생성자가 예외를 낸다(`PlaceInitialEnemy`). `AddEnemy`는 막힌 자리를 아무 표시 없이 건너뛰므로, 처음 배치에 그대로 쓰면 적이 빠져도 알 수 없다. 증원(`SpawnEnemy`)은 막히면 다른 각도를 다시 뽑으므로 그대로 둔다.

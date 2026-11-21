@@ -9,6 +9,8 @@ internal static class EncounterTests
         tests.Add(new TestCase("Every initial enemy is placed at its own spot with its kind, in the first and the elite mission", InitialPlacement));
         tests.Add(new TestCase("AI telegraphs and actual hits both wait for the longer mission windup", LongerWindup));
         tests.Add(new TestCase("Reinforcements never appear inside the squad's shared sight", HiddenSpawns));
+        tests.Add(new TestCase("Reinforcements are 15% breakers for the first 45 seconds, then 25% elites shared evenly by the three kinds", ReinforcementShares));
+        tests.Add(new TestCase("In a mission with elites, wardens and grab elites join the reinforcements only after 45 seconds", ReinforcementsOverTime));
         tests.Add(new TestCase("An enemy whose body clips a wall corner on an open sight line still reaches the player", CornerSlip));
         tests.Add(new TestCase("The flow field has no heading inside its own source cell", FlowSource));
         tests.Add(new TestCase("An enemy touching a wall walks straight along it instead of zigzagging", WallHug));
@@ -111,6 +113,139 @@ internal static class EncounterTests
             }
         }
         Check(containsElite);
+    }
+
+    private static void ReinforcementShares()
+    {
+        // 증원의 종류는 60칸 주사위로 가른다(Match.ReinforcementKind). 처음 45초는 분쇄자만 15%(9칸)다.
+        // 그 뒤로는 엘리트 25%(15칸)를 분쇄자·철위병·사슬병이 5칸씩 똑같이 나눈다(2026-11-20, 사슬병을 넣으며 정함).
+        // 엘리트 전체의 비율은 그 전(처음부터 분쇄자 15%, 45초 뒤부터 철위병 10%)과 같다.
+        Equal(Match.ReinforcementSides, 60);
+        Near(Match.LateReinforcementSeconds, 45);
+        int[] early = new int[EnemyDefinition.All.Count];
+        int[] late = new int[EnemyDefinition.All.Count];
+        for (int roll = 0; roll < Match.ReinforcementSides; roll++)
+        {
+            EnemyDefinition earlyKind = Match.ReinforcementKind(roll, false);
+            int earlyIndex = KindIndex(earlyKind);
+            early[earlyIndex]++;
+            EnemyDefinition lateKind = Match.ReinforcementKind(roll, true);
+            int lateIndex = KindIndex(lateKind);
+            late[lateIndex]++;
+        }
+        Equal(early[KindIndex(EnemyDefinition.Grunt)], 51);
+        Equal(early[KindIndex(EnemyDefinition.Breaker)], 9);
+        Equal(early[KindIndex(EnemyDefinition.Warden)], 0);
+        Equal(early[KindIndex(EnemyDefinition.Chainer)], 0);
+        Equal(late[KindIndex(EnemyDefinition.Grunt)], 45);
+        Equal(late[KindIndex(EnemyDefinition.Breaker)], 5);
+        Equal(late[KindIndex(EnemyDefinition.Warden)], 5);
+        Equal(late[KindIndex(EnemyDefinition.Chainer)], 5);
+        // 주사위 밖의 수는 받지 않는다. 받으면 칸 수를 바꾼 뒤 남은 옛 호출이 조용히 병사만 낸다.
+        Throws<ArgumentOutOfRangeException>(() => Match.ReinforcementKind(-1, true));
+        Throws<ArgumentOutOfRangeException>(() => Match.ReinforcementKind(Match.ReinforcementSides, false));
+    }
+
+    // EnemyDefinition.All에서 kind의 자리다.
+    private static int KindIndex(EnemyDefinition kind)
+    {
+        for (int i = 0; i < EnemyDefinition.All.Count; i++)
+        {
+            if (EnemyDefinition.All[i] == kind)
+            {
+                return i;
+            }
+        }
+        throw new Exception($"모든 적 종류에 없는 정의입니다: {kind.Id}");
+    }
+
+    private static void ReinforcementsOverTime()
+    {
+        // 엘리트를 켠 작전에서 실제로 생긴 증원의 종류를 센다. 증원이 그 주사위와 45초 경계를 실제로 쓰는지 본다.
+        // 증원은 가장 짧은 간격(2.5초)으로 생기게 하고, 생긴 적은 1초마다 세고 치운다. 그래야 적 상한에 걸리지 않고
+        // 대원을 공격해 작전을 끝내지도 않는다.
+        Rules rules = new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1, SpawnInterval = 2.5 };
+
+        // 처음 45초: 방 스무 개를 45초까지 돌린다. 한 방에서는 증원이 열넷쯤이라 경계를 잘못 써도 우연히 지나갈 수 있다.
+        int[] early = new int[EnemyDefinition.All.Count];
+        for (int seed = 1; seed <= 20; seed++)
+        {
+            // 작전의 시계는 착지한 때부터 간다(StartMission이 돌아온 때 한 틱). 첫 증원이 10초이고 그 뒤 2.5초마다라,
+            // 10초부터 44초 남짓까지의 증원 열넷을 센다. 45초 정각의 증원은 그 1초를 세기 전에 멈추므로 빠진다.
+            // 1초마다 세므로, 45초 안에 본 적은 모두 45초 안에 생긴 적이다.
+            Match match = StartMission("EARLY" + seed, rules, seed);
+            // 횟수를 정해 둔다. 작전이 45초 안에 끝나면 경과 시간이 멈춰 45초를 넘기를 기다리는 반복은 끝나지 않는다.
+            for (int second = 0; second < 60; second++)
+            {
+                Advance(match, 1);
+                Check(match.Phase == "active", $"방 {seed}의 작전이 {match.Elapsed}초에 끝났습니다({match.Phase}). 처음 45초를 세지 못했습니다");
+                if (match.Elapsed > Match.LateReinforcementSeconds)
+                {
+                    break;
+                }
+                CountAndClear(match, early);
+            }
+            Check(match.Elapsed > Match.LateReinforcementSeconds, $"방 {seed}가 60번 돌아도 45초를 넘지 않았습니다");
+        }
+        int earlyAll = early[KindIndex(EnemyDefinition.Grunt)] + early[KindIndex(EnemyDefinition.Breaker)];
+        Equal(early[KindIndex(EnemyDefinition.Warden)], 0);
+        Equal(early[KindIndex(EnemyDefinition.Chainer)], 0);
+        Check(earlyAll >= 200, $"처음 45초의 증원이 스무 방에서 {earlyAll}마리뿐입니다");
+        int earlyBreakers = early[KindIndex(EnemyDefinition.Breaker)];
+        Check(earlyBreakers * 100 >= earlyAll * 7 && earlyBreakers * 100 <= earlyAll * 25,
+            $"처음 45초의 증원 {earlyAll}마리 가운데 분쇄자가 {earlyBreakers}마리입니다. 15% 안팎이어야 합니다");
+
+        // 45초 뒤: 한 방을 10분 돌린다. 세 엘리트가 모두 나오고 엘리트가 4분의 1 안팎이다.
+        Match longer = StartMission("LATE01", rules, 73);
+        int[] late = new int[EnemyDefinition.All.Count];
+        int[] before = new int[EnemyDefinition.All.Count];
+        for (int second = 0; second < 600; second++)
+        {
+            Advance(longer, 1);
+            if (longer.Elapsed <= Match.LateReinforcementSeconds)
+            {
+                CountAndClear(longer, before);
+            }
+            else
+            {
+                CountAndClear(longer, late);
+            }
+        }
+        Check(longer.Phase == "active", $"작전이 끝났습니다({longer.Phase}). 증원을 끝까지 세지 못했습니다");
+        // 이 방의 처음 45초에도 철위병과 사슬병은 없어야 한다. 위의 방 스무 개와 다른 시드를 하나 더 본다.
+        Equal(before[KindIndex(EnemyDefinition.Warden)], 0);
+        Equal(before[KindIndex(EnemyDefinition.Chainer)], 0);
+        int elites = late[KindIndex(EnemyDefinition.Breaker)] + late[KindIndex(EnemyDefinition.Warden)] + late[KindIndex(EnemyDefinition.Chainer)];
+        int all = elites + late[KindIndex(EnemyDefinition.Grunt)];
+        Check(late[KindIndex(EnemyDefinition.Breaker)] > 0, "45초 뒤에 분쇄자가 나오지 않았습니다");
+        Check(late[KindIndex(EnemyDefinition.Warden)] > 0, "45초 뒤에 철위병이 나오지 않았습니다");
+        Check(late[KindIndex(EnemyDefinition.Chainer)] > 0, "45초 뒤에 사슬병이 나오지 않았습니다");
+        Check(all >= 150, $"45초 뒤의 증원이 {all}마리뿐입니다");
+        Check(elites * 100 >= all * 15 && elites * 100 <= all * 35, $"45초 뒤 증원 {all}마리 가운데 엘리트가 {elites}마리입니다. 4분의 1 안팎이어야 합니다");
+    }
+
+    // 대원 하나가 캠프에 착지해 작전이 시작된 방이다. 처음 배치한 적은 치운다. Fixture와 같은 순서이고 시드만 고른다.
+    private static Match StartMission(string code, Rules rules, int seed)
+    {
+        Match match = new Match(code, rules, seed);
+        Player player = match.Join("p", "pilot")!;
+        player.Connected = true;
+        Check(match.Deploy(player, match.Layout.Camp.X.ToDouble(), match.Layout.Camp.Y.ToDouble()));
+        Advance(match, rules.DeploySeconds + 0.01);
+        Equal(player.State, "alive");
+        match.Enemies.Clear();
+        return match;
+    }
+
+    // 방에 있는 적을 종류마다 세고 모두 치운다.
+    private static void CountAndClear(Match match, int[] counts)
+    {
+        for (int i = 0; i < match.Enemies.Count; i++)
+        {
+            EnemyDefinition kind = EnemyDefinition.FromId(match.Enemies[i].Definition.Id);
+            counts[KindIndex(kind)]++;
+        }
+        match.Enemies.Clear();
     }
 
     private static void HiddenSpawns()

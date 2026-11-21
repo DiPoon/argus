@@ -22,6 +22,8 @@ v6 안에서 추가(2026-11-15): 대시가 늘었다. `rules.skills`에 기술 `
 
 v6 안에서 추가(2026-11-17): 스냅샷에 `waitingReleased`가 늘었다. `waiting` 가운데 버튼을 이미 뗀 누름의 슬롯이고, 있을 때만 온다. 필드를 더하기만 해서 버전은 그대로 6이다.
 
+v6 안에서 추가(2026-11-20): 적의 `kind`에 `chainer`(사슬병, 잡기만 2티어인 엘리트)가 늘었다. 작전 45초 뒤의 증원부터 나온다. 값이 더해지기만 해서 버전은 그대로 6이다. 클라이언트는 모르는 `kind`의 적도 버리지 말고 그린다. 공식 클라이언트는 몸 색을 `kind`가 아니라 `tiers`로 고르고, 모르는 `kind`의 윤곽은 원으로 그린다.
+
 v5 안에서 바뀜(2026-11-08): 적의 기술 객체 `aim`이 예고 동안 노린 대원 쪽으로 바뀔 수 있다. 이전에는 기술 시작 시 고정했다. 적의 기술 객체에 노린 대원 `target`이 늘었다. 필드를 더하기만 해서 버전은 그대로 5다.
 
 v5 안에서 추가(2026-11-06): 입력에 지난 입력 뒤에 누른 슬롯 `press`가 늘었다. `slot`은 쥐고 있는 슬롯만 뜻한다. `press`를 보내지 않는 클라이언트도 그대로 동작하므로 버전은 그대로 5다.
@@ -171,7 +173,7 @@ deploy(남은 초), kills, deaths, ack, landingX, landingY
 적:
 
 ```text
-id, x, y, rawX, rawY, kind(grunt/breaker/warden), name, radius, hp, maxHp,
+id, x, y, rawX, rawY, kind(grunt/breaker/warden/chainer), name, radius, hp, maxHp,
 tiers([타격, 방어, 채널]), action(null 또는 기술 객체)
 ```
 

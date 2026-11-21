@@ -290,7 +290,11 @@ internal static class GeneratorTests
 
     private static void EnemiesReachCamp()
     {
-        // 조향은 몸 크기에 따라 다르게 걸리므로(몸 통과 판단, 모서리를 끼고 돌기) 모든 적 종류를 따로 걸어 본다.
+        // 조향은 몸 크기에 따라 다르게 걸리므로(몸 통과 판단, 모서리를 끼고 돌기) 몸이 다른 적 종류를 모두 따로 걸어 본다.
+        // 몸(반지름과 한 틱의 걸음)이 앞의 종류와 같은 적은 다시 걷지 않는다. 행동 없이 이동만 보므로 몸이 같으면 같은 길을 같은 걸음으로 간다.
+        // 사슬병(2026-11-20)은 분쇄자와 몸이 같다. 넷을 다 걸으면 이 검사가 3분의 1 길어져 결정론 묶음이 27초에서 37초가 됐다.
+        // 사슬병의 몸을 바꾸면 저절로 따로 걷는다.
+        List<EnemyDefinition> bodies = DistinctBodies();
         for (int seed = 1; seed <= ChaseSeedCount; seed++)
         {
             byte[] bytes = SeededRandom.SeedFromNumber(seed);
@@ -300,9 +304,9 @@ internal static class GeneratorTests
             SeededRandom offsets = new SeededRandom(SeededRandom.Derive(bytes, "chase-test"));
             for (int s = 0; s < layout.InitialEnemySpots.Count; s++)
             {
-                for (int k = 0; k < EnemyDefinition.All.Count; k++)
+                for (int k = 0; k < bodies.Count; k++)
                 {
-                    EnemyDefinition kind = EnemyDefinition.All[k];
+                    EnemyDefinition kind = bodies[k];
                     FixedVector offset = new FixedVector(Fixed.FromRaw(offsets.NextInt(-60 * 4096, 60 * 4096 + 1)), Fixed.FromRaw(offsets.NextInt(-60 * 4096, 60 * 4096 + 1)));
                     // 증원이 생기지 않게 적 수 상한을 1로 두고, 처음 적을 치운 뒤 검사할 적만 직접 넣는다. 행동 없이 이동만 본다.
                     Rules rules = new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1, MaxEnemies = 1 };
@@ -333,6 +337,29 @@ internal static class GeneratorTests
                 }
             }
         }
+    }
+
+    // 모든 적 종류 가운데 몸(반지름과 한 틱의 걸음)이 서로 다른 것만 추린다. 몸이 같으면 먼저 나온 종류를 남긴다.
+    private static List<EnemyDefinition> DistinctBodies()
+    {
+        List<EnemyDefinition> bodies = new List<EnemyDefinition>();
+        for (int i = 0; i < EnemyDefinition.All.Count; i++)
+        {
+            EnemyDefinition kind = EnemyDefinition.All[i];
+            bool seen = false;
+            for (int j = 0; j < bodies.Count; j++)
+            {
+                if (bodies[j].Radius == kind.Radius && bodies[j].StepPerTick == kind.StepPerTick)
+                {
+                    seen = true;
+                }
+            }
+            if (!seen)
+            {
+                bodies.Add(kind);
+            }
+        }
+        return bodies;
     }
 
     private static void GroupsLeaveEnclosures()
