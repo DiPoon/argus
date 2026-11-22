@@ -9,7 +9,7 @@ paths:
 ## 준비
 
 - 설정(`client/playwright.config.ts`): 작업자 1, 재시도 0, 검사 제한 90초, 화면 1440×960, `--disable-webgl`(Canvas 렌더러 경로를 검사한다), 기본 주소는 `ARGUS_URL`이나 `http://127.0.0.1:5077`이다.
-- 서버가 필요한 검사는 클라이언트를 먼저 빌드하고(`npm --prefix client run build`, `wwwroot`가 있어야 화면이 나온다) 서버를 `Argus__Missions__AllowHandmade=true`로 띄운 뒤 돌린다. 이 설정이 없으면 손으로 만든 맵과 조용한 방의 방 만들기가 HTTP 403이다.
+- 서버가 필요한 검사는 클라이언트를 먼저 빌드하고(`npm --prefix client run build`, `wwwroot`가 있어야 화면이 나온다) 서버를 `Argus__Missions__AllowHandmade=true`와 `Argus__Limits__EntriesPerMinute=1000`으로 띄운 뒤 돌린다. 앞의 것이 없으면 손으로 만든 맵과 조용한 방의 방 만들기가 HTTP 403이다. 뒤의 것이 없으면 운영 한도(주소당 1분에 방 만들기와 참가를 합쳐 30번)에 걸려, 검사가 빨리 돌 때 429를 받는다(2026-11-22 CI에서 초대 검사가 그렇게 실패했다).
 - 검사가 끝나면 서버를 SIGTERM으로 끈다. 남은 기록은 `dotnet run --project tools/Argus.Replay -- server/Argus.Server/recordings --strict`로 재생해 볼 수 있다(CI가 그렇게 한다). 서버를 띄운 때와 같은 커밋에서 재생한다. 그 사이에 커밋하면 기록을 모두 다른 코드 버전으로 건너뛴다(`recording.md`).
 
 ## 파일마다 필요한 것

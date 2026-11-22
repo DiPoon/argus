@@ -53,7 +53,7 @@ cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 
 - 린터와 포매터, 솔루션 파일(.sln)은 없다. 정적 검사는 C# 세 프로젝트의 `TreatWarningsAsErrors`·`Nullable`과 TypeScript `strict`(`tsc --noEmit`)가 전부다. 외부 NuGet 패키지는 없고, npm 런타임 의존성은 `pixi.js` 하나다.
 - `wwwroot`는 git에서 제외된다. **클라이언트를 빌드해야 서버가 화면을 제공한다.** 새로 클론했으면 클라이언트 빌드가 먼저다.
-- 브라우저 검사용 서버는 `Argus__Missions__AllowHandmade=true`로 띄운다. 없으면 손으로 만든 맵과 조용한 방(`?layout=quiet`)의 방 만들기가 HTTP 403이다. `world.spec.ts`와 `fixed.spec.ts`는 게임 서버 없이 돈다.
+- 브라우저 검사용 서버는 `Argus__Missions__AllowHandmade=true`와 `Argus__Limits__EntriesPerMinute=1000`으로 띄운다(뒤의 것이 없으면 검사가 빨리 돌 때 참가 제한의 429를 받는다). 없으면 손으로 만든 맵과 조용한 방(`?layout=quiet`)의 방 만들기가 HTTP 403이다. `world.spec.ts`와 `fixed.spec.ts`는 게임 서버 없이 돈다.
 - UI 작업 중에는 서버를 5077로 켜 두고 `npm --prefix client run dev`로 <http://localhost:5173>을 연다. Vite가 `/api`·`/health`·`/ws`를 5077로 전달한다.
 - 서버 검사에는 이름으로 고르는 필터가 없다(`server-tests.md`). 서버는 SIGTERM으로 끈다. 그래야 기록이 끝 줄과 함께 닫힌다. 기록은 남긴 서버와 같은 커밋에서 재생한다(`recording.md`).
 - CI(`.github/workflows/ci.yml`): `server`(빌드와 서버 검사)·`client`(빌드)·`browser` 작업이 서로 기다리지 않고 함께 돈다. `browser`는 클라이언트를 스스로 빌드해 브라우저 검사를 돌리고 남은 기록을 `--strict`로 재생한다. `cross-os`만 `browser`를 기다렸다가 Windows·macOS에서 결정론 묶음과 같은 기록의 재생을 돌린다. PR과 master 푸시에서 돈다.
