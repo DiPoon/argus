@@ -152,7 +152,7 @@ test('120 enemy replacements reuse labels and keep a bounded spare pool, includi
   expect(result.visible).toBe(result.baseline);
 });
 
-test('enemy tells show the hand of their kind with the tier, refresh, and disappear with lost visibility or on leaving the room', async ({ page }) => {
+test('enemy tells show the hand of their kind, the tier only for tier 2, refresh, and disappear with lost visibility or on leaving the room', async ({ page }) => {
   const state = snapshot();
   state.enemies = [elite(900)];
   state.enemies[0].action = { id: 901, skill: 'strike', kind: 'strike', slot: 0, tier: 2, phase: 'telegraph',
@@ -160,17 +160,25 @@ test('enemy tells show the hand of their kind with the tier, refresh, and disapp
   const result = await page.evaluate(state => {
     const world = window.testWorld;
     const shown = () => world.hands.children.filter(child => child.visible).map(child => child.label);
-    const read = (label: Text) => ({ text: label.text, color: label.style.fill, hands: shown() });
+    // 지금 쓰는 예고 글자(없으면 null)와 보이는 손 그림이다.
+    const read = () => {
+      const label = world.labelsById.get('enemy-action-900');
+      return { text: label ? label.text : null, color: label ? label.style.fill : null, hands: shown() };
+    };
     world.update(structuredClone(state)); world.draw(1 / 60);
     const label = world.labelsById.get('enemy-action-900')!;
-    const first = read(label);
+    const first = read();
     state.enemies[0].action!.kind = 'channel';
     state.enemies[0].action!.tier = 1;
     world.update(structuredClone(state)); world.draw(1 / 60);
-    const changed = read(label);
+    const changed = read();
     state.enemies[0].action!.kind = 'block';
     world.update(structuredClone(state)); world.draw(1 / 60);
-    const block = read(label);
+    const block = read();
+    // 다시 2티어로 바꿨다가 시야에서 뺀다.
+    state.enemies[0].action!.tier = 2;
+    world.update(structuredClone(state)); world.draw(1 / 60);
+    const blockElite = read();
     const enemy = state.enemies[0];
     state.enemies = [];
     world.update(structuredClone(state)); world.draw(1 / 60);
@@ -187,17 +195,24 @@ test('enemy tells show the hand of their kind with the tier, refresh, and disapp
     state.enemies[0].action!.kind = 'strike';
     state.enemies[0].action!.tier = 2;
     world.update(structuredClone(state)); world.draw(1 / 60);
-    const fallback = read(world.labelsById.get('enemy-action-900')!);
-    return { first, changed, block, gone, beforeReset: before, afterReset, fallback };
+    const fallback = read();
+    // 글자로 그릴 때는 1티어도 예전처럼 "Ⅰ"을 붙인다.
+    state.enemies[0].action!.tier = 1;
+    world.update(structuredClone(state)); world.draw(1 / 60);
+    const fallbackTier1 = read();
+    return { first, changed, block, blockElite, gone, beforeReset: before, afterReset, fallback, fallbackTier1 };
   }, state);
-  // 상성은 이름 글자 대신 기술 버튼과 같은 손 그림이다(타격 가위, 방어 주먹, 잡기 보). 티어와 대응 수는 글자로 남는다.
+  // 상성은 이름 글자 대신 기술 버튼과 같은 손 그림이다(타격 가위, 방어 주먹, 잡기 보). 2티어만 티어와 대응 수를 글자로 남기고,
+  // 1티어는 손만 있다(이슈 #32: 화면의 글자를 줄인다).
   expect(result.first).toEqual({ text: 'Ⅱ · 대응 2', color: 0xff6b61, hands: ['hand-scissors'] });
-  expect(result.changed).toEqual({ text: 'Ⅰ', color: 0xa6f9ba, hands: ['hand-paper'] });
-  expect(result.block).toEqual({ text: 'Ⅰ', color: 0x4785ff, hands: ['hand-rock'] });
+  expect(result.changed).toEqual({ text: null, color: null, hands: ['hand-paper'] });
+  expect(result.block).toEqual({ text: null, color: null, hands: ['hand-rock'] });
+  expect(result.blockElite).toEqual({ text: 'Ⅱ · 대응 2', color: 0x4785ff, hands: ['hand-rock'] });
   expect(result.gone).toEqual({ removed: true, hidden: true, hands: [] });
   expect(result.beforeReset).toEqual(['hand-rock']);
   expect(result.afterReset).toEqual([]);
   expect(result.fallback).toEqual({ text: '타격 Ⅱ · 대응 2', color: 0xff6b61, hands: [] });
+  expect(result.fallbackTier1).toEqual({ text: '타격 Ⅰ', color: 0xff6b61, hands: [] });
 });
 
 test('the screen does not wait for the hand pictures, and draws the kind name until they are read', async ({ page }) => {
@@ -260,7 +275,7 @@ test('hands still appear in a browser that rejects decode() for SVG images', asy
     }
   }, state);
   // 세 상성 × 네 크기.
-  expect(result).toEqual({ textures: 12, hands: ['hand-paper'], text: 'Ⅰ' });
+  expect(result).toEqual({ textures: 12, hands: ['hand-paper'], text: undefined });
 });
 
 test('the hand texture follows the size the hand is drawn on screen, so it is never shrunk more than twice', async ({ page }) => {
@@ -322,7 +337,7 @@ test('hand sprites do not pile up when drawing stops partway with an error', asy
   expect(result.visible).toBe(1);
 });
 
-test('an enemy tell draws its hand in the kind color, left of the tier text and centered over the head', async ({ page }) => {
+test('an enemy tell draws its hand in the kind color, left of the tier 2 text or alone, centered over the head', async ({ page }) => {
   const state = snapshot();
   // 세 상성을 나란히 예고한다. 장판은 아래로 나가게 해 머리 위의 손 그림과 겹치지 않게 한다. 병사라 체력 막대와 이름표도 없다.
   const kinds = ['strike', 'block', 'channel'] as const;
@@ -362,10 +377,13 @@ test('an enemy tell draws its hand in the kind color, left of the tier text and 
     const without = boxes.map((box, i) => count(box, colors[i]));
     world.hands.visible = true;
     // 첫 적(티어 Ⅱ)의 손 그림과 글자가 겹치지 않고, 묶음의 가운데가 적의 머리 위인지 본다(화면 좌표).
+    // 1티어인 두 적은 글자가 없고 손이 머리 위 가운데다.
     const label = world.labelsById.get('enemy-action-900')!.getBounds();
-    const head = world.hands.parent!.toGlobal({ x: state.enemies[0].x, y: state.enemies[0].y });
+    const heads = state.enemies.map(enemy => world.hands.parent!.toGlobal({ x: enemy.x, y: enemy.y }));
     return { names: sprites.map(sprite => sprite.label), drawn, without, size: boxes[0].width, handRight: boxes[0].x + boxes[0].width, labelLeft: label.x,
-      middle: (boxes[0].x + label.x + label.width) / 2, head: head.x, above: boxes[0].y + boxes[0].height < head.y };
+      middle: (boxes[0].x + label.x + label.width) / 2, head: heads[0].x, above: boxes.every((box, i) => box.y + box.height < heads[i].y),
+      tier1Labels: [901, 902].filter(id => world.labelsById.has(`enemy-action-${id}`)).length,
+      tier1Offsets: [1, 2].map(i => Math.abs(boxes[i].x + boxes[i].width / 2 - heads[i].x)) };
   }, { state, colors: kinds.map(kind => affinityColors[kind]) });
   expect(result.names).toEqual(['hand-scissors', 'hand-rock', 'hand-paper']);
   // 20단위의 손이 화면에서 19화소쯤이다. 채운 자리가 그 상성 색으로 그려지고, 손 그림을 숨기면 그 색이 사라진다.
@@ -377,6 +395,8 @@ test('an enemy tell draws its hand in the kind color, left of the tier text and 
   expect(result.handRight).toBeLessThan(result.labelLeft);
   expect(Math.abs(result.middle - result.head)).toBeLessThan(1.5);
   expect(result.above).toBe(true);
+  expect(result.tier1Labels).toBe(0);
+  for (const offset of result.tier1Offsets) expect(offset).toBeLessThan(1.5);
 });
 
 test('an elite body takes the color of the kind of its tier 2 action', async ({ page }) => {
