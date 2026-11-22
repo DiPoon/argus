@@ -32,9 +32,13 @@ const arcOnNewPath = (g: Graphics, x: number, y: number, radius: number, start: 
 // 적의 예고 고리(반지름 32)는 가장 큰 적의 빛(23 + 8)보다 바깥이다.
 const auraGlow = 8, auraRing = 28, auraTimer = 34, auraNotch = 3, telegraphRing = 32;
 
-// 예고하는 적의 머리 위에 띄우는 손 그림의 크기(월드 단위)와 티어 글자와의 사이, 텍스처의 화소 수다. 화소는 가장 크게 보일 때
-// (확대 1.15배, 화면 배율 2)의 46화소보다 넉넉히 잡아 흐리지 않게 한다.
-const handSize = 20, handGap = 3, handPixels = 64;
+// 예고하는 적의 머리 위에 띄우는 손 그림의 크기(월드 단위)와 티어 글자와의 사이다.
+const handSize = 20, handGap = 3;
+// 손 그림 텍스처의 화소 수다. 상성마다 넷을 만들어 두고, 화면에 그려질 화소 수(손 크기 × 확대 × 화면 배율)보다 크거나 같은 것
+// 가운데 가장 작은 것을 쓴다(handTexture). 하나만 두면 작게 보일 때(확대 0.65배, 화면 배율 1이면 13화소) 밉맵 없이 다섯 배로 줄여
+// 손가락 선이 깨지고, 전체 보기처럼 확대에 상한이 없을 때는 늘어나 흐려진다(PR #37 리뷰 3·4번). 두 배 간격이라 줄이는 것은 많아야
+// 두 배다. Canvas 렌더러는 밉맵을 쓰지 않으므로 밉맵 대신 크기를 나눠 둔다. 128화소보다 크게 보이면(화면 배율 2에서 전체 보기 확대 3.2배 넘게) 늘린다.
+const handPixels = [16, 32, 64, 128];
 const handKinds = ['strike', 'block', 'channel'] as const;
 
 // 확인받지 않은 입력을 이만큼(30Hz로 2초 분량)까지 보관한다. 확인이 오지 않는 이상한 상황에서도 끝없이 늘지 않게 한다.
@@ -70,12 +74,15 @@ export class World {
   // 쓰지 않게 된 라벨을 바로 해제하지 않고 숨겨 두었다가 새 라벨에 다시 쓴다. 상한을 넘는 것만 해제한다.
   private spareLabels: Text[] = [];
   private static readonly spareLimit = 64;
-  // 예고하는 적의 손 그림이다. 상성마다 텍스처 하나를 만들어 두고(loadHands), 스프라이트는 프레임마다 앞에서부터 다시 쓴다.
-  // 이번 프레임에 쓰지 않은 것은 숨긴다. 스프라이트 수는 한 화면에 함께 예고한 적의 수까지만 는다(그리는 적은 renderBudget까지다).
+  // 예고하는 적의 손 그림이다. 상성과 화소 수마다 텍스처를 만들어 두고(loadHands, 열쇠는 `strike-32` 꼴), 스프라이트는 프레임마다
+  // 앞에서부터 다시 쓴다. 프레임을 시작할 때 처음부터 쓰고, 끝날 때 쓰지 않은 것을 숨긴다. 스프라이트 수는 한 화면에 함께 예고한
+  // 적의 수까지만 는다(그리는 적은 renderBudget까지다).
   private hands = new Container();
   private handSprites: Sprite[] = [];
   private handsUsed = 0;
-  private handTextures = new Map<Affinity, Texture>();
+  private handTextures = new Map<string, Texture>();
+  // 손 그림 텍스처를 모두 읽었거나 읽지 못하고 끝난 때다. 화면은 기다리지 않는다(init). 검사가 기다린다.
+  handsLoaded: Promise<void> = Promise.resolve();
   private snapshot?: Snapshot;
   private previous?: Snapshot;
   private received = 0;
@@ -133,28 +140,56 @@ export class World {
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.root);
     this.root.addChild(this.ground, this.fog, this.light, this.walls, this.props, this.units, this.hands, this.labels);
-    await this.loadHands();
+    // 손 그림은 기다리지 않고 뒤에서 읽는다. 다 읽기 전의 예고는 상성 이름 글자로 그린다. 기다리면 읽기가 늦거나 끝나지 않을 때
+    // 그리기, 미니맵, 클릭 투입이 모두 붙지 않는다(main.ts의 openOperation이 init 뒤에 붙인다. PR #37 리뷰 2번).
+    this.handsLoaded = this.loadHands();
     this.app.ticker.add(t => this.draw(Math.min(t.deltaMS / 1000, .05)));
   }
 
   // 손 그림의 텍스처를 만든다. 상성 색을 칠한 SVG(rps.ts의 handImage)를 이미지로 읽는다. 틈을 뚫는 마스크는 브라우저가 이미지를
-  // 그릴 때 처리하므로 Pixi의 도형으로 다시 그리지 않아도 된다. 읽지 못한 상성은 예전처럼 상성 이름 글자로 그린다.
+  // 그릴 때 처리하므로 Pixi의 도형으로 다시 그리지 않아도 된다. 읽지 못한 것은 건너뛴다(handTexture가 다른 크기를 쓰거나 글자로 그린다).
   private async loadHands() {
-    await Promise.all(handKinds.map(async kind => {
-      try {
-        const image = new Image();
-        const color = `#${affinityColors[kind].toString(16).padStart(6, '0')}`;
-        image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(handImage(kind, color, handPixels))}`;
-        await image.decode();
-        this.handTextures.set(kind, Texture.from(image));
-      } catch (error) {
-        console.warn(`손 그림(${kind})을 읽지 못해 글자로 그립니다`, error);
-      }
-    }));
+    const loads: Promise<void>[] = [];
+    for (const kind of handKinds) {
+      for (const pixels of handPixels) loads.push(this.loadHand(kind, pixels));
+    }
+    await Promise.all(loads);
   }
 
-  // 손 그림 하나를 (x, y)를 가운데로 그린다. 텍스처가 있는 상성에만 부른다.
-  private hand(kind: Affinity, x: number, y: number) {
+  // 읽기가 끝나기를 decode()가 아니라 onload로 기다린다. WebKit은 SVG 이미지의 decode()를 거절한 적이 있다고 한다(PR #37 리뷰 1번.
+  // 2026-11-22에 Playwright의 WebKit·Firefox·Chromium에서는 셋 다 decode()도 됐다. 옛 Safari는 재지 못했다). onload는 어디서나 된다.
+  private async loadHand(kind: (typeof handKinds)[number], pixels: number) {
+    const image = new Image();
+    const color = `#${affinityColors[kind].toString(16).padStart(6, '0')}`;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('이미지를 읽지 못했습니다'));
+        image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(handImage(kind, color, pixels))}`;
+      });
+      this.handTextures.set(`${kind}-${pixels}`, Texture.from(image));
+    } catch (error) {
+      console.warn(`손 그림(${kind}, ${pixels}화소)을 읽지 못했습니다`, error);
+    }
+  }
+
+  // 그 상성의 손 그림 가운데 지금 화면에 그려질 화소 수에 맞는 텍스처다. 그 크기보다 크거나 같은 것 가운데 가장 작은 것이고, 그런
+  // 것을 아직 읽지 못했으면 읽은 것 가운데 가장 큰 것이다. 하나도 읽지 못했으면 없다(그때는 상성 이름 글자로 그린다).
+  private handTexture(kind: Affinity) {
+    const shown = handSize * this.camera.zoom * this.app.renderer.resolution;
+    let larger: Texture | undefined;
+    let largest: Texture | undefined;
+    for (const pixels of handPixels) {
+      const texture = this.handTextures.get(`${kind}-${pixels}`);
+      if (!texture) continue;
+      largest = texture;
+      if (!larger && pixels >= shown) larger = texture;
+    }
+    return larger ?? largest;
+  }
+
+  // 손 그림 하나를 (x, y)를 가운데로 그린다.
+  private hand(texture: Texture, kind: Affinity, x: number, y: number) {
     let sprite = this.handSprites[this.handsUsed];
     if (!sprite) {
       sprite = new Sprite();
@@ -163,7 +198,7 @@ export class World {
       this.handSprites.push(sprite);
     }
     this.handsUsed += 1;
-    sprite.texture = this.handTextures.get(kind)!;
+    sprite.texture = texture;
     sprite.setSize(handSize, handSize);
     // 검사가 어느 손인지 읽는 이름이다.
     sprite.label = `hand-${kind === 'none' ? 'none' : handOf[kind]}`;
@@ -171,10 +206,10 @@ export class World {
     sprite.visible = true;
   }
 
-  // 이번 프레임에 쓰지 않은 손 그림을 숨기고, 다음 프레임은 처음부터 다시 쓴다.
+  // 이번 프레임에 쓰지 않은 손 그림을 숨긴다. 처음부터 다시 쓰는 것(handsUsed = 0)은 프레임을 시작할 때 한다. 끝에서만 되돌리면
+  // 그리기가 도중에 예외로 끊길 때마다 다음 프레임이 그 뒤 번호에 새 스프라이트를 만들어 끝없이 쌓인다(PR #37 리뷰 5번).
   private hideUnusedHands() {
     for (let i = this.handsUsed; i < this.handSprites.length; i++) this.handSprites[i].visible = false;
-    this.handsUsed = 0;
   }
 
   // 방을 나갈 때 부른다. 지난 방의 스냅샷과 그림을 모두 비운다. 비우지 않으면 다음 방의 첫 스냅샷이 오기 전에(연결이 늦으면 그동안 내내)
@@ -208,6 +243,7 @@ export class World {
     this.wallChunks = [];
     this.labelsById.forEach(label => { label.visible = false; });
     this.removeUnusedLabels();
+    this.handsUsed = 0;
     this.hideUnusedHands();
     this.minimap?.show(false);
     // 그래픽 초기화(init)가 끝나기 전에는 그릴 것이 없다.
@@ -658,6 +694,7 @@ export class World {
     this.root.scale.set(zoom);
     this.root.position.set(width / 2 - this.camera.x * zoom, height / 2 - this.camera.y * zoom);
     this.labelsById.forEach(label => { label.visible = false; });
+    this.handsUsed = 0;
     const g = this.props.clear();
     g.circle(s.map.campX, s.map.campY, 78).fill({ color: colors.teal, alpha: .06 }).stroke({ color: colors.teal, width: 1, alpha: .5 });
     g.rect(s.map.campX - 20, s.map.campY - 20, 40, 40).stroke({ color: colors.teal, width: 2 });
@@ -763,12 +800,13 @@ export class World {
         const suffix = action.tier === 2 ? 'Ⅱ · 대응 2' : 'Ⅰ';
         const y = p.y - r - 26;
         const tell = affinityColors[action.kind];
-        if (this.handTextures.has(action.kind)) {
+        const texture = this.handTexture(action.kind);
+        if (texture) {
           // 상성은 이름 글자 대신 손 그림으로 보인다(2026-11-21 사용자가 고름). 기술 버튼과 같은 손이라, 적이 낸 손을 보고
           // 이기는 손을 낸다(가위를 내면 주먹). 손과 티어 글자를 한 묶음으로 머리 위 가운데에 둔다.
           const label = this.label(`enemy-action-${enemy.id}`, suffix, p.x, y, tell, 13);
           const left = p.x - (handSize + handGap + label.width) / 2;
-          this.hand(action.kind, left + handSize / 2, y);
+          this.hand(texture, action.kind, left + handSize / 2, y);
           label.position.set(left + handSize + handGap + label.width / 2, y);
         } else {
           this.label(`enemy-action-${enemy.id}`, `${affinityNames[action.kind]} ${suffix}`, p.x, y, tell, 13);
