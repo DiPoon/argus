@@ -166,7 +166,6 @@ test('enemy tells show the hand of their kind, the tier only for tier 2, refresh
       return { text: label ? label.text : null, color: label ? label.style.fill : null, hands: shown() };
     };
     world.update(structuredClone(state)); world.draw(1 / 60);
-    const label = world.labelsById.get('enemy-action-900')!;
     const first = read();
     state.enemies[0].action!.kind = 'channel';
     state.enemies[0].action!.tier = 1;
@@ -179,6 +178,8 @@ test('enemy tells show the hand of their kind, the tier only for tier 2, refresh
     state.enemies[0].action!.tier = 2;
     world.update(structuredClone(state)); world.draw(1 / 60);
     const blockElite = read();
+    // 시야에서 뺀 뒤 숨었는지는 지금 쓰는 라벨로 본다. 1티어 프레임에서 예비로 돌아갔다가 다시 꺼낸 라벨이라 처음 잡은 것과 다를 수 있다.
+    const label = world.labelsById.get('enemy-action-900')!;
     const enemy = state.enemies[0];
     state.enemies = [];
     world.update(structuredClone(state)); world.draw(1 / 60);
