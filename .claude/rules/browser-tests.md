@@ -17,7 +17,7 @@ paths:
 | 파일 | 검사 수 | 게임 서버 | 다루는 것 |
 | --- | --- | --- | --- |
 | `fixed.spec.ts` | 10 | 필요 없음(브라우저도 쓰지 않음) | `fixed-vectors.json`과 `fixed.ts`·`movement.ts`의 계산이 Raw까지 같은지 |
-| `world.spec.ts` | 39 | 필요 없음(검사가 Vite 서버를 띄워 실제 `World`에 만든 스냅샷을 넣는다) | 그리기, 원호, 색, 예측과 서버 재조정, 대시 꼬리 |
+| `world.spec.ts` | 43 | 필요 없음(검사가 Vite 서버를 띄워 실제 `World`에 만든 스냅샷을 넣는다) | 그리기, 원호, 색, 예측과 서버 재조정, 대시 꼬리 |
 | `minimap.spec.ts` | 12 | 일부만(`drawing` 묶음은 Vite 서버, 배치 검사는 게임 서버) | 미니맵 화소, 크기, 자리와 겹침 |
 | `game.spec.ts` | 20 | 필요 | 입력(겹쳐 누름, 창을 다녀온 키), 재접속, 치트 방지 경계(위조 상태·잘못된 장비·순번 재생·신원 탈취) |
 | `touch.spec.ts` | 23 | 필요 | 터치 로비와 조작, 휴대폰 크기별 배치, 스타일시트에 `:has(`가 없는지 |
@@ -62,3 +62,12 @@ cd client && PLAYWRIGHT_BROWSERS_PATH=$D/browsers LD_LIBRARY_PATH=$D/root/usr/li
 ```
 
 저장소가 Windows 드라이브(WSL의 `/mnt/e` 같은 곳)에 있으면 검사 결과 폴더를 리눅스 쪽 디스크로 돌린다(`npx playwright test --output $D/test-results`). Playwright는 실패했을 때 남기려고 검사 내내 기록(trace)을 그 폴더에 쓰는데, Windows 드라이브에는 쓰기가 느리다. 화면 크기 33가지를 재는 미니맵 휴대폰 배치 검사가 35초에서 45~90초로 늘어, 전체 실행에서 제한 시간 90초에 한 번 걸렸다(2026-11-17). 결과 폴더만 옮기면 다시 35초다. CI 실행기는 리눅스 디스크라 해당하지 않는다.
+
+### WebKit·Firefox로 돌리기
+
+CI와 기본 설정은 Chromium(Canvas 렌더러)만 쓴다. 다른 엔진의 동작이 걸린 변경(이미지 읽기 등)은 임시 설정 파일로 WebKit·Firefox에서도 돌려 본다(2026-11-22, PR #37 리뷰 1번). 설정에 `projects: [{ name: 'webkit', use: { browserName: 'webkit' } }, { name: 'firefox', use: { browserName: 'firefox' } }]`만 두고 Chromium 전용 `--disable-webgl`은 뺀다. 두 엔진은 이 환경에서 소프트웨어 WebGL로 그려, Pixi가 WebGL 렌더러를 쓴다. 그래서 화소를 읽는 검사는 그린 직후 캔버스를 2D 캔버스로 옮겨 읽는다(WebGL 캔버스는 `getContext('2d')`가 없다).
+
+- `npx playwright install webkit firefox`(위의 `PLAYWRIGHT_BROWSERS_PATH`). Firefox는 그대로 돌았다.
+- WebKit은 시스템 라이브러리 마흔 개쯤이 빠져 있었다. Playwright 소스(`playwright-core`의 `nativeDeps`, `ubuntu24.04-x64`의 `webkit` 목록)의 꾸러미를 위처럼 `apt-get download`로 받아 따로 푼다(`$D/root-webkit`). 없는 이름이 하나라도 있으면 전체가 멈추므로 하나씩 받는다. 받은 뒤 `ldd`로 `not found`를 다시 찾아 그 꾸러미도 받는다(두세 번 되풀이). `libbacktrace`·`libjxl`은 WebKit 묶음의 `sys/lib`에 들어 있다.
+- WebKit의 감싸는 스크립트(`webkit-*/minibrowser-wpe/MiniBrowser`, `minibrowser-gtk/MiniBrowser`)가 `LD_LIBRARY_PATH`를 덮어쓰므로, 바깥 값을 뒤에 잇게 고친다(`…/sys/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}`).
+- 실행: `LD_LIBRARY_PATH=$D/root-webkit/usr/lib/x86_64-linux-gnu:$D/root/usr/lib/x86_64-linux-gnu PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1 PLAYWRIGHT_BROWSERS_PATH=$D/browsers npx playwright test -c <임시 설정> …`. 미리 확인하는 라이브러리 검사는 gstreamer 플러그인까지 요구해 건너뛴다.
