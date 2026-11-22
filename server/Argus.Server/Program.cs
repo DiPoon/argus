@@ -79,17 +79,29 @@ internal static class Program
         options.AddPolicy("entry", GetEntryPartition);
     }
 
+    // 방 만들기와 참가를 합쳐 한 주소에서 1분에 받는 횟수다. 같은 기계(127.0.0.1)와 사설망도 센다. 같은 기계의 역방향 프록시
+    // 뒤에서 전달 헤더를 켜지 않으면 모든 요청이 127.0.0.1로 들어오므로, 그 주소를 빼면 제한이 통째로 꺼진다.
+    private const int DefaultEntriesPerMinute = 30;
+
     private static RateLimitPartition<string> GetEntryPartition(HttpContext context)
     {
         // 역방향 프록시 뒤에서는 전달 헤더를 처리하도록 설정해야 사용자마다 따로 센다(CLAUDE.md).
+        // 설정 Argus:Limits:EntriesPerMinute로 한도를 바꿀 수 있다. 브라우저 검사의 서버만 올린다. 검사는 모두 한 주소(127.0.0.1)에서
+        // 방을 만들고 참가하므로, 검사가 빨리 돌면 1분에 30번을 넘어 429를 받았다(2026-11-22, PR #38의 CI에서 초대 검사가 실패).
+        IConfiguration configuration = context.RequestServices.GetRequiredService<IConfiguration>();
+        int limit = configuration.GetValue("Argus:Limits:EntriesPerMinute", DefaultEntriesPerMinute);
+        if (limit < 1)
+        {
+            limit = DefaultEntriesPerMinute;
+        }
         return RateLimitPartition.GetFixedWindowLimiter(AddressKeys.ForRateLimit(context.Connection.RemoteIpAddress),
-            CreateEntryLimiterOptions);
+            address => CreateEntryLimiterOptions(limit));
     }
 
-    private static FixedWindowRateLimiterOptions CreateEntryLimiterOptions(string address)
+    private static FixedWindowRateLimiterOptions CreateEntryLimiterOptions(int limit)
     {
         FixedWindowRateLimiterOptions options = new FixedWindowRateLimiterOptions();
-        options.PermitLimit = 30;
+        options.PermitLimit = limit;
         options.Window = TimeSpan.FromMinutes(1);
         options.QueueLimit = 0;
         return options;
@@ -217,6 +229,18 @@ internal static class Program
                     }
                     await CloseFirst(socket, receive, send, status, reason, lifetime.Token);
                 }
+                else if (socket.State == WebSocketState.CloseReceived)
+                {
+                    // 클라이언트가 먼저 닫았다. 아래 finally에서 송신을 취소하기 전에 종료 응답을 보낸다.
+                    WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure;
+                    string reason = "연결 종료";
+                    if (peer.Replaced)
+                    {
+                        status = ReplacedStatus;
+                        reason = ReplacedReason;
+                    }
+                    await AnswerClose(socket, peer, send, status, reason, lifetime.Token);
+                }
             }
             finally
             {
@@ -315,6 +339,41 @@ internal static class Program
         catch (Exception error) when (IsConnectionError(error))
         {
             // 종료 메시지가 늦어지거나 연결이 이미 끊겼어도 연결 정리는 계속한다.
+        }
+    }
+
+    // 클라이언트가 먼저 닫았을 때(CloseReceived) 종료 응답을 보낸다. 송신 작업을 취소하지 않고 스냅샷 통로를 닫아,
+    // 보내던 메시지를 마치고 스스로 끝나게 한 뒤에 보낸다. 보내는 중인 송신을 취소하면 .NET이 소켓을 중단해(Aborted)
+    // 종료 응답을 보내지 못하고, 상대는 정상 종료 대신 1006을 받는다. 2026-11-22에 접속하고 닫기를 1500번 되풀이하면 서버 쪽
+    // Aborted가 1~2번, Chromium이 받은 1006이 1번이었고, 고친 뒤에는 둘 다 0번이었다(PR #38의 CI에서 game.spec의 "closes first"
+    // 검사가 실패해 찾음). 1초 안에 끝나지 않으면 그만두고 아래 finally가 정리한다.
+    private static async Task AnswerClose(WebSocket socket, Peer peer, Task send, WebSocketCloseStatus status, string reason,
+        CancellationToken token)
+    {
+        using CancellationTokenSource closeTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        closeTimeout.CancelAfter(TimeSpan.FromSeconds(1));
+        // 통로를 닫으면 송신 작업은 이미 들어온 오류 안내와 pong까지 보낸 뒤 끝난다(Peer.Send). 방송이 이 연결에 더 넣는
+        // 스냅샷은 버려진다. Detach가 같은 통로를 다시 닫아도 아무 일이 없다.
+        peer.Outgoing.Writer.TryComplete();
+        try
+        {
+            try
+            {
+                await send.WaitAsync(closeTimeout.Token);
+            }
+            catch (WebSocketException)
+            {
+                // 마지막 전송이 실패해도 소켓이 아직 응답을 기다리면 아래에서 종료 응답을 보내 본다.
+            }
+            if (socket.State != WebSocketState.CloseReceived)
+            {
+                return;
+            }
+            await socket.CloseOutputAsync(status, reason, closeTimeout.Token);
+        }
+        catch (Exception error) when (IsConnectionError(error))
+        {
+            // 송신이 늦어지거나 연결이 이미 끊겼어도 연결 정리는 계속한다.
         }
     }
 
