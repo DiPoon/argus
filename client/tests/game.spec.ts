@@ -891,20 +891,29 @@ test('the bug report button stamps the moment at once and takes a note without f
   expect(me.errors).toEqual([]);
 });
 
-test('a client that closes first gets a clean close back', async ({ request }) => {
+test('a client that closes first gets a clean close back', async ({ page, request }) => {
   const guest = await (await request.post('/api/rooms', { data: { name: 'Closer' } })).json();
-  const url = (process.env.ARGUS_URL ?? 'http://127.0.0.1:5077').replace(/^http/, 'ws') + '/ws';
-  const ws = new WebSocket(url);
-  let snapshots = 0;
-  ws.addEventListener('message', () => { snapshots++; });
-  await new Promise<void>(resolve => ws.addEventListener('open', () => resolve()));
-  ws.send(JSON.stringify({ type: 'hello', room: guest.room, token: guest.token }));
-  await expect.poll(() => snapshots).toBeGreaterThan(1);
-  // 클라이언트가 먼저 닫으면 서버가 종료 응답으로 닫기를 마쳐야 한다. 응답이 없으면 1006(비정상 종료)이 된다.
-  const closed = new Promise<{ code: number; clean: boolean }>(resolve =>
-    ws.addEventListener('close', event => resolve({ code: event.code, clean: event.wasClean })));
-  ws.close(1000);
-  expect(await closed).toEqual({ code: 1000, clean: true });
+  // 실제 사용자처럼 브라우저의 WebSocket으로 잰다. 검사 프로그램(Node)의 WebSocket은 압축된 마지막 스냅샷을 푸는 사이에 서버가
+  // 종료 프레임과 함께 연결을 닫으면, 종료 프레임을 읽기 전에 닫힘을 처리해 1006으로 보고하는 일이 있다. 2026-11-22에 접속하고
+  // 닫기를 1500번 되풀이하면 Node는 4~12번 그랬고, 압축을 끈 서버에 Node로, 또는 같은 서버에 Chromium으로 재면 1500번 모두 1000이었다.
+  // 그래서 이 검사가 CI에서 가끔 실패했다(PR #38).
+  await page.goto('/health');
+  const closed = await page.evaluate(async guest => {
+    const ws = new WebSocket(location.origin.replace(/^http/, 'ws') + '/ws');
+    let snapshots = 0;
+    ws.addEventListener('message', () => { snapshots++; });
+    await new Promise(resolve => ws.addEventListener('open', resolve));
+    ws.send(JSON.stringify({ type: 'hello', room: guest.room, token: guest.token }));
+    const started = performance.now();
+    while (snapshots < 2 && performance.now() - started < 10000) await new Promise(resolve => setTimeout(resolve, 10));
+    // 클라이언트가 먼저 닫으면 서버가 종료 응답으로 닫기를 마쳐야 한다. 응답이 없으면 1006(비정상 종료)이 된다.
+    const result = new Promise<{ code: number; clean: boolean }>(resolve =>
+      ws.addEventListener('close', event => resolve({ code: event.code, clean: event.wasClean })));
+    ws.close(1000);
+    return { snapshots, ...(await result) };
+  }, guest);
+  expect(closed.snapshots).toBeGreaterThan(1);
+  expect({ code: closed.code, clean: closed.clean }).toEqual({ code: 1000, clean: true });
 });
 
 test('a connection with a wrong hello that never answers the close is dropped within a couple of seconds', async () => {
