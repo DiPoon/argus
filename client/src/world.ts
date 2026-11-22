@@ -801,13 +801,18 @@ export class World {
         const y = p.y - r - 26;
         const tell = affinityColors[action.kind];
         const texture = this.handTexture(action.kind);
-        if (texture) {
+        if (texture && action.tier === 2) {
           // 상성은 이름 글자 대신 손 그림으로 보인다(2026-11-21 사용자가 고름). 기술 버튼과 같은 손이라, 적이 낸 손을 보고
-          // 이기는 손을 낸다(가위를 내면 주먹). 손과 티어 글자를 한 묶음으로 머리 위 가운데에 둔다.
+          // 이기는 손을 낸다(가위를 내면 주먹). 2티어 행동은 이기는 대응이 둘 필요하다는 것을 글자로 손 옆에 남기고, 손과 글자를
+          // 한 묶음으로 머리 위 가운데에 둔다.
           const label = this.label(`enemy-action-${enemy.id}`, suffix, p.x, y, tell, 13);
           const left = p.x - (handSize + handGap + label.width) / 2;
           this.hand(texture, action.kind, left + handSize / 2, y);
           label.position.set(left + handSize + handGap + label.width / 2, y);
+        } else if (texture) {
+          // 1티어 행동은 손만 머리 위 가운데에 둔다. 1티어가 보통이라 "Ⅰ"은 알려 주는 것이 없고, 화면의 글자를 줄이자는 것이 이슈 #32의
+          // 까닭이었다(지도 배율 0.65에서 8px로 줄어 읽히지 않고, 적이 붙으면 다른 글자와 겹쳤다. 2026-11-22 사용자가 이 마무리를 고름).
+          this.hand(texture, action.kind, p.x, y);
         } else {
           this.label(`enemy-action-${enemy.id}`, `${affinityNames[action.kind]} ${suffix}`, p.x, y, tell, 13);
         }
