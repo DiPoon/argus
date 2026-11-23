@@ -85,7 +85,16 @@ public static class Snapshot
             entry.Tiers = new int[enemy.Definition.Skills.Length];
             for (int j = 0; j < entry.Tiers.Length; j++)
             {
-                entry.Tiers[j] = enemy.Definition.Skills[j].Tier;
+                // 튜토리얼의 훈련용 적은 늘 쓰는 행동 말고는 쓰지 않으므로 그 상성은 0(쓰지 않음)으로 보낸다. 화면의 이름표가 쓰는 상성만 적는다.
+                EnemySkill skill = enemy.Definition.Skills[j];
+                if (enemy.FixedSkill != null && enemy.FixedSkill != skill)
+                {
+                    entry.Tiers[j] = 0;
+                }
+                else
+                {
+                    entry.Tiers[j] = skill.Tier;
+                }
             }
             if (enemy.Action != null)
             {

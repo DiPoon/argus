@@ -690,7 +690,16 @@ public sealed partial class Match
             {
                 Phase = "active";
                 StartedTick = Tick;
-                Note("작전 시작 · 보급 상자에서 마나를 채우고 시설 3곳을 파괴하세요");
+                // 부술 시설 수는 배치를 따른다. 시설이 없는 배치(튜토리얼 훈련장)는 탈출이 처음부터 열려 있어 마나만 알린다.
+                int facilities = Layout.Facilities.Count;
+                if (facilities > 0)
+                {
+                    Note($"작전 시작 · 보급 상자에서 마나를 채우고 시설 {facilities}곳을 파괴하세요");
+                }
+                else
+                {
+                    Note("작전 시작 · 보급 상자에서 마나를 채우세요");
+                }
             }
         }
     }
