@@ -899,19 +899,30 @@ test('a client that closes first gets a clean close back', async ({ page, reques
   // 그래서 이 검사가 CI에서 가끔 실패했다(PR #38).
   await page.goto('/health');
   const closed = await page.evaluate(async guest => {
+    // 기다림마다 시간 제한을 둔다. 서버가 업그레이드를 거절하거나 닫기에 끝내 답하지 않는 회귀에서, 검사 시간 초과(90초)가 아니라
+    // 아래 단언으로 실패 이유가 드러나게 한다(PR #39 리뷰 4번).
+    const within = <T,>(promise: Promise<T>, fallback: T) =>
+      Promise.race([promise, new Promise<T>(resolve => setTimeout(() => resolve(fallback), 5000))]);
     const ws = new WebSocket(location.origin.replace(/^http/, 'ws') + '/ws');
     let snapshots = 0;
     ws.addEventListener('message', () => { snapshots++; });
-    await new Promise(resolve => ws.addEventListener('open', resolve));
+    const opened = await within(new Promise<boolean>(resolve => {
+      ws.addEventListener('open', () => resolve(true));
+      ws.addEventListener('error', () => resolve(false));
+      ws.addEventListener('close', () => resolve(false));
+    }), false);
+    if (!opened) return { opened, snapshots, code: -1, clean: false };
     ws.send(JSON.stringify({ type: 'hello', room: guest.room, token: guest.token }));
     const started = performance.now();
     while (snapshots < 2 && performance.now() - started < 10000) await new Promise(resolve => setTimeout(resolve, 10));
     // 클라이언트가 먼저 닫으면 서버가 종료 응답으로 닫기를 마쳐야 한다. 응답이 없으면 1006(비정상 종료)이 된다.
-    const result = new Promise<{ code: number; clean: boolean }>(resolve =>
-      ws.addEventListener('close', event => resolve({ code: event.code, clean: event.wasClean })));
+    // 5초 안에 닫히지 않으면 코드 -1이다.
+    const result = within(new Promise<{ code: number; clean: boolean }>(resolve =>
+      ws.addEventListener('close', event => resolve({ code: event.code, clean: event.wasClean }))), { code: -1, clean: false });
     ws.close(1000);
-    return { snapshots, ...(await result) };
+    return { opened, snapshots, ...(await result) };
   }, guest);
+  expect(closed.opened).toBe(true);
   expect(closed.snapshots).toBeGreaterThan(1);
   expect({ code: closed.code, clean: closed.clean }).toEqual({ code: 1000, clean: true });
 });
