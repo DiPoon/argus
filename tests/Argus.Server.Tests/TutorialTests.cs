@@ -85,6 +85,9 @@ internal static class TutorialTests
         }
         // 시설이 없어 탈출은 처음부터 열려 있다.
         Check(match.ObjectivesComplete, "튜토리얼의 탈출이 처음부터 열려 있지 않습니다");
+        // 작전 시작 안내는 부술 시설이 없으므로 마나만 알린다. 시설이 있는 배치는 그 수를 알린다.
+        Equal(StartNotice(new Fixture(TutorialRules(6), MissionLayout.CreateTutorial())), "작전 시작 · 보급 상자에서 마나를 채우세요");
+        Equal(StartNotice(new Fixture()), $"작전 시작 · 보급 상자에서 마나를 채우고 시설 {MissionLayout.CreateHandmade().Facilities.Count}곳을 파괴하세요");
         // 배치 검사는 그 종류에 없는 상성과 1보다 작은 체력을 거절한다. 그래서 검사를 통과한 배치로는 언제나 방을 만들 수 있다.
         Throws<ArgumentException>(() => WithDrill("dash", 3));
         Throws<ArgumentException>(() => WithDrill("strike", 0));
@@ -96,6 +99,19 @@ internal static class TutorialTests
             Check(ordinary.Enemies[i].FixedSkill == null && !ordinary.Enemies[i].Holds, "보통 적에 훈련 설정이 붙었습니다");
             Equal(ordinary.Enemies[i].MaxHp, ordinary.Enemies[i].Definition.Health);
         }
+    }
+
+    // 첫 대원이 착지했을 때 나온 작전 시작 안내다.
+    private static string StartNotice(Fixture fixture)
+    {
+        for (int i = 0; i < fixture.Match.Notices.Count; i++)
+        {
+            if (fixture.Match.Notices[i].Text.StartsWith("작전 시작"))
+            {
+                return fixture.Match.Notices[i].Text;
+            }
+        }
+        throw new Exception("작전 시작 안내가 없습니다");
     }
 
     // 튜토리얼 배치에서 첫 훈련용 병사만 바꾼 배치다. 배치의 생성자가 검사한다.
@@ -164,6 +180,12 @@ internal static class TutorialTests
             {
                 found = true;
                 Equal(enemies[i].GetProperty("maxHp").GetInt32(), MissionLayout.TutorialDrillHealth);
+                // 쓰지 않는 상성의 티어는 0이다. 화면의 이름표가 타격만 적는다.
+                JsonElement tiers = enemies[i].GetProperty("tiers");
+                Equal(tiers.GetArrayLength(), 3);
+                Equal(tiers[0].GetInt32(), 1);
+                Equal(tiers[1].GetInt32(), 0);
+                Equal(tiers[2].GetInt32(), 0);
             }
         }
         Check(found, "곁의 훈련용 병사가 스냅샷에 없습니다");

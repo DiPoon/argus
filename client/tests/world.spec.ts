@@ -412,6 +412,19 @@ test('an elite body takes the color of the kind of its tier 2 action', async ({ 
   expect(colorsOf).toEqual([0xff6b61, 0x4785ff, 0xa6f9ba]);
 });
 
+test('a name tag leaves out the kinds an enemy never uses, as with the tutorial drill grunts', async ({ page }) => {
+  // 튜토리얼의 훈련 병사는 한 상성만 예고하고, 서버는 쓰지 않는 상성의 티어를 0으로 보낸다(이슈 #36). 이름표는 쓰는 상성만 적는다.
+  const state = snapshot();
+  state.enemies = [{ ...elite(920), kind: 'grunt', name: '병사', hp: 3, maxHp: 3, tiers: [1, 0, 0] },
+    { ...elite(921), kind: 'grunt', name: '병사', x: 560, rawX: 560 * 4096, hp: 3, maxHp: 3, tiers: [0, 0, 1] }];
+  const tags = await page.evaluate(state => {
+    const world = window.testWorld;
+    world.update(state); world.draw(1 / 60);
+    return [920, 921].map(id => world.labelsById.get(`enemy-type-${id}`)!.text);
+  }, state);
+  expect(tags).toEqual(['병사 · 타1', '병사 · 잡1']);
+});
+
 test('the grab elite is a diamond with a ring in the grab color, and its name tag tells its tiers', async ({ page }) => {
   // 사슬병은 잡기만 2티어인 엘리트다(2026-11-15 사용자 요청). 몸 색은 잡기 색이고, 윤곽은 다른 엘리트와 다르게 마름모에 고리 하나다.
   const state = snapshot();
