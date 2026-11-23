@@ -31,6 +31,7 @@ internal static class Program
             LayoutTests.Register(tests);
             GeneratorTests.Register(tests);
             ExplorationTests.Register(tests);
+            TutorialTests.Register(tests);
         }
         else if (args.Length == 1 && args[0] == "determinism")
         {
@@ -86,12 +87,25 @@ internal sealed class Fixture
     public Player Player { get; }
 
     public Fixture(Rules? rules = null)
+        : this(rules, null)
+    {
+    }
+
+    // 배치를 정한 방이다(튜토리얼 훈련장 등). 배치가 없으면 손으로 만든 맵이다.
+    public Fixture(Rules? rules, MissionLayout? layout)
     {
         if (rules == null)
         {
             rules = new Rules { MaxEnemies = 0 };
         }
-        Match = new Match("TEST01", rules, 73);
+        if (layout == null)
+        {
+            Match = new Match("TEST01", rules, 73);
+        }
+        else
+        {
+            Match = new Match("TEST01", rules, SeededRandom.SeedFromNumber(73), layout);
+        }
         Player = Match.Join("p", "pilot")!;
         Player.Connected = true;
         TestTools.Check(Match.Deploy(Player, Match.Layout.Camp.X.ToDouble(), Match.Layout.Camp.Y.ToDouble()));
