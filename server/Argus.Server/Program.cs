@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -17,7 +18,8 @@ internal static class Program
         builder.Services.AddSingleton<RecordingStore>(CreateRecordingStore);
         builder.Services.AddSingleton<RoomHost>(CreateRoomHost);
         builder.Services.AddHostedService(GetRoomHost);
-        builder.Services.AddRateLimiter(ConfigureRateLimiter);
+        int entriesPerMinute = ReadEntriesPerMinute(builder.Configuration);
+        builder.Services.AddRateLimiter(options => ConfigureRateLimiter(options, entriesPerMinute));
         builder.WebHost.ConfigureKestrel(ConfigureKestrel);
 
         WebApplication app = builder.Build();
@@ -73,23 +75,47 @@ internal static class Program
         options.Limits.MaxRequestBodySize = 4096;
     }
 
-    private static void ConfigureRateLimiter(RateLimiterOptions options)
+    private static void ConfigureRateLimiter(RateLimiterOptions options, int entriesPerMinute)
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-        options.AddPolicy("entry", GetEntryPartition);
+        options.AddPolicy("entry", context => GetEntryPartition(context, entriesPerMinute));
     }
 
-    private static RateLimitPartition<string> GetEntryPartition(HttpContext context)
+    // 방 만들기와 참가를 합쳐 한 주소에서 1분에 받는 횟수다. 같은 기계(127.0.0.1)와 사설망도 센다. 같은 기계의 역방향 프록시
+    // 뒤에서 전달 헤더를 켜지 않으면 모든 요청이 127.0.0.1로 들어오므로, 그 주소를 빼면 제한이 통째로 꺼진다.
+    private const int DefaultEntriesPerMinute = 30;
+
+    // 설정 Argus:Limits:EntriesPerMinute로 한도를 바꿀 수 있다. 브라우저 검사의 서버만 올린다. 검사는 모두 한 주소(127.0.0.1)에서
+    // 방을 만들고 참가하므로, 검사가 빨리 돌면 1분에 30번을 넘어 429를 받았다(2026-11-22, PR #38의 CI에서 초대 검사가 실패).
+    // 시작할 때 한 번 읽는다. 없으면 30이고, 1 이상의 정수가 아니면 서버를 띄우지 않는다. 요청마다 읽으면 정수가 아닌 값에서
+    // 방 만들기와 참가가 모두 500이 되는데 /health는 정상이라 잘못 적은 것이 드러나지 않았다(PR #39 리뷰 1번). 또 주소마다 만든
+    // 제한기는 처음 값으로 남아 실행 중에 바꿔도 일부 주소에만 들었다(2번). 그래서 실행 중에 바꾸는 것은 지원하지 않는다.
+    private static int ReadEntriesPerMinute(IConfiguration configuration)
+    {
+        string? text = configuration["Argus:Limits:EntriesPerMinute"];
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return DefaultEntriesPerMinute;
+        }
+        int limit;
+        if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out limit) || limit < 1)
+        {
+            throw new InvalidOperationException($"설정 Argus:Limits:EntriesPerMinute는 1 이상의 정수여야 합니다(지금 값: {text}).");
+        }
+        return limit;
+    }
+
+    private static RateLimitPartition<string> GetEntryPartition(HttpContext context, int entriesPerMinute)
     {
         // 역방향 프록시 뒤에서는 전달 헤더를 처리하도록 설정해야 사용자마다 따로 센다(CLAUDE.md).
         return RateLimitPartition.GetFixedWindowLimiter(AddressKeys.ForRateLimit(context.Connection.RemoteIpAddress),
-            CreateEntryLimiterOptions);
+            address => CreateEntryLimiterOptions(entriesPerMinute));
     }
 
-    private static FixedWindowRateLimiterOptions CreateEntryLimiterOptions(string address)
+    private static FixedWindowRateLimiterOptions CreateEntryLimiterOptions(int limit)
     {
         FixedWindowRateLimiterOptions options = new FixedWindowRateLimiterOptions();
-        options.PermitLimit = 30;
+        options.PermitLimit = limit;
         options.Window = TimeSpan.FromMinutes(1);
         options.QueueLimit = 0;
         return options;
@@ -217,6 +243,19 @@ internal static class Program
                     }
                     await CloseFirst(socket, receive, send, status, reason, lifetime.Token);
                 }
+                else
+                {
+                    // 수신이 먼저 끝났다. 클라이언트가 먼저 닫았거나(CloseReceived), 소켓이 열린 채 끝났다(교체된 뒤 다음 메시지를
+                    // 받음, 잘못된 메시지). 어느 쪽이든 아래 finally에서 송신을 취소하기 전에 닫기를 마친다.
+                    WebSocketCloseStatus status = WebSocketCloseStatus.NormalClosure;
+                    string reason = "연결 종료";
+                    if (peer.Replaced)
+                    {
+                        status = ReplacedStatus;
+                        reason = ReplacedReason;
+                    }
+                    await CloseAfterReceive(socket, peer, send, status, reason, lifetime.Token);
+                }
             }
             finally
             {
@@ -315,6 +354,51 @@ internal static class Program
         catch (Exception error) when (IsConnectionError(error))
         {
             // 종료 메시지가 늦어지거나 연결이 이미 끊겼어도 연결 정리는 계속한다.
+        }
+    }
+
+    // 수신이 송신보다 먼저 끝났을 때 닫기를 마친다. 송신 작업을 취소하지 않고 스냅샷 통로를 닫아, 보내던 메시지를 마치고
+    // 스스로 끝나게 한 뒤에 닫는다. 보내는 중인 송신을 취소하면 .NET이 소켓을 중단해(Aborted) 종료 메시지를 보내지 못하고,
+    // 상대는 정상 종료(1000)나 교체(4001) 대신 1006을 받는다.
+    // - 클라이언트가 먼저 닫았으면(CloseReceived) 종료 응답을 보낸다. 2026-11-22에 접속하고 닫기를 1500번 되풀이하면 서버 쪽
+    //   Aborted가 1~2번, Chromium이 받은 1006이 1번이었고, 고친 뒤에는 둘 다 0번이었다(PR #38의 CI에서 game.spec의
+    //   "closes first" 검사가 실패해 찾음).
+    // - 소켓이 열린 채 수신이 끝났으면(교체된 연결이 다음 메시지를 받음, 잘못된 메시지) 서버가 먼저 닫는다. 종료 메시지를 보내고
+    //   상대의 응답까지 기다린다(CloseFirst와 같다). 교체된 옛 탭이 1006을 받으면 다시 접속해 새 탭을 밀어낸다. 클라이언트는
+    //   4001일 때만 재접속을 멈추기 때문이다(PR #39 리뷰 3번. 2026-11-23에 교체를 600번 되풀이한 Chromium에서는 고치기 전에도
+    //   모두 4001이었다. 교체되면 옛 연결의 송신이 곧바로 끝나 이 길로 오는 일이 드물다).
+    // 1초 안에 끝나지 않으면 그만두고 아래 finally가 정리한다.
+    private static async Task CloseAfterReceive(WebSocket socket, Peer peer, Task send, WebSocketCloseStatus status, string reason,
+        CancellationToken token)
+    {
+        using CancellationTokenSource closeTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        closeTimeout.CancelAfter(TimeSpan.FromSeconds(1));
+        // 통로를 닫으면 송신 작업은 이미 들어온 오류 안내와 pong까지 보낸 뒤 끝난다(Peer.Send). 방송이 이 연결에 더 넣는
+        // 스냅샷은 버려진다. Detach가 같은 통로를 다시 닫아도 아무 일이 없다.
+        peer.Outgoing.Writer.TryComplete();
+        try
+        {
+            try
+            {
+                await send.WaitAsync(closeTimeout.Token);
+            }
+            catch (WebSocketException)
+            {
+                // 마지막 전송이 실패해도 소켓이 아직 응답을 기다리면 아래에서 종료 응답을 보내 본다.
+            }
+            if (socket.State == WebSocketState.CloseReceived)
+            {
+                await socket.CloseOutputAsync(status, reason, closeTimeout.Token);
+            }
+            else if (socket.State == WebSocketState.Open)
+            {
+                // 수신 작업이 끝났으므로 상대의 종료 응답은 CloseAsync가 받는다.
+                await socket.CloseAsync(status, reason, closeTimeout.Token);
+            }
+        }
+        catch (Exception error) when (IsConnectionError(error))
+        {
+            // 송신이 늦어지거나 연결이 이미 끊겼어도 연결 정리는 계속한다.
         }
     }
 

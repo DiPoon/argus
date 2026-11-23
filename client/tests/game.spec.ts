@@ -727,7 +727,10 @@ test('a held skill key keeps the aura going, the zone goes out on release, and h
   await page.keyboard.down('Digit1');
   await expect.poll(() => action()?.phase, { intervals: [50] }).toBe('aura');
   const first = action()!.id;
-  await page.waitForTimeout(300);
+  // 벽시계로 0.3초를 기다리지 않고, 스냅샷의 서버 시각이 시작 0.3초 뒤에 닿을 때까지 기다린다. 아래 값은 모두 그 스냅샷에서 읽는다.
+  // 벽시계로 기다리면 스냅샷이 한두 장 늦게 닿은 실행기에서 마지막 스냅샷이 시작 0.2초 때의 것이라, 누르고 있는 동안 늘어난
+  // 기운 시간이 0.23초로 보였다(2026-11-23, PR #39의 CI. 그 방의 기록으로 보면 서버는 입력을 거의 틱마다 받았다).
+  await expect.poll(() => (me.state?.now ?? 0) - action()!.startedAt, { intervals: [20] }).toBeGreaterThanOrEqual(.3);
   expect(action()!.id).toBe(first);
   expect(action()!.phase).toBe('aura');
   expect(action()!.held).toBe(true);
@@ -891,20 +894,40 @@ test('the bug report button stamps the moment at once and takes a note without f
   expect(me.errors).toEqual([]);
 });
 
-test('a client that closes first gets a clean close back', async ({ request }) => {
+test('a client that closes first gets a clean close back', async ({ page, request }) => {
   const guest = await (await request.post('/api/rooms', { data: { name: 'Closer' } })).json();
-  const url = (process.env.ARGUS_URL ?? 'http://127.0.0.1:5077').replace(/^http/, 'ws') + '/ws';
-  const ws = new WebSocket(url);
-  let snapshots = 0;
-  ws.addEventListener('message', () => { snapshots++; });
-  await new Promise<void>(resolve => ws.addEventListener('open', () => resolve()));
-  ws.send(JSON.stringify({ type: 'hello', room: guest.room, token: guest.token }));
-  await expect.poll(() => snapshots).toBeGreaterThan(1);
-  // 클라이언트가 먼저 닫으면 서버가 종료 응답으로 닫기를 마쳐야 한다. 응답이 없으면 1006(비정상 종료)이 된다.
-  const closed = new Promise<{ code: number; clean: boolean }>(resolve =>
-    ws.addEventListener('close', event => resolve({ code: event.code, clean: event.wasClean })));
-  ws.close(1000);
-  expect(await closed).toEqual({ code: 1000, clean: true });
+  // 실제 사용자처럼 브라우저의 WebSocket으로 잰다. 검사 프로그램(Node)의 WebSocket은 압축된 마지막 스냅샷을 푸는 사이에 서버가
+  // 종료 프레임과 함께 연결을 닫으면, 종료 프레임을 읽기 전에 닫힘을 처리해 1006으로 보고하는 일이 있다. 2026-11-22에 접속하고
+  // 닫기를 1500번 되풀이하면 Node는 4~12번 그랬고, 압축을 끈 서버에 Node로, 또는 같은 서버에 Chromium으로 재면 1500번 모두 1000이었다.
+  // 그래서 이 검사가 CI에서 가끔 실패했다(PR #38).
+  await page.goto('/health');
+  const closed = await page.evaluate(async guest => {
+    // 기다림마다 시간 제한을 둔다. 서버가 업그레이드를 거절하거나 닫기에 끝내 답하지 않는 회귀에서, 검사 시간 초과(90초)가 아니라
+    // 아래 단언으로 실패 이유가 드러나게 한다(PR #39 리뷰 4번).
+    const within = <T,>(promise: Promise<T>, fallback: T) =>
+      Promise.race([promise, new Promise<T>(resolve => setTimeout(() => resolve(fallback), 5000))]);
+    const ws = new WebSocket(location.origin.replace(/^http/, 'ws') + '/ws');
+    let snapshots = 0;
+    ws.addEventListener('message', () => { snapshots++; });
+    const opened = await within(new Promise<boolean>(resolve => {
+      ws.addEventListener('open', () => resolve(true));
+      ws.addEventListener('error', () => resolve(false));
+      ws.addEventListener('close', () => resolve(false));
+    }), false);
+    if (!opened) return { opened, snapshots, code: -1, clean: false };
+    ws.send(JSON.stringify({ type: 'hello', room: guest.room, token: guest.token }));
+    const started = performance.now();
+    while (snapshots < 2 && performance.now() - started < 10000) await new Promise(resolve => setTimeout(resolve, 10));
+    // 클라이언트가 먼저 닫으면 서버가 종료 응답으로 닫기를 마쳐야 한다. 응답이 없으면 1006(비정상 종료)이 된다.
+    // 5초 안에 닫히지 않으면 코드 -1이다.
+    const result = within(new Promise<{ code: number; clean: boolean }>(resolve =>
+      ws.addEventListener('close', event => resolve({ code: event.code, clean: event.wasClean }))), { code: -1, clean: false });
+    ws.close(1000);
+    return { opened, snapshots, ...(await result) };
+  }, guest);
+  expect(closed.opened).toBe(true);
+  expect(closed.snapshots).toBeGreaterThan(1);
+  expect({ code: closed.code, clean: closed.clean }).toEqual({ code: 1000, clean: true });
 });
 
 test('a connection with a wrong hello that never answers the close is dropped within a couple of seconds', async () => {
