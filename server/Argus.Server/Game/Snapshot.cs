@@ -80,7 +80,7 @@ public static class Snapshot
             entry.Kind = enemy.Definition.Id;
             entry.Name = enemy.Definition.Name;
             entry.Hp = enemy.Hp;
-            entry.MaxHp = enemy.Definition.Health;
+            entry.MaxHp = enemy.MaxHp;
             entry.Radius = Round(enemy.Definition.Radius);
             entry.Tiers = new int[enemy.Definition.Skills.Length];
             for (int j = 0; j < entry.Tiers.Length; j++)

@@ -34,15 +34,30 @@ public sealed class SupplySpot
 }
 
 // 처음 배치하는 적의 자리와 종류다. 엘리트를 끈 작전(Rules.AllowEliteEnemies가 false)에서는 엘리트 자리에도 병사를 둔다.
+// 튜토리얼의 훈련용 적은 세 값을 더 정한다(2026-11-24, 이슈 #36). 늘 같은 상성의 행동만 예고하고(Drill: strike·block·channel),
+// 제자리에 서서 걷지 않으며(Holds), 체력이 종류의 값과 다르다(Health). 체력을 높이면 비기거나 기운 없는 때 친 피해로는 쓰러지지 않고
+// 이기는 기술로 받아쳤을 때(완벽 대응, 체력과 관계없는 처치)만 쓰러진다. 운영 방과 검사의 배치는 세 값을 쓰지 않는다.
 public sealed class EnemySpot
 {
     public FixedVector Position { get; }
     public EnemyDefinition Kind { get; }
+    public string? Drill { get; }
+    public bool Holds { get; }
+    public int? Health { get; }
 
     public EnemySpot(FixedVector position, EnemyDefinition kind)
     {
         Position = position;
         Kind = kind;
+    }
+
+    public EnemySpot(FixedVector position, EnemyDefinition kind, string? drill, bool holds, int? health)
+    {
+        Position = position;
+        Kind = kind;
+        Drill = drill;
+        Holds = holds;
+        Health = health;
     }
 }
 
@@ -182,6 +197,15 @@ public sealed class MissionLayout
                 throw new ArgumentException($"처음 적 자리 {i + 1} {spot.Position}에 {spot.Kind.Id}의 몸(반지름 {spot.Kind.Radius})이 들어가지 않습니다",
                     nameof(InitialEnemySpots));
             }
+            // 훈련 상성은 그 종류가 쓰는 행동이어야 한다. 엘리트를 끈 작전에서 엘리트 자리에 두는 병사는 세 상성을 모두 쓴다.
+            if (spot.Drill != null && spot.Kind.SkillOf(spot.Drill) == null)
+            {
+                throw new ArgumentException($"처음 적 자리 {i + 1}의 {spot.Kind.Id}에는 {spot.Drill} 행동이 없습니다", nameof(InitialEnemySpots));
+            }
+            if (spot.Health != null && spot.Health < 1)
+            {
+                throw new ArgumentException($"처음 적 자리 {i + 1}의 체력 {spot.Health}은 1 이상이어야 합니다", nameof(InitialEnemySpots));
+            }
             for (int j = 0; j < i; j++)
             {
                 EnemySpot other = InitialEnemySpots[j];
@@ -260,6 +284,44 @@ public sealed class MissionLayout
     {
         return Handmade(new EnemySpot[0]);
     }
+
+    // 튜토리얼 훈련장이다(2026-11-24, 이슈 #36. 처음 온 사람이 게임을 모른다는 사용자 말). 32×14칸에 왼쪽 캠프와 캠프 보급,
+    // 가운데 줄의 훈련용 병사 셋, 오른쪽 끝의 탈출 지점만 있다. 시설이 없어 탈출은 처음부터 열려 있다(Match.ObjectivesComplete).
+    // 병사는 왼쪽부터 타격·방어·잡기만 예고하고 제자리에 선다. 서로 6칸(288) 떨어져 행동을 고르는 거리(Match.EngageDistance, 75)보다
+    // 훨씬 멀어, 다가간 병사 하나씩만 상대한다. 체력 3이라 비기거나 기운이 없는 때 친 피해로는 세 번 맞아야 쓰러지고,
+    // 이기는 기술로 받아치면(완벽 대응) 한 번에 쓰러진다. 증원은 규칙으로 끈다(RoomHost, Rules.Reinforcements).
+    public static MissionLayout CreateTutorial()
+    {
+        int columns = 32;
+        int rows = 14;
+        byte[] tiles = new byte[columns * rows];
+        for (int y = 0; y < rows; y++)
+        {
+            for (int x = 0; x < columns; x++)
+            {
+                if (x == 0 || y == 0 || x == columns - 1 || y == rows - 1)
+                {
+                    tiles[y * columns + x] = 2;
+                }
+            }
+        }
+        FixedVector camp = FixedVector.FromInt(168, 336);
+        SupplySpot[] supplies = new SupplySpot[]
+        {
+            new SupplySpot(camp + FixedVector.FromInt(70, 40), SupplyKind.Camp)
+        };
+        EnemySpot[] drills = new EnemySpot[]
+        {
+            new EnemySpot(FixedVector.FromInt(552, 336), EnemyDefinition.Grunt, "strike", true, TutorialDrillHealth),
+            new EnemySpot(FixedVector.FromInt(840, 336), EnemyDefinition.Grunt, "block", true, TutorialDrillHealth),
+            new EnemySpot(FixedVector.FromInt(1128, 336), EnemyDefinition.Grunt, "channel", true, TutorialDrillHealth)
+        };
+        SpawnRing ring = new SpawnRing(FixedVector.FromInt(768, 336), 600, 200);
+        return new MissionLayout(columns, rows, tiles, camp, FixedVector.FromInt(1392, 336), new FixedVector[0], supplies, drills, ring);
+    }
+
+    // 튜토리얼 훈련용 병사의 체력이다.
+    public const int TutorialDrillHealth = 3;
 
     // 손으로 만든 맵의 지형과 임무 배치에 처음 적 자리 initialEnemySpots를 넣어 만든다.
     private static MissionLayout Handmade(EnemySpot[] initialEnemySpots)

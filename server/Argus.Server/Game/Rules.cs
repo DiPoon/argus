@@ -37,6 +37,9 @@ public sealed class Rules
     public double FirstConnectSeconds { get; init; } = 15;
     public double SpawnInterval { get; init; } = 7;
     public int MaxEnemies { get; init; } = 60;
+    // 시간이 지나며 증원이 오는지다. 튜토리얼은 끈다(처음에 둔 훈련용 적만 있다). 적 상한을 처음 적 수로 두어도, 처음 적이 쓰러지면
+    // 자리가 나 증원이 온다.
+    public bool Reinforcements { get; init; } = true;
     // 첫 작전에서는 기본 상성을 익히도록 일반 적만 내보내고 준비 시간을 늘린다.
     public bool AllowEliteEnemies { get; init; } = false;
     public double EnemyWindupMultiplier { get; init; } = 2;

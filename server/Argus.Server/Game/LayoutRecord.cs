@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 namespace Argus.Server.Game;
 
 // 기록 머리에 적는 작전 배치다. 재생할 때 이것으로 같은 배치를 다시 만든다. 좌표는 고정소수점의 Raw다.
@@ -48,6 +49,9 @@ public sealed class LayoutRecord
             spot.X = layout.InitialEnemySpots[i].Position.X.Raw;
             spot.Y = layout.InitialEnemySpots[i].Position.Y.Raw;
             spot.Kind = layout.InitialEnemySpots[i].Kind.Id;
+            spot.Drill = layout.InitialEnemySpots[i].Drill;
+            spot.Holds = layout.InitialEnemySpots[i].Holds;
+            spot.Health = layout.InitialEnemySpots[i].Health;
             record.InitialEnemies.Add(spot);
         }
         record.ReinforcementCenter = PointRecord.From(layout.Reinforcements.Center);
@@ -74,7 +78,7 @@ public sealed class LayoutRecord
         for (int i = 0; i < InitialEnemies.Count; i++)
         {
             FixedVector position = new FixedVector(Fixed.FromRaw(InitialEnemies[i].X), Fixed.FromRaw(InitialEnemies[i].Y));
-            enemies[i] = new EnemySpot(position, EnemyDefinition.FromId(InitialEnemies[i].Kind));
+            enemies[i] = new EnemySpot(position, EnemyDefinition.FromId(InitialEnemies[i].Kind), InitialEnemies[i].Drill, InitialEnemies[i].Holds, InitialEnemies[i].Health);
         }
         SpawnRing ring = new SpawnRing(ReinforcementCenter.ToPoint(), ReinforcementRadiusX, ReinforcementRadiusY);
         return new MissionLayout(Columns, Rows, Tiles, Camp.ToPoint(), Extraction.ToPoint(), facilities, supplies, enemies, ring);
@@ -162,4 +166,12 @@ public sealed class EnemySpotRecord
     public long Y { get; set; }
     // 적 정의의 id(grunt·breaker·warden)다.
     public string Kind { get; set; } = "";
+    // 튜토리얼의 훈련용 적의 설정이다(EnemySpot). 없으면 보통 적이다. 이 값이 없던 예전 기록도 그대로 읽힌다.
+    // 보통 적의 값(null·false)은 적지 않는다. 그래야 보통 배치의 글이 예전과 같고, 그 글로 잰 생성 맵의 고정값(GeneratorTests)도 그대로다.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Drill { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Holds { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Health { get; set; }
 }

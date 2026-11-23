@@ -205,6 +205,19 @@ public sealed class EnemyDefinition
         throw new ArgumentException($"적 종류 {id}를 모릅니다", nameof(id));
     }
 
+    // 이 종류가 쓰는 그 상성(strike·block·channel)의 행동이다. 없으면 null이다. 튜토리얼의 훈련용 적이 늘 쓸 행동을 고를 때 쓴다.
+    public EnemySkill? SkillOf(string kind)
+    {
+        for (int i = 0; i < Skills.Length; i++)
+        {
+            if (Skills[i].Kind == kind)
+            {
+                return Skills[i];
+            }
+        }
+        return null;
+    }
+
     // 기술의 사거리에 대원 반지름(13)을 더하면 적이 행동을 고르는 거리(Match.EngageDistance, 75) 이상이어야 한다.
     // 잡기는 60이라 73까지만 닿아, 74에서 고른 잡기가 가만히 선 대원에게도 빗나갔다(2026-11-08 PR #22 리뷰).
     public static readonly EnemyDefinition Grunt = new EnemyDefinition("grunt", "병사", Fixed.FromInt(13), 1, 100,

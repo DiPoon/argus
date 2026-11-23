@@ -153,7 +153,7 @@ public sealed partial class Match
             {
                 kind = EnemyDefinition.Grunt;
             }
-            PlaceInitialEnemy(spot.Position, kind);
+            PlaceInitialEnemy(spot, kind);
         }
         // 처음에는 캠프의 시야만큼 보인다. 대원이 투입하기 전에는 여기에만 투입할 수 있다.
         Explore();
@@ -579,7 +579,7 @@ public sealed partial class Match
                 UpdatePlayer(Players[i]);
             }
         }
-        if (ElapsedTicks >= _nextSpawnTick && Enemies.Count < Rules.MaxEnemies)
+        if (Rules.Reinforcements && ElapsedTicks >= _nextSpawnTick && Enemies.Count < Rules.MaxEnemies)
         {
             // 증원 간격은 시간이 지날수록 줄어들고 2.5초 아래로는 줄지 않는다.
             double interval = Math.Max(2.5, Rules.SpawnInterval - Elapsed / 240);
