@@ -727,7 +727,10 @@ test('a held skill key keeps the aura going, the zone goes out on release, and h
   await page.keyboard.down('Digit1');
   await expect.poll(() => action()?.phase, { intervals: [50] }).toBe('aura');
   const first = action()!.id;
-  await page.waitForTimeout(300);
+  // 벽시계로 0.3초를 기다리지 않고, 스냅샷의 서버 시각이 시작 0.3초 뒤에 닿을 때까지 기다린다. 아래 값은 모두 그 스냅샷에서 읽는다.
+  // 벽시계로 기다리면 스냅샷이 한두 장 늦게 닿은 실행기에서 마지막 스냅샷이 시작 0.2초 때의 것이라, 누르고 있는 동안 늘어난
+  // 기운 시간이 0.23초로 보였다(2026-11-23, PR #39의 CI. 그 방의 기록으로 보면 서버는 입력을 거의 틱마다 받았다).
+  await expect.poll(() => (me.state?.now ?? 0) - action()!.startedAt, { intervals: [20] }).toBeGreaterThanOrEqual(.3);
   expect(action()!.id).toBe(first);
   expect(action()!.phase).toBe('aura');
   expect(action()!.held).toBe(true);
