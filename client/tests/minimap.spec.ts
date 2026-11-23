@@ -542,7 +542,7 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
     // 생성 작전에서 돌릴 때는 방마다 다른 비율을 우연히 봤다. 이제는 양 끝을 늘 본다.
     const ratios: [string, number | undefined][] = [['40×30칸', undefined], ['50×52칸', 50 / 52], ['70×38칸', 70 / 38]];
     // 가로 화면(넓은 것부터 높이 320px까지)과 세로 화면이다. 크기를 바꾸자마자 잰다. 자리와 크기는 CSS가 정하므로 프레임을 기다리지 않는다.
-    for (const [map, ratio] of ratios) for (const [width, height] of [[844, 390], [740, 360], [667, 375], [640, 360], [658, 320], [568, 320], [533, 320], [390, 844], [390, 664], [320, 568], [320, 533]]) {
+    for (const [map, ratio] of ratios) for (const [width, height] of [[844, 390], [740, 360], [667, 375], [640, 360], [658, 320], [568, 320], [533, 320], [520, 300], [480, 320], [400, 360], [390, 844], [390, 664], [320, 568], [320, 533]]) {
       await page.evaluate(ratio => {
         document.getElementById('test-ratio')?.remove();
         if (ratio === null) return;
@@ -568,10 +568,13 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
       // 알림은 어느 크기에서도 기술 버튼을 덮지 않는다. 가로 화면은 미니맵과 기술 버튼 무리 사이에 둔다. 폭 600px 이하(좁은 가로 화면과
       // 세로 화면)는 미니맵 옆에 자리가 없어 알림이 미니맵을 잠시 덮는다. 그때는 알림이 미니맵 위에 그려진다.
       for (const skill of skills) expect(apart(toast, skill), `${map} ${width}×${height} 알림과 기술 버튼`).toBe(true);
-      expect(await toastRoom(page), `${map} ${width}×${height} 알림 폭`).toBeGreaterThanOrEqual(200);
-      // 가로 화면(521px 이상)에서는 알림이 아무리 넓어져도 기술 버튼 무리의 왼쪽에서 끝난다. 폭 600px 이하에서 알림이 미니맵을 덮을 때도
+      // 폭 520px 이하의 가로 화면은 기술 버튼 무리(188px)를 비우고 남는 자리가 좁다(400×360에서 196px). 기술 버튼을 덮지 않는 값으로 받아들인다.
+      const smallLandscape = width <= 520 && width > height;
+      expect(await toastRoom(page), `${map} ${width}×${height} 알림 폭`).toBeGreaterThanOrEqual(smallLandscape ? 190 : 200);
+      // 가로 화면(과 폭 521px 이상)에서는 알림이 아무리 넓어져도 기술 버튼 무리의 왼쪽에서 끝난다. 폭 600px 이하에서 알림이 미니맵을 덮을 때도
       // 기술 버튼 쪽은 그대로 비운다. 위의 겹침 확인만으로는 알림이 버튼보다 위에 있을 때 버튼 쪽으로 넘어온 것을 잡지 못한다.
-      if (width > 520) expect(await toastReach(page), `${map} ${width}×${height} 알림의 오른쪽 끝`).toBeLessThanOrEqual(Math.min(...skills.map(skill => skill.left)) + .5);
+      // 예전에는 폭 521px 이상만 비워, 폭 520px 이하의 가로 화면에서 알림이 기술 버튼의 위쪽을 덮었다(이슈 #27).
+      if (width > height || width > 520) expect(await toastReach(page), `${map} ${width}×${height} 알림의 오른쪽 끝`).toBeLessThanOrEqual(Math.min(...skills.map(skill => skill.left)) + .5);
       // 비킬지는 화면 폭으로 정한다. 미니맵 폭이 맵 비율(방마다 다름)에 따라 달라, 가로로 긴 맵이면 폭 600px 이하에서 옆 자리가 150px 안팎이다.
       const shifted = await page.locator('#toast').evaluate(toast => parseFloat(getComputedStyle(toast).marginLeft) > 0);
       expect(shifted, `${map} ${width}×${height} 알림이 미니맵 옆으로 비킴`).toBe(width > 600);
@@ -620,8 +623,10 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
     await expect(page.locator('.sidebar')).toBeVisible();
     await expect(page.locator('#minimap')).toBeHidden();
     expect(await page.evaluate(() => [document.getElementById('minimap')!.hidden, document.body.classList.contains('minimap-on')])).toEqual([true, false]);
-    // 그동안 알림도 비키지 않는다. 서랍은 위쪽 줄과 알림 아래에서 시작하므로 알림 자리가 바뀌면 서랍 높이도 바뀐다.
-    expect(await page.locator('#toast').evaluate(toast => [getComputedStyle(toast).marginLeft, getComputedStyle(toast).marginRight])).toEqual(['0px', '0px']);
+    // 그동안 알림은 미니맵 쪽은 비키지 않고, 기술 버튼 쪽은 그대로 비운다(기술 버튼은 서랍을 연 동안에도 보인다). 예전에는 둘 다 0이라
+    // 높이 320px 안팎의 화면에서 알림이 기술 버튼의 위쪽에 걸쳤다(이슈 #27). 서랍은 위쪽 줄과 알림 아래에서 시작하므로 알림 자리가 바뀌면
+    // 서랍 높이도 바뀐다.
+    expect(await page.locator('#toast').evaluate(toast => [getComputedStyle(toast).marginLeft, getComputedStyle(toast).marginRight])).toEqual(['0px', '188px']);
     await page.getByRole('button', { name: '☰ 메뉴' }).tap();
     await expect(page.locator('#minimap')).toBeVisible();
     // 지도 버튼으로 맵 전체를 보이는 동안에는 숨고, 다시 누르면 보인다.
@@ -629,6 +634,22 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
     await expect(page.locator('#minimap')).toBeHidden();
     await page.getByRole('button', { name: '지도' }).tap();
     await expect(page.locator('#minimap')).toBeVisible();
+    // 미니맵이 숨은 동안(지도 보기, 서랍)에도 가로 화면의 알림은 기술 버튼을 덮지 않는다. 예전에는 미니맵이 보일 때만 비켜,
+    // 533·568×320에서 기술 버튼의 위쪽에 5px 걸쳤다(이슈 #27). 알림이 아무리 넓어져도 기술 버튼 무리의 왼쪽에서 끝나는지 본다.
+    for (const [width, height] of [[844, 390], [568, 320], [533, 320], [480, 320], [400, 360]]) {
+      await page.setViewportSize({ width, height });
+      for (const [state, button] of [['지도 보기', '지도'], ['서랍', '☰ 메뉴']]) {
+        await page.getByRole('button', { name: button }).tap();
+        await expect(page.locator('#minimap'), `${width}×${height} ${state}`).toBeHidden();
+        const [toast] = await boxes(page, ['#toast']);
+        const skills = await boxes(page, ['.touch-skill']);
+        expect(skills, `${width}×${height} ${state}: 기술 버튼이 보임`).toHaveLength(4);
+        for (const skill of skills) expect(apart(toast, skill), `${width}×${height} ${state}: 알림과 기술 버튼`).toBe(true);
+        expect(await toastReach(page), `${width}×${height} ${state}: 알림의 오른쪽 끝`).toBeLessThanOrEqual(Math.min(...skills.map(skill => skill.left)) + .5);
+        await page.getByRole('button', { name: button }).tap();
+        await expect(page.locator('#minimap'), `${width}×${height} ${state} 닫음`).toBeVisible();
+      }
+    }
   } finally { await context.close(); }
 });
 
