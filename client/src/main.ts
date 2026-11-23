@@ -589,7 +589,7 @@ function leave() {
   $('extract-progress').style.width = '0%';
   // 작은 임무 진행도 비운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아, 비우지 않으면 지난 작전의 진행이 보인다.
   for (const id of ['mission-mini', 'touch-mission', 'touch-extract']) setMarkup(id, '');
-  document.body.classList.remove('operating', 'ended');
+  document.body.classList.remove('operating', 'ended', 'skills-on');
   setMenu(false);
   document.documentElement.classList.remove('touch-operating');
   status('투입 대기');
@@ -692,7 +692,10 @@ function updateUi() {
     $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고 안에서 이기는 기술 · 누른 채로 기운 유지';
     $('combat-status').classList.toggle('empty', p.mana === 0);
   }
-  $('touch-controls').hidden = !touchMode || !alive || ended;
+  const skillsShown = touchMode && alive && !ended;
+  $('touch-controls').hidden = !skillsShown;
+  // 기술 버튼이 보이는 동안이다. 가로 화면의 알림이 오른쪽 아래 기술 버튼 무리 쪽을 비운다(style.css, 이슈 #27).
+  document.body.classList.toggle('skills-on', skillsShown);
   $('performance').textContent = `${ping} ms · ${world?.fps ?? 60} FPS · 적 ${world?.shownEnemies ?? 0}/${s.enemies.length}`;
   $('result').hidden = !ended;
   // 종료 카드가 보이는 동안이다. CSS가 :has() 없이 이 상태를 고른다(임무 진행과 알림 숨김).
