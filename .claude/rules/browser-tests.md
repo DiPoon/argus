@@ -24,6 +24,7 @@ paths:
 | `hands.spec.ts` | 6 | 필요 | 손 그림의 짝과 자리, 마스크 |
 | `invite.spec.ts` | 11 | 필요(주소 계산의 두 검사만 브라우저도 쓰지 않음) | 초대 링크의 주소와 열리는 범위, 복사, 초대받은 로비의 모양과 자리와 Tab 차례, 초대를 치우는 때, 복구 정보와의 우선순위 |
 | `mission.spec.ts` | 1 | 필요(손으로 만든 맵) | 임무 봇이 작전을 끝까지 진행 |
+| `sound.spec.ts` | 9 | 일부만(울릴 사건 다섯은 브라우저도 쓰지 않음, 실제 소리 장치 둘은 Vite 서버, 흐름 둘은 게임 서버의 조용한 방) | 게임 소리의 사건, 켜는 때와 설정, 소리 장치를 기록하는 가짜(`AudioContext`를 바꾼다), 메모리에 그린 크기 |
 
 그리기나 예측만 고쳤으면 서버 없이 `cd client && npx playwright test tests/world.spec.ts tests/fixed.spec.ts`로 먼저 본다.
 
