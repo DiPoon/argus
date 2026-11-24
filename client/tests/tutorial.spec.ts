@@ -63,6 +63,8 @@ test('a first visit on a PC goes from the welcome screen through the four tutori
   // 첫 방문 화면이 로비 자리에 있다. 조작 안내는 키보드와 마우스다.
   await expect(page.locator('#lobby')).toBeHidden();
   await expect(page.locator('#welcome')).toContainText('키보드(WASD)');
+  // Enter로 바로 시작하게 훈련 시작 버튼에 커서가 있다.
+  await expect(page.locator('#tutorial-start')).toBeFocused();
   const request = await startTutorial(page);
   expect(request.postDataJSON().layout).toBe('tutorial');
   // 훈련을 시작하면 마친 것으로 적는다. 다음 방문은 로비다.
@@ -138,6 +140,7 @@ test('a first visit on a PC goes from the welcome screen through the four tutori
 });
 
 test('skipping the welcome shows the lobby for good, and the lobby can start the tutorial again', async ({ page }) => {
+  const wire = await relay(page);
   await page.goto('/');
   await page.locator('#tutorial-skip').click();
   await expect(page.locator('#lobby')).toBeVisible();
@@ -156,13 +159,17 @@ test('skipping the welcome shows the lobby for good, and the lobby can start the
   await expect(page.locator('#tutorial-guide')).toContainText('훈련 1 / 4');
   await expect(page.locator('#op-title')).toHaveText('훈련장');
 
-  // 훈련에서 나와 새 작전을 시작하면 평소 HUD다.
+  // 훈련에서 나와 새 작전을 시작하면 평소 HUD다. 새 방의 첫 스냅샷이 오기 전에도 지난 훈련의 안내 상자가 남지 않는다(스냅샷을 잡아 둔다).
   await page.locator('#leave').click();
   await expect(page.locator('#lobby')).toBeVisible();
-  await expect(page.locator('#tutorial-guide')).toBeHidden();
+  wire.holding = true;
   const normal = page.waitForRequest(request => request.url().endsWith('/api/rooms') && request.method() === 'POST');
   await page.locator('#create').click();
   expect((await normal).postDataJSON().layout).toBeUndefined();
+  await expect(page.locator('#operation')).toBeVisible();
+  await expect.poll(() => wire.held.length).toBeGreaterThan(0);
+  await expect(page.locator('#tutorial-guide')).toBeHidden();
+  wire.release();
   await expect(page.locator('#mission-state')).toHaveText('투입 대기');
   await expect(page.locator('#op-title')).toHaveText('침묵의 전초기지');
   await expect(page.locator('.mission-section')).toBeVisible();
@@ -205,8 +212,12 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
   await page.goto('/');
   // 가장 낮은 가로 화면에서도 첫 방문 화면이 한 장에 들어온다. 조작 안내는 조이스틱과 버튼이다.
   await expect(page.locator('#welcome')).toContainText('왼쪽 아래를 끌어');
-  const fits = await page.evaluate(() => { const welcome = document.getElementById('welcome')!; return welcome.scrollHeight <= welcome.clientHeight + 1; });
-  expect(fits).toBe(true);
+  // 화면 전체가 스크롤되지 않고, 첫 방문 화면 안도 넘치지 않는다.
+  const fits = await page.evaluate(() => {
+    const welcome = document.getElementById('welcome')!;
+    return { page: document.documentElement.scrollHeight <= innerHeight + 1, inside: welcome.scrollHeight <= welcome.clientHeight + 1 };
+  });
+  expect(fits).toEqual({ page: true, inside: true });
   const start = await page.locator('#tutorial-start').boundingBox();
   expect(start!.y + start!.height).toBeLessThanOrEqual(320);
   await startTutorial(page);
