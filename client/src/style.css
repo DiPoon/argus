@@ -1559,6 +1559,8 @@ body.touch .tutorial-guide { position:static; z-index:1; transform:none; width:a
   body.touch .tutorial-guide { max-width:min(360px, calc(50% - 40px)) }
 }
 body.touch.menu-open .tutorial-guide { display:none }
-body.touch .tutorial-guide .guide-step { font-size:8px }
-body.touch .tutorial-guide b { font-size:11px; margin:2px 0 3px }
+/* 단계 번호와 제목은 한 줄에 둔다. 가장 작은 세로 화면(320×568)은 위쪽 줄이 세 줄이라 안내가 한 줄만 길어도 대원의 이름표를 덮었다. */
+body.touch .tutorial-guide .guide-step { display:inline; margin-right:8px; font-size:8px }
+body.touch .tutorial-guide b { display:inline; font-size:11px }
+body.touch .tutorial-guide p:first-of-type { margin-top:3px }
 body.touch .tutorial-guide p { margin:0 0 2px }

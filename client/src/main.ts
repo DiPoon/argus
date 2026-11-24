@@ -672,7 +672,9 @@ function tutorialGuide(s: Snapshot, p: Player) {
   }
   const walk = touchMode ? '화면 왼쪽 아래를 누른 채 끌면 걷습니다.' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>로 걷습니다.';
   if (p.mana < 1) {
-    return step(2, '이동과 보급', [walk, tutorialSupplied ? '마나를 다 썼습니다. 보급 상자에서 다시 채우세요.' : '캠프 옆 청록색 보급 상자에 닿으면 마나가 찹니다. 기술마다 마나 1을 씁니다.']);
+    // 기술마다 드는 마나는 터치 화면에서 빼고 알린다. 기술 버튼마다 적혀 있고, 가장 작은 세로 화면(320×568)에서 한 줄 길면 대원을 덮었다.
+    const supply = `캠프 옆 청록색 보급 상자에 닿으면 마나가 찹니다.${touchMode ? '' : ' 기술마다 마나 1을 씁니다.'}`;
+    return step(2, '이동과 보급', [walk, tutorialSupplied ? '마나를 다 썼습니다. 보급 상자에서 다시 채우세요.' : supply]);
   }
   // 가장 가까운 병사다. 시야(410) 안의 병사만 스냅샷에 온다.
   let near: Snapshot['enemies'][number] | undefined;
