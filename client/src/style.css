@@ -766,6 +766,20 @@ input::placeholder {
   margin:12px 0
 }
 
+/* 소리 켬·끔과 크기다(이슈 #35). PC는 위쪽 줄에 두고, 터치 화면은 위쪽 줄이 없어 ☰ 서랍(옆 패널)에 둔다. PC 옆 패널에는 보이지 않는다.
+   두면 높이 900px 화면에서 버그 제보·작전에서 나가기가 아래로 밀렸다. */
+.sound-controls { display:flex; align-items:center; gap:12px; margin-bottom:4px }
+.sound-controls input { flex:1; min-width:0; accent-color:var(--lime) }
+body:not(.touch) .side-bottom .sound-controls { display:none }
+.sound-top { display:flex; align-items:center; gap:8px }
+.sound-top input { width:80px; accent-color:var(--lime) }
+.sound-toggle { font-size:10px; padding:6px 10px; background:none; border:1px solid #3d4a40; color:#b5c0b4 }
+.sound-toggle[aria-pressed="false"] { color:var(--muted) }
+/* 좁은 창은 켬·끔만 둔다. 크기 막대까지 두면 위쪽 줄이 넘친다. */
+@media(max-width:760px) {
+  .sound-top input { display:none }
+}
+
 .side-bottom .friendly {
   color:#bd977d;
   margin-top:10px
