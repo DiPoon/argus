@@ -1430,21 +1430,50 @@ body.touch .toast { position:static; z-index:1; transform:none; width:auto; max-
    조이스틱이 생긴다. 위쪽 줄 묶음(z-index 25) 안이라 서랍과 조이스틱보다 위에 그려진다. 그래서 서랍을 연 동안에는 숨기고(World가 정한다),
    조이스틱이 겹치는 동안에는 옅게 해 받침과 손잡이가 비쳐 보이게 한다(main.ts가 stick-on-minimap을 붙인다, 2026-11-11 사용자 결정). */
 body.touch { --minimap-w:min(42vw, 180px, calc(30dvh * var(--minimap-ratio)), calc(140px * var(--minimap-ratio))) }
+/* 기술 버튼이 위쪽까지 올라오는 화면(가로 화면과 높이 520px 이하)에서는 미니맵이 기술 버튼 무리 왼쪽에서 16px 떨어져 끝나도록 폭을 줄인다.
+   폭 366px 이상은 42vw가 먼저라 그대로다. 320×300에서 가로로 긴 맵(70×38칸)의 미니맵이 4번 칸에 8px 걸쳤다(2026-11-24, PR #40 리뷰 때
+   크기를 더해 찾음). 왼쪽 끝 8px과 사이 16px을 뺀다. */
+@media(orientation:landscape), (max-height:520px) {
+  body.touch { --minimap-w:min(42vw, calc(100vw - var(--touch-skills-w) - 24px), 180px, calc(30dvh * var(--minimap-ratio)), calc(140px * var(--minimap-ratio))) }
+}
 body.touch .top-row { position:relative }
 body.touch .minimap { top:calc(100% + 6px); left:0; right:auto; z-index:0 }
 body.stick-on-minimap .minimap { opacity:.3 }
-/* 미니맵이 보이는 동안(작전 중) 가로 화면의 알림은 미니맵과 오른쪽 아래 기술 버튼 무리(--touch-skills-w) 사이 빈 자리의 가운데에 둔다.
-   알림이 쌓이거나 문장이 꺾여 길어져도 기술 버튼을 덮지 않는다. 미니맵 옆으로만 비키면 알림이 오른쪽으로 밀려, 높이 320px 안팎의
-   화면(533·568·658×320, 802×293)에서 기술 버튼의 위쪽을 덮었다. 알림 묶음과 미니맵은 왼쪽 끝이 같으므로 상자 폭과 사이 8px만큼 비운다.
-   서랍을 연 동안에는 미니맵이 숨어 minimap-on도 빠지므로 비키지 않는다. 서랍은 위쪽 줄과 알림 아래에서 시작해, 알림 자리가 바뀌면 서랍 높이도 바뀐다. */
-@media(min-width:521px) {
-  body.touch.minimap-on .toast { margin-left:calc(var(--minimap-w) + 8px); margin-right:var(--touch-skills-w) }
+/* 기술 버튼이 보이는 동안(skills-on, 살아 있고 작전이 끝나지 않음) 알림이 기술 버튼에 닿을 수 있는 화면에서는 오른쪽 아래 기술 버튼 무리
+   (--touch-skills-w)만큼 오른쪽을 비운다. 알림이 쌓이거나 문장이 꺾여 길어져도 기술 버튼을 덮지 않는다. 미니맵이 보이는지와 관계없다.
+   닿는지는 방향이 아니라 높이가 정한다. 기술 버튼 무리는 늘 화면 아래 190px이고, 알림 셋이 쌓였을 때 아래 끝은 위쪽 줄이 몇 줄인지에 따라
+   229~323px이다(2026-11-24, 한글 글꼴과 CI 실행기 글꼴로 폭 320~412px의 세로 화면에서 잼). 그래서 가로 화면과 높이 520px 이하의 화면에서
+   비운다. 예전에는 방향으로만 가려, 가로세로가 같거나 세로가 조금 긴 짧은 화면(360×360, 390×400. 분할 화면·작은 창)에서 알림이 위쪽 기술
+   버튼을 덮었다(PR #40 리뷰 1). 그보다 높은 세로 화면은 기술 버튼이 화면 아래에 있어 알림을 예전 자리(위쪽 줄 아래 가운데)에 둔다.
+   미니맵 아래로 내리면 작은 세로 화면(320×533·568)에서 알림이 화면 아래의 기술 버튼에 닿았다. 폭 521px 이상의 세로 화면(태블릿)도 높이가
+   520px를 넘으면 닿지 않아 비우지 않는다. 서랍은 위쪽 줄과 알림 아래에서 시작해, 알림 자리가 바뀌면 서랍 높이도 바뀐다.
+   이 규칙 전에는(이슈 #27) 미니맵이 보이고 폭이 521px 이상일 때만 비워, 폭 520px 이하의 가로 화면과 지도 보기·서랍을 연 동안 알림이
+   기술 버튼의 위쪽을 덮었다. */
+@media(orientation:landscape), (max-height:520px) {
+  body.touch.skills-on .toast { margin-right:var(--touch-skills-w) }
 }
-/* 폭 600px 이하의 가로 화면은 그 사이가 260px에 못 미쳐 문장이 꺾인다. 알림이 미니맵을 잠시(3.5초) 덮고, 기술 버튼 쪽은 그대로 비운다.
-   기술 버튼은 싸우는 동안 늘 눌러야 하지만 미니맵은 잠깐 가려도 된다. 세로 화면(520px 이하)은 알림을 예전 자리(위쪽 줄 아래 가운데)에
-   두고 미니맵을 잠시 덮는다. 미니맵 아래로 내리면 작은 세로 화면(320×533·568)에서 알림이 화면 아래의 기술 버튼에 닿았다. */
-@media(min-width:521px) and (max-width:600px) {
-  body.touch.minimap-on .toast { margin-left:0 }
+/* 그렇게 비우고 남는 폭이 200px에 못 미치는 화면(폭 403px 이하)은 알림을 한 줄씩 차례로 보인다. 320×300에서 남는 폭이 116px이라 알림 셋이
+   좁은 기둥으로 꺾여 화면 아래(413px)까지 내려갔다(PR #40 리뷰 3). 기술 버튼을 덮는 가운데 자리로 되돌리지 않는다. 기술 버튼은 싸우는 동안
+   늘 눌러야 하고, 알림은 사라진다. 보이는 것은 가장 앞 줄이고, 뒤의 줄은 앞 줄이 끝난 뒤부터 3.5초 동안 보인다(main.ts의 toast가 그 조건에서
+   끝나는 때를 차례로 잡는다, singleToast). 가장 새 줄만 보이면 같은 순간에 온 안내 가운데 앞의 것이 한 번도 보이지 않고 끝났다(PR #40 재리뷰 가).
+   가장 앞 줄에는 줄 사이 위쪽 여백(.toast div + div)이 없어 상자가 줄 하나 높이다(재리뷰 나). 조건을 바꾸면 main.ts의 singleToast도 함께 고친다.
+   서랍을 연 동안에도 그대로다. 남는 폭이 넓어져도(400×360에서 280px) 320×300에서는 줄 셋이 화면 아래를 넘어 서랍이 밀려난다. */
+@media(orientation:landscape) and (max-width:403px), (max-height:520px) and (max-width:403px) {
+  body.touch.skills-on .toast div:not(:first-child) { display:none }
+}
+/* 서랍이 기술 버튼 2·4번 칸을 다 덮는 화면(폭 412px 이하. 서랍 폭은 min(300px, 85vw)다)에서는 서랍을 연 동안 오른쪽 끝의 1·3번 칸
+   (--touch-skills-edge-w)만 비운다. 덮인 칸까지 비우면 알림만 좁아져 키가 커지고, 그만큼 서랍이 짧아졌다(PR #40 리뷰 2). 아예 비우지 않으면
+   400×360에서 알림이 3번 칸을 덮는다. */
+@media(orientation:landscape) and (max-width:412px), (max-height:520px) and (max-width:412px) {
+  body.touch.menu-open.skills-on .toast { margin-right:var(--touch-skills-edge-w) }
+}
+/* 미니맵이 보이는 동안(작전 중) 폭 600px를 넘는 화면의 알림은 미니맵 옆도 비워, 미니맵과 기술 버튼 무리 사이 빈 자리의 가운데에 둔다.
+   미니맵 옆으로만 비키면 알림이 오른쪽으로 밀려, 높이 320px 안팎의 화면(658×320, 802×293)에서 기술 버튼의 위쪽을 덮었다. 알림 묶음과
+   미니맵은 왼쪽 끝이 같으므로 상자 폭과 사이 8px만큼 비운다. 폭 600px 이하는 그 사이가 260px에 못 미쳐 문장이 꺾이므로 알림이 미니맵을
+   잠시(3.5초) 덮는다. 기술 버튼은 싸우는 동안 늘 눌러야 하지만 미니맵은 잠깐 가려도 된다. 서랍을 연 동안에는 미니맵이 숨어
+   minimap-on도 빠지므로 미니맵 쪽은 비키지 않는다. */
+@media(min-width:601px) {
+  body.touch.minimap-on .toast { margin-left:calc(var(--minimap-w) + 8px) }
 }
 /* 작전 종료 카드는 여백과 글자를 줄여 위쪽 메뉴 버튼 줄 아래에 둔다. PC 크기 그대로는 높이가 390px이라, 높이 320px
    휴대폰 가로 화면에서 다음 작전 버튼이 화면 밖으로 잘리고 메뉴 버튼이 카드 위를 덮었다.
@@ -1462,6 +1491,8 @@ body.touch #result-stats span { margin-top:3px }
 /* 기술 버튼 무리의 폭이다. 버튼은 크기와 자리가 px로 정해져 있어(아래 .touch-skill) 무리의 폭이 늘 이 값이다. 버튼의 크기나 자리를 바꾸면
    이 값을 고친다. 조이스틱 자리와 미니맵 옆 알림이 이 값만큼 오른쪽을 비운다. */
 body { --touch-skills-w:188px }
+/* 기술 버튼 무리의 오른쪽 기둥(1번 칸 right 16·폭 88, 3번 칸 right 24·폭 74)의 폭이다. 서랍이 2·4번 칸을 덮을 때 알림이 이만큼만 비운다. */
+body { --touch-skills-edge-w:104px }
 /* 조이스틱 자리는 화면의 45%까지이되, 좁은 세로 화면에서 오른쪽 기술 버튼 무리(와 사이 8px) 밑으로 들어가지 않게 한다.
    왼쪽 끝은 OS의 뒤로 가기 제스처 자리이고 touch-action으로 막을 수 없으므로 안쪽으로 들인다. */
 .touch-move { --edge:max(24px,env(safe-area-inset-left)); position:absolute; left:var(--edge); bottom:0; width:min(calc(45% - var(--edge)),calc(100% - var(--touch-skills-w) - 8px - var(--edge))); height:78%; pointer-events:auto; touch-action:none }
