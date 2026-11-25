@@ -3,6 +3,7 @@ import { createServer, type ViteDevServer } from 'vite';
 import { affinityColors, bodyColor, colors, extractionRadius, team } from '../src/palette';
 import type { Snapshot } from '../src/types';
 import { quietRoom } from './rooms';
+import { relay } from './wire';
 
 // 미니맵이다(2026-11-09 사용자 결정). 맵 전체를 북쪽이 위인 채로 줄여 그린다. 그리는 것은 분대가 본 칸의 지형과 지금 시야, 대원, 본 목표
 // (캠프·시설·보급 상자·탈출 지점), 지금 보이는 적, 메인 화면이 보고 있는 범위다. 자리는 PC는 지도 오른쪽 위(경과 시간 아래),
@@ -386,14 +387,16 @@ const toastReach = (page: Page) => page.evaluate(() => {
   return right;
 });
 
-// 알림 세 줄을 잠시 넣어 보이는 줄 수를 센다. 알림은 최대 세 줄이다.
+// 알림 세 줄을 잠시 넣어 보이는 줄을 고른다. 알림은 최대 세 줄이다. 한 줄만 보이는 화면에서는 보이는 줄 위에 줄 사이 여백이 없는지도 본다.
 const toastLines = (page: Page) => page.evaluate(() => {
   const toast = document.getElementById('toast')!;
   const saved = toast.innerHTML;
   toast.innerHTML = '<div>첫째</div><div>둘째</div><div>셋째</div>';
-  const shown = [...toast.children].filter(line => getComputedStyle(line).display !== 'none').length;
+  const shown = [...toast.children].filter(line => getComputedStyle(line).display !== 'none');
+  const texts = shown.map(line => line.textContent);
+  if (shown.length === 1 && getComputedStyle(shown[0]).marginTop !== '0px') texts.push(`위쪽 여백 ${getComputedStyle(shown[0]).marginTop}`);
   toast.innerHTML = saved;
-  return shown;
+  return texts;
 });
 
 // 화면의 상자들이다. 숨은 요소는 크기가 0이라 빼고 본다.
@@ -553,8 +556,9 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
     const ratios: [string, number | undefined][] = [['40×30칸', undefined], ['50×52칸', 50 / 52], ['70×38칸', 70 / 38]];
     // 가로 화면(넓은 것부터 높이 320px까지)과 세로 화면이다. 크기를 바꾸자마자 잰다. 자리와 크기는 CSS가 정하므로 프레임을 기다리지 않는다.
     // 짧은 화면(가로세로가 같거나 세로가 조금 긴 분할 화면·작은 창 360×360·390×400, 폭 400px 미만의 가로 화면 360×340·320×300)과
-    // 세로 태블릿(600×900)도 본다(PR #40 리뷰 1·3·5).
-    for (const [map, ratio] of ratios) for (const [width, height] of [[844, 390], [740, 360], [667, 375], [640, 360], [658, 320], [568, 320], [533, 320], [520, 300], [480, 320], [400, 360], [360, 340], [320, 300], [390, 844], [390, 664], [390, 400], [360, 360], [320, 568], [320, 533], [600, 900]]) {
+    // 세로 태블릿(600×900)도 본다(PR #40 리뷰 1·3·5). 문턱 양옆(폭 403·404px, 높이 520·521px)도 둔다. 없으면 문턱을 몇 px 옮겨도
+    // 통과했다(PR #40 재리뷰).
+    for (const [map, ratio] of ratios) for (const [width, height] of [[844, 390], [740, 360], [667, 375], [640, 360], [658, 320], [568, 320], [533, 320], [520, 300], [480, 320], [404, 360], [403, 360], [400, 360], [360, 340], [320, 300], [390, 844], [390, 664], [390, 521], [390, 520], [390, 400], [360, 360], [320, 568], [320, 533], [600, 900]]) {
       await page.evaluate(ratio => {
         document.getElementById('test-ratio')?.remove();
         if (ratio === null) return;
@@ -590,9 +594,9 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
       // 예전에는 폭 521px 이상만 비워 폭 520px 이하의 가로 화면에서(이슈 #27), 방향으로만 가려 짧은 세로 화면(360×360·390×400)에서(PR #40
       // 리뷰 1) 알림이 기술 버튼의 위쪽을 덮었다.
       if (short) expect(await toastReach(page), `${map} ${width}×${height} 알림의 오른쪽 끝`).toBeLessThanOrEqual(Math.min(...skills.map(skill => skill.left)) + .5);
-      // 그렇게 남는 폭이 200px에 못 미치는 화면(폭 403px 이하)은 가장 새 알림 한 줄만 보인다. 셋이 좁은 기둥으로 꺾이면 320×300에서 화면 아래를
-      // 넘었다(PR #40 리뷰 3). 그 밖에는 셋을 모두 보인다.
-      expect(await toastLines(page), `${map} ${width}×${height} 보이는 알림 줄`).toBe(short && width <= 403 ? 1 : 3);
+      // 그렇게 남는 폭이 200px에 못 미치는 화면(폭 403px 이하)은 가장 앞 알림 한 줄만 보인다(뒤의 줄은 차례로 보인다, 아래 검사). 셋이 좁은
+      // 기둥으로 꺾이면 320×300에서 화면 아래를 넘었다(PR #40 리뷰 3). 그 밖에는 셋을 모두 보인다.
+      expect(await toastLines(page), `${map} ${width}×${height} 보이는 알림 줄`).toEqual(short && width <= 403 ? ['첫째'] : ['첫째', '둘째', '셋째']);
       // 비킬지는 화면 폭으로 정한다. 미니맵 폭이 맵 비율(방마다 다름)에 따라 달라, 가로로 긴 맵이면 폭 600px 이하에서 옆 자리가 150px 안팎이다.
       const shifted = await page.locator('#toast').evaluate(toast => parseFloat(getComputedStyle(toast).marginLeft) > 0);
       expect(shifted, `${map} ${width}×${height} 알림이 미니맵 옆으로 비킴`).toBe(width > 600);
@@ -677,6 +681,56 @@ test('on a phone the minimap sits at the left under the top row, keeps clear of 
         await expect(page.locator('#minimap'), `${width}×${height} ${state} 닫음`).toBeVisible();
       }
     }
+  } finally { await context.close(); }
+});
+
+test('a narrow phone shows notices that came together one after another, each for its own time', async ({ browser }) => {
+  // 폭 403px 이하에서 기술 버튼 쪽을 비우는 화면은 알림을 한 줄씩 보인다. 같은 스냅샷에 온 안내 둘 가운데 앞의 것이 먼저 보이고, 그것이
+  // 끝난 뒤 뒤의 것이 3.5초 동안 보인다. 예전에는 가장 새 줄만 보여 앞의 안내가 한 번도 보이지 않고 함께 끝났다(PR #40 재리뷰 가).
+  const context = await browser.newContext({ viewport: { width: 400, height: 360 }, hasTouch: true, isMobile: true });
+  const page = await context.newPage();
+  try {
+    const wire = await relay(page);
+    await page.goto(quietRoom);
+    await page.locator('#create').tap();
+    await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined);
+    await deployAtCamp(page, true);
+    await expect(page.locator('body')).toHaveClass(/skills-on/, { timeout: 15000 });
+    // 착지 때의 작전 시작 알림이 사라진 뒤에 넣는다.
+    await expect(page.locator('#toast')).toBeHidden({ timeout: 10000 });
+    let sent = false;
+    wire.change = data => {
+      if (sent) return data;
+      sent = true;
+      return { ...data, notices: [...data.notices, { id: 2_000_000, at: data.now, text: '앞의 안내' }, { id: 2_000_001, at: data.now, text: '뒤의 안내' }] };
+    };
+    const shown = () => page.locator('#toast').evaluate(toast => [...toast.children].filter(line => getComputedStyle(line).display !== 'none').map(line => line.textContent));
+    await expect.poll(shown).toEqual(['앞의 안내']);
+    const first = Date.now();
+    await expect.poll(shown, { timeout: 6000, intervals: [50] }).toEqual(['뒤의 안내']);
+    // 앞의 안내는 3.5초 동안 보였다. 뒤의 안내도 그때부터 3.5초 동안 보인다.
+    expect(Date.now() - first).toBeGreaterThan(2800);
+    const second = Date.now();
+    await expect(page.locator('#toast')).toBeHidden({ timeout: 6000 });
+    expect(Date.now() - second).toBeGreaterThan(2800);
+
+    // 차례를 기다리는 줄을 같은 글로 다시 띄워도 끝나는 때를 앞당기지 않는다. 안내 하나가 보이는 동안 서랍의 초대 링크 복사를 거듭 누르면
+    // 두 번째 누름은 같은 글이라 줄을 늘리지 않고 시간만 늘린다. 앞당기면 복사 알림이 앞 안내가 끝난 뒤 잠깐만 보이고 사라진다.
+    sent = false;
+    wire.change = data => {
+      if (sent) return data;
+      sent = true;
+      return { ...data, notices: [...data.notices, { id: 2_000_002, at: data.now, text: '다음 안내' }] };
+    };
+    await expect.poll(shown).toEqual(['다음 안내']);
+    await page.locator('#touch-menu').tap();
+    await page.locator('#copy-code').tap();
+    await page.locator('#copy-code').tap();
+    await expect.poll(() => page.locator('#toast div').count()).toBe(2);
+    await expect.poll(shown, { timeout: 6000, intervals: [50] }).not.toEqual(['다음 안내']);
+    const copied = Date.now();
+    await expect(page.locator('#toast')).toBeHidden({ timeout: 6000 });
+    expect(Date.now() - copied).toBeGreaterThan(2800);
   } finally { await context.close(); }
 });
 
