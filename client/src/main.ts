@@ -353,12 +353,18 @@ function sendInput(x: number, y: number, aim: number, held: number[], pressed: n
   for (const slot of pressed) pressSequence[slot] = seq;
 }
 function status(text: string, connected = false) { $('connection').innerHTML = `<i class="${connected ? 'online' : ''}"></i> ${escape(text)}`; }
+// 알림을 한 줄씩 차례로 보이는 화면이다. style.css의 같은 조건(폭 403px 이하에서 기술 버튼 쪽을 비우는 화면)에서 가장 앞 줄만 보인다.
+// 그때는 새 줄이 앞 줄이 끝난 뒤부터 3.5초 동안 보이도록 끝나는 때를 뒤로 잡는다. 같이 끝나게 두면 같은 순간에 온 안내 가운데 가려진 줄이
+// 한 번도 보이지 않고 끝난다(PR #40 재리뷰 가). 조건을 바꾸면 style.css도 함께 고친다.
+const singleToastScreen = matchMedia('(orientation:landscape) and (max-width:403px), (max-height:520px) and (max-width:403px)');
+const singleToast = () => touchMode && document.body.classList.contains('skills-on') && singleToastScreen.matches;
 function toast(text: string, merge = true) {
   const now = performance.now();
   const last = toastLines.at(-1);
   // 빈 곳을 여러 번 누르는 것처럼 같은 말을 거듭 띄우면 줄을 늘리지 않고 시간만 늘린다. 안내는 순번이 달라 따로 띄운다.
-  if (merge && last?.text === text) last.until = now + 3500;
-  else toastLines.push({ text, until: now + 3500 });
+  // 차례를 기다리는 줄의 끝나는 때는 앞당기지 않는다.
+  if (merge && last?.text === text) last.until = Math.max(last.until, now + 3500);
+  else toastLines.push({ text, until: (singleToast() && last ? Math.max(now, last.until) : now) + 3500 });
   if (toastLines.length > 3) toastLines.splice(0, toastLines.length - 3);
   renderToast();
 }
@@ -636,7 +642,7 @@ function leave() {
   // 작은 임무 진행도 비운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아, 비우지 않으면 지난 작전의 진행이 보인다.
   for (const id of ['mission-mini', 'touch-mission', 'touch-extract', 'tutorial-guide']) setMarkup(id, '');
   $('tutorial-guide').hidden = true;
-  document.body.classList.remove('operating', 'ended', 'tutorial');
+  document.body.classList.remove('operating', 'ended', 'skills-on', 'tutorial');
   setMenu(false);
   document.documentElement.classList.remove('touch-operating');
   status('투입 대기');
@@ -808,7 +814,10 @@ function updateUi() {
     $('combat-status').textContent = p.mana === 0 ? '마나가 없습니다 · 보급 상자에 접근해 충전하세요' : p.busy > 0 ? `${phaseText} · ${p.busy.toFixed(1)}초` : '예고 안에서 이기는 기술 · 누른 채로 기운 유지';
     $('combat-status').classList.toggle('empty', p.mana === 0);
   }
-  $('touch-controls').hidden = !touchMode || !alive || ended;
+  const skillsShown = touchMode && alive && !ended;
+  $('touch-controls').hidden = !skillsShown;
+  // 기술 버튼이 보이는 동안이다. 가로 화면의 알림이 오른쪽 아래 기술 버튼 무리 쪽을 비운다(style.css, 이슈 #27).
+  document.body.classList.toggle('skills-on', skillsShown);
   $('performance').textContent = `${ping} ms · ${world?.fps ?? 60} FPS · 적 ${world?.shownEnemies ?? 0}/${s.enemies.length}`;
   $('result').hidden = !ended;
   // 종료 카드가 보이는 동안이다. CSS가 :has() 없이 이 상태를 고른다(임무 진행과 알림 숨김).

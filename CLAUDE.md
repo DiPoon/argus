@@ -47,7 +47,7 @@ dotnet run --project tests/Argus.Server.Tests -- vectors       # client/tests/fi
 dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz> [--until <틱> [--snapshot <대원 id>]]   # 기록 하나 재생. 그 틱에서 멈춰 상태와 그 대원의 화면 보기
 dotnet run --project tools/Argus.Replay -- <기록 폴더> [--strict]   # 폴더 전체 확인. --strict는 폴더에만 듣는다(파일에 주면 말없이 무시한다)
 cd client && npx playwright install --with-deps chromium       # 브라우저 설치(처음 한 번. root 권한이 없으면 browser-tests.md)
-cd client && npm run test:e2e                                  # 브라우저 검사 전체 (132개, 서버가 5077에 떠 있어야 한다)
+cd client && npm run test:e2e                                  # 브라우저 검사 전체 (133개, 서버가 5077에 떠 있어야 한다)
 cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 ```
 
