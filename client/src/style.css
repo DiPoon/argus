@@ -1586,7 +1586,9 @@ body.tutorial .mission-section, body.tutorial .room-code { display:none }
    떠도 안내는 움직이지 않는다. 서랍이 열린 동안은 숨긴다. 서랍은 위쪽 줄 묶음 아래 끝(--top-stack)에서 시작하므로 안내가 있으면 낮아진다. */
 body.touch .tutorial-guide { position:static; z-index:1; transform:none; width:auto; align-self:flex-start; max-width:min(360px,100%);
   padding:6px 10px; font-size:10px; line-height:1.5 }
-@media(orientation:landscape) {
+/* 높이 520px 이하의 짧은 세로 화면(분할 화면·작은 창)도 대원이 위쪽 줄 가까이에 있어 가로 화면처럼 좁힌다. 390×400에서 넓게 두었을 때 안내가
+   대원의 이름표와 몸 위쪽을 덮었다(2026-11-26, PR #40을 합친 뒤 잼). 짧은 화면의 기준은 알림이 기술 버튼 쪽을 비우는 기준과 같다. */
+@media(orientation:landscape), (max-height:520px) {
   body.touch .tutorial-guide { max-width:min(360px, calc(50% - 40px)) }
 }
 body.touch.menu-open .tutorial-guide { display:none }
