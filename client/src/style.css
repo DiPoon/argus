@@ -1452,11 +1452,14 @@ body.stick-on-minimap .minimap { opacity:.3 }
 @media(orientation:landscape), (max-height:520px) {
   body.touch.skills-on .toast { margin-right:var(--touch-skills-w) }
 }
-/* 그렇게 비우고 남는 폭이 200px에 못 미치는 화면(폭 403px 이하)은 알림을 가장 새 줄 하나만 보인다. 320×300에서 남는 폭이 116px이라 알림 셋이
+/* 그렇게 비우고 남는 폭이 200px에 못 미치는 화면(폭 403px 이하)은 알림을 한 줄씩 차례로 보인다. 320×300에서 남는 폭이 116px이라 알림 셋이
    좁은 기둥으로 꺾여 화면 아래(413px)까지 내려갔다(PR #40 리뷰 3). 기술 버튼을 덮는 가운데 자리로 되돌리지 않는다. 기술 버튼은 싸우는 동안
-   늘 눌러야 하고, 알림은 3.5초 뒤 사라진다. */
+   늘 눌러야 하고, 알림은 사라진다. 보이는 것은 가장 앞 줄이고, 뒤의 줄은 앞 줄이 끝난 뒤부터 3.5초 동안 보인다(main.ts의 toast가 그 조건에서
+   끝나는 때를 차례로 잡는다, singleToast). 가장 새 줄만 보이면 같은 순간에 온 안내 가운데 앞의 것이 한 번도 보이지 않고 끝났다(PR #40 재리뷰 가).
+   가장 앞 줄에는 줄 사이 위쪽 여백(.toast div + div)이 없어 상자가 줄 하나 높이다(재리뷰 나). 조건을 바꾸면 main.ts의 singleToast도 함께 고친다.
+   서랍을 연 동안에도 그대로다. 남는 폭이 넓어져도(400×360에서 280px) 320×300에서는 줄 셋이 화면 아래를 넘어 서랍이 밀려난다. */
 @media(orientation:landscape) and (max-width:403px), (max-height:520px) and (max-width:403px) {
-  body.touch.skills-on .toast div:not(:last-child) { display:none }
+  body.touch.skills-on .toast div:not(:first-child) { display:none }
 }
 /* 서랍이 기술 버튼 2·4번 칸을 다 덮는 화면(폭 412px 이하. 서랍 폭은 min(300px, 85vw)다)에서는 서랍을 연 동안 오른쪽 끝의 1·3번 칸
    (--touch-skills-edge-w)만 비운다. 덮인 칸까지 비우면 알림만 좁아져 키가 커지고, 그만큼 서랍이 짧아졌다(PR #40 리뷰 2). 아예 비우지 않으면
