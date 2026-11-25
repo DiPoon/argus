@@ -236,7 +236,9 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
       return state;
     };
   };
-  const sizes = [{ width: 533, height: 320 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 390, height: 844 }, { width: 320, height: 568 }];
+  // 짧은 세로 화면(390×400·360×360, 분할 화면·작은 창)도 본다. 대원이 위쪽 줄 가까이에 있어 넓은 안내가 대원을 덮었다(PR #40을 합친 뒤).
+  const sizes = [{ width: 533, height: 320 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 390, height: 844 }, { width: 320, height: 568 },
+    { width: 390, height: 400 }, { width: 360, height: 360 }];
   for (const stage of ['보급', '받아치기']) {
     if (stage === '받아치기') {
       drillCue();
