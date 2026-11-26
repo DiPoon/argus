@@ -47,7 +47,7 @@ dotnet run --project tests/Argus.Server.Tests -- vectors       # client/tests/fi
 dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz> [--until <틱> [--snapshot <대원 id>]]   # 기록 하나 재생. 그 틱에서 멈춰 상태와 그 대원의 화면 보기
 dotnet run --project tools/Argus.Replay -- <기록 폴더> [--strict]   # 폴더 전체 확인. --strict는 폴더에만 듣는다(파일에 주면 말없이 무시한다)
 cd client && npx playwright install --with-deps chromium       # 브라우저 설치(처음 한 번. root 권한이 없으면 browser-tests.md)
-cd client && npm run test:e2e                                  # 브라우저 검사 전체 (133개, 서버가 5077에 떠 있어야 한다)
+cd client && npm run test:e2e                                  # 브라우저 검사 전체 (134개, 서버가 5077에 떠 있어야 한다)
 cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 ```
 
@@ -111,7 +111,7 @@ docs/                       requirements·combat·protocol·verification (아래
 - `RoomHost`의 타이머 하나가 33ms마다 깨어 `TickClock`이 정한 틱 수(한 번에 8틱까지)만큼 방마다 `Match.Step()`을 부른다. 스냅샷은 0.1초마다 보낸다. 방이 둘 이상이면 방마다 동시에 진행한다.
 - `Match.Step()`은 정확히 한 틱(1/30초)이다: `Tick++` → `RunTick` → `Explore` → 30틱마다 기록에 요약값.
 - `RunTick`의 차례: 끝난 효과와 유예가 지난 대원 치우기 → 전멸 확인 → 착지 → 대원마다 `UpdatePlayer`(입력 끊김 처리 → 끝난 기술 치우기 → 기운 잇기 → 기다리는 누름으로 시작 → 이동 → 보급) → 증원 → 흐름장(0.5초마다) → `UpdateEnemies` → `ResolveCombat` → 쓰러진 적 치우기 → 전멸 확인 → 탈출 진행.
-- 방의 종류: 운영 방은 생성 맵에 `Rules.ForGeneratedMission()`(엘리트 켬, 선딜 1배)이다. 기본 규칙 `new Rules()`는 검사가 쓰는 튜토리얼 수준(병사만, 선딜 2배)이다. 손으로 만든 40×30 맵(`layout: "handmade"`)과 적이 없는 조용한 방(`"quiet"`)은 검사용이고 `Argus:Missions:AllowHandmade`가 켜져 있어야 만들 수 있다. 튜토리얼 훈련장(`"tutorial"`, 기본 규칙에 증원 끔)은 처음 온 사람이 쓰는 운영 방이라 설정 없이 만든다(`mission.md`, 화면은 `client-main.md`).
+- 방의 종류: 운영 방은 생성 맵에 `Rules.ForGeneratedMission()`(엘리트 켬, 선딜 1배)이다. 기본 규칙 `new Rules()`는 검사가 쓰는 튜토리얼 수준(병사만, 선딜 2배)이다. 손으로 만든 40×30 맵(`layout: "handmade"`)과 적이 없는 조용한 방(`"quiet"`)은 검사용이고 `Argus:Missions:AllowHandmade`가 켜져 있어야 만들 수 있다. 튜토리얼 훈련장(`"tutorial"`, 기본 규칙에 증원 끔·캠프 상자 20번)은 처음 온 사람이 쓰는 운영 방이라 설정 없이 만든다(`mission.md`, 화면은 `client-main.md`).
 - 메모리 기반 단일 인스턴스다. DB가 없고 재시작하면 방과 토큰이 사라진다. 디스크에 남는 것은 재현용 기록(`recordings/`, git 제외)뿐이다. 역방향 프록시 뒤에서는 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`를 켜야 주소 기준 제한이 사용자마다 따로 센다. 이 설정은 앞단을 모두 믿으므로 프록시가 X-Forwarded-For를 덮어쓰거나 뒤에 덧붙이는 구성에서만 켜고, 서버를 직접 노출할 때는 켜지 않는다(켜면 클라이언트가 헤더로 주소를 바꿔 제한을 피한다). 공개 배포 전에는 서버가 보는 접속 주소부터 확인한다(`server-runtime.md`).
 
 ## 깨면 안 되는 규칙
