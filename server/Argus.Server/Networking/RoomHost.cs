@@ -334,9 +334,9 @@ public sealed class RoomHost : BackgroundService
     private long _connection;
     // 연속해서 이만큼 진행에 실패한 방은 닫는다. 30번이면 약 1초다.
     private const int MaxRoomFailures = 30;
-    // 서버 전체에 동시에 둘 수 있는 방 수다.
     // 튜토리얼 훈련장의 캠프 상자 횟수다. 병사 셋을 받아치는 동안 마나와 체력을 채우러 오갈 만큼이다.
     public const int TutorialSupplyUses = 20;
+    // 서버 전체에 동시에 둘 수 있는 방 수다.
     public const int MaxRooms = 32;
     // 한 주소가 동시에 가질 수 있는 방 수다. 방을 만들고 접속을 붙잡아 두는 방법으로 몇 개 주소만으로
     // 방 32개 상한을 채우지 못하게 한다. 끝난 방도 마지막 대원이 나간 뒤 약 2분(재접속 유예) 동안 남으므로
