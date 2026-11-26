@@ -134,7 +134,7 @@ const pick = touchMode ? '누르세요' : '클릭하세요';
 $('app').innerHTML = `
   <header class="topbar">
     <a class="brand" href="/" aria-label="ARGUS 홈"><span class="brand-mark">△</span> ARGUS <span class="version">COMBAT TEST / 02</span></a>
-    <div class="top-right"><div class="sound-top"><button id="sound-toggle" type="button" class="sound-toggle" aria-pressed="true">소리 켬</button><input id="sound-volume-top" type="range" min="0" max="100" step="5" aria-label="소리 크기"></div><span id="connection" class="connection"><i></i> 투입 대기</span><span class="build-tag">CO-OP PVE · 1–4</span></div>
+    <div class="top-right"><div class="sound-top"><button id="sound-toggle" type="button" class="sound-toggle" aria-pressed="true">소리 <span class="sound-state" aria-hidden="true">켬</span></button><input id="sound-volume-top" type="range" min="0" max="100" step="5" aria-label="소리 크기"></div><span id="connection" class="connection"><i></i> 투입 대기</span><span class="build-tag">CO-OP PVE · 1–4</span></div>
   </header>
 ${touchMode ? touchLobby : desktopLobby}
 ${welcome}
@@ -150,7 +150,7 @@ ${welcome}
         <div class="progress"><i id="extract-progress"></i></div>
       </div>
       <div class="side-section"><div class="section-label">SQUAD <span id="team-count">1 / 4</span></div><div id="roster"></div></div>
-      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>적의 예고 안에서 이기는 기술을 누르면 그 순간 처치합니다. 누르고 있으면 기운이 이어지고, 떼면 장판이 나갑니다. Ⅱ(대응 2)는 이기는 기운이 둘 겹쳐야 합니다. 동료와 함께 누르고 있으세요. 혼자 받아치면 나와 엘리트가 1씩, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다.</p><div class="sound-controls"><button id="sound-side" type="button" class="text-button" aria-pressed="true">소리 켬</button><input id="sound-volume" type="range" min="0" max="100" step="5" aria-label="소리 크기"></div><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
+      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>적의 예고 안에서 이기는 기술을 누르면 그 순간 처치합니다. 누르고 있으면 기운이 이어지고, 떼면 장판이 나갑니다. Ⅱ(대응 2)는 이기는 기운이 둘 겹쳐야 합니다. 동료와 함께 누르고 있으세요. 혼자 받아치면 나와 엘리트가 1씩, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다.</p><div class="sound-controls"><button id="sound-side" type="button" class="text-button" aria-pressed="true">소리 <span class="sound-state" aria-hidden="true">켬</span></button><input id="sound-volume" type="range" min="0" max="100" step="5" aria-label="소리 크기"></div><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
     </aside>
     <section id="battlefield" class="battlefield" aria-label="작전 지도">
       <div id="canvas-host" class="canvas-host"></div>
@@ -193,10 +193,14 @@ if (touchMode) {
 // 브라우저는 사용자의 누름 안에서만 소리를 켤 수 있어 첫 누름이나 키에서 켠다. 켬·끔과 크기는 PC는 위쪽 줄(로비에서도 보인다), 터치 화면은
 // 위쪽 줄이 없어 ☰ 서랍(옆 패널)에 있다. PC 옆 패널에 두면 높이 900px 화면에서 버그 제보·작전에서 나가기가 아래로 밀려 스크롤해야 보였다.
 const sound = new Sound();
-for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, () => sound.unlock(), { capture: true });
+// 손가락 누름의 pointerdown은 사용자 동작(activation)으로 치지 않는 브라우저가 있다(HTML 규격은 손가락이면 pointerup·touchend). 그래서 떼는 때와
+// 클릭에서도 켠다(PR #42 리뷰 2). 이미 켜져 있으면 아무것도 하지 않는다.
+for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const) window.addEventListener(type, () => sound.unlock(), { capture: true });
+// 버튼의 이름은 "소리"로 두고 켬·끔은 aria-pressed로 알린다. 보이는 "켬·끔"은 화면 읽기 프로그램에 읽히지 않는다. 이름까지 "소리 끔"으로 바꾸면
+// "소리 끔, 누르지 않음"으로 읽혀 무엇이 꺼졌는지 헷갈렸다(PR #42 리뷰 7).
 function showSound() {
   for (const id of ['sound-toggle', 'sound-side']) {
-    $(id).textContent = sound.enabled ? '소리 켬' : '소리 끔';
+    $(id).querySelector('.sound-state')!.textContent = sound.enabled ? '켬' : '끔';
     $(id).setAttribute('aria-pressed', String(sound.enabled));
   }
   for (const id of ['sound-volume', 'sound-volume-top']) $<HTMLInputElement>(id).value = String(Math.round(sound.volume * 100));
@@ -331,11 +335,18 @@ function pressSlot(slot: number) {
   pressSound(slot);
 }
 // 누른 기술의 확인음이다. 서버의 결과를 기다리지 않는 누름의 소리이고, 판정의 소리는 스냅샷의 효과로 따로 난다.
-// 마나가 모자라면 서버가 그 누름을 버리므로 막힌 소리를 낸다. 마나는 지난 스냅샷의 값이라 보급 직후 0.1초쯤은 어긋날 수 있다.
+// 마나가 모자라면 서버가 그 누름을 버리므로 막힌 소리를 낸다. 지난 스냅샷의 마나에서, 아직 마나를 쓰지 않은 앞의 누름이 쓸 마나를 뺀다.
+// 기다리는 누름(waiting), 보내지 않은 누름, 보냈지만 서버가 확인하지 않은 누름이다. 빼지 않으면 마나 1에서 거의 함께 누른 두 기술이 모두
+// 확인음을 냈다(PR #42 리뷰 5). 보급 직후 0.1초쯤은 어긋날 수 있다. 작전이 끝났으면 서버가 누름을 받지 않으므로 소리를 내지 않는다.
 function pressSound(slot: number) {
   const player = me(), definition = snapshot?.rules.skills.find(skill => skill.id === player?.slots[slot - 1]);
-  if (!player || !definition) return;
-  sound.play(player.mana < definition.mana ? { kind: 'empty', pan: 0, gain: 1 } : { kind: 'press', pan: 0, gain: 1, affinity: definition.kind });
+  if (!player || !definition || snapshot?.phase === 'ended') return;
+  const cost = (other: number) => snapshot?.rules.skills.find(skill => skill.id === player.slots[other - 1])?.mana ?? 0;
+  let pending = 0;
+  for (const other of pressedSinceSend.slice(0, -1)) pending += cost(other);
+  for (let other = 1; other <= 4; other++) if (pressSequence[other] > player.ack) pending += cost(other);
+  for (const other of snapshot?.waiting ?? []) pending += cost(other);
+  sound.play(player.mana - pending < definition.mana ? { kind: 'empty', pan: 0, gain: 1 } : { kind: 'press', pan: 0, gain: 1, affinity: definition.kind });
 }
 // 살아 있지 않을 때 누른 기술 키와, 살아 있는 상태를 벗어날 때 눌려 있던 기술 키다. 떼었다 다시 눌러야 기술이 나간다.
 // 그대로 두면 투입을 기다리며 쥔 키가 착지 뒤 마나가 차는 순간부터 기술을 계속 낸다.
@@ -521,8 +532,12 @@ async function openOperation() {
   connect();
 }
 
+// 소리를 고를 때 견줄 지난 스냅샷이다. 접속할 때마다(재접속 포함) 비워, 접속 뒤 첫 스냅샷은 소리 없이 기준으로만 받는다. 비우지 않으면
+// 끊기기 전 스냅샷과 견줘 끊긴 동안 일어난 일의 소리가 한꺼번에 늦게 났다(PR #42 리뷰 8).
+let soundBase: Snapshot | undefined;
 function connect() {
   if (!guest) return;
+  soundBase = undefined;
   window.clearTimeout(reconnectTimer);
   status('연결 중');
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
@@ -570,7 +585,8 @@ function connect() {
     world!.update(snapshot);
     updateUi();
     // 지난 스냅샷 뒤로 새로 일어난 일의 소리다. 같은 방의 이전 스냅샷이 없으면(접속 직후) 지난 일은 울리지 않는다.
-    for (const cue of snapshotCues(previous, snapshot)) sound.play(cue);
+    for (const cue of snapshotCues(soundBase, snapshot)) sound.play(cue);
+    soundBase = snapshot;
     // 순번이 마지막으로 띄운 것보다 큰 안내를 모두 띄운다. 한 방송에 여러 개가 와도, 같은 틱에 같은 문구가 와도 빠뜨리지 않는다.
     // 방에 들어온 직후에는 지난 안내가 최대 여섯 개 함께 오므로 가장 최근 것만 띄운다.
     const fresh = snapshot.notices.filter(notice => notice.id > lastNotice);
@@ -1007,6 +1023,9 @@ window.addEventListener('keydown', event => {
   // 글을 적는 입력란에서 친 키는 게임 키로 받지 않는다. 소리 크기 막대(range)는 글을 적지 않으므로 받는다. 받지 않으면 크기를 고친 뒤
   // 지도를 다시 누를 때까지 WASD가 먹지 않는다.
   if (!guest || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
+  // 소리 크기 막대에 커서가 있으면 방향키·Home·End·PageUp·PageDown은 막대를 움직인다. 게임 키로 막으면 작전 중에 키보드로 크기를 고칠 수
+  // 없었다(PR #42 리뷰 6). WASD는 그대로 대원을 움직인다.
+  if (event.target instanceof HTMLInputElement && event.target.type === 'range' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyM', 'Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(event.code)) event.preventDefault();
   const pressed = slotFromCode(event.code);
   // 자동 반복으로 처음 보는 키다. 입력을 비우기 전(창을 떠나기 전)부터, 또는 창 밖에서부터 누르고 있던 키다.

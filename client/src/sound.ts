@@ -1,5 +1,5 @@
 import type { Affinity } from './types';
-import type { Cue } from './cues';
+import { personal, type Cue } from './cues';
 
 // 게임 소리다(이슈 #35, 2026-11-24). 소리 파일 없이 Web Audio로 그때그때 합성한다. 파일을 쓰면 출처와 이용 조건을 따로 챙겨야 하고
 // 내려받을 것이 늘어난다. 무엇을 울릴지는 cues.ts가 스냅샷으로 정하고, 여기서는 소리를 만들기만 한다.
@@ -46,7 +46,9 @@ export class Sound {
       const data = this.noiseBuffer.getChannelData(0);
       for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
     }
-    if (this.context.state === 'suspended') void this.context.resume().catch(() => undefined);
+    // 멈춘 것(suspended)만이 아니라 아이폰이 전화·알림으로 끊어 둔 것(interrupted)도 다시 켠다. running·closed 말고는 모두 부른다(PR #42 리뷰 4).
+    const state = this.context.state as string;
+    if (state !== 'running' && state !== 'closed') void this.context.resume().catch(() => undefined);
   }
 
   setEnabled(on: boolean) {
@@ -67,9 +69,12 @@ export class Sound {
   }
 
   // 사건 하나의 소리를 낸다. 소리 장치가 아직 켜지지 않았거나(누름 전) 꺼 두었으면 내지 않는다.
+  // 한 번에 울리는 소리가 상한이면 새 소리를 버리되, 나에게 일어난 일과 작전 종료(cues.ts의 personal)는 낸다. 섞인 무리와 싸우는 중에 내가 맞은
+  // 소리나 작전 실패 소리가 버려졌다(PR #42 리뷰 3).
   play(cue: Cue) {
     const context = this.context;
-    if (!this.enabled || !context || !this.master || context.state !== 'running' || this.active >= maxVoices) return;
+    if (!this.enabled || !context || !this.master || context.state !== 'running') return;
+    if (this.active >= maxVoices && !personal.includes(cue.kind)) return;
     const output = context.createGain();
     output.gain.value = cue.gain;
     let last: AudioNode = output;

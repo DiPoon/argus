@@ -21,8 +21,8 @@ const farthest = .25;
 const panReach = 480;
 // 한 스냅샷(0.1초)에 낼 소리의 상한이다. 섞인 무리와 싸우면 예고와 타격이 몰려 오므로 큰 것부터 고른다.
 export const maxCuesPerSnapshot = 8;
-// 나에게 일어난 일과 작전 종료다. 몰려도 늘 먼저 낸다.
-const personal: CueKind[] = ['victory', 'defeat', 'down', 'myHurt'];
+// 나에게 일어난 일과 작전 종료다. 몰려도 늘 먼저 내고, 한 번에 울리는 소리가 상한에 닿아도 낸다(sound.ts).
+export const personal: CueKind[] = ['victory', 'defeat', 'down', 'myHurt'];
 
 // 듣는 자리(내 대원)에서 (x, y)의 소리가 어느 쪽에서 얼마나 크게 나는지다.
 export function place(x: number, y: number, listener: { x: number; y: number }) {
@@ -44,30 +44,41 @@ export function snapshotCues(previous: Snapshot | undefined, current: Snapshot):
   const at = (kind: CueKind, x: number, y: number, extra: Partial<Cue> = {}) => cues.push({ kind, ...place(x, y, listener), ...extra });
 
   // 서버 효과: 지난 스냅샷에 없던 것만 울린다. 효과는 0.4~0.65초 남아 여러 스냅샷에 거듭 온다.
+  // 내가 맞았는지는 자리가 아니라 내 체력이 줄었는지로 가린다. 대원끼리는 몸이 막지 않아 겹쳐 설 수 있고, 맞은 뒤 대시하면 효과가 내 자리에서
+  // 멀어진다. 자리로 가렸을 때는 겹쳐 선 동료가 맞으면 내가 맞은 소리가, 맞고 대시하면 동료가 맞은 소리가 났다(PR #42 리뷰 1).
+  // 체력이 줄었으면 새 피격 효과 가운데 내게 가장 가까운 하나를 내가 맞은 소리로 낸다(효과가 없으면 소리만 낸다). 나머지는 동료가 맞은 소리다.
   const seenEffects = new Set(previous.effects.map(effect => effect.id));
-  for (const effect of current.effects) {
-    if (seenEffects.has(effect.id)) continue;
-    const kind = effectCues[effect.kind];
-    if (!kind) continue;
-    // 내 자리의 피격은 내가 맞은 것이다. 효과는 맞은 대원의 자리에 난다. 다른 대원이 맞은 것보다 크고 분명하게 낸다.
-    const mine = Math.hypot(effect.x - me.x, effect.y - me.y) < 24;
-    if (kind === 'hurt' && mine) at('myHurt', effect.x, effect.y, { pan: 0, gain: 1 });
-    else at(kind, effect.x, effect.y);
+  const fresh = current.effects.filter(effect => !seenEffects.has(effect.id) && effectCues[effect.kind]);
+  const hurtMe = before !== undefined && before.state === 'alive' && me.hp < before.hp;
+  let myHit: number | undefined;
+  if (hurtMe) {
+    let nearest = Infinity;
+    for (const effect of fresh) {
+      const distance = Math.hypot(effect.x - me.x, effect.y - me.y);
+      if (effect.kind === 'hurt' && distance < nearest) { nearest = distance; myHit = effect.id; }
+    }
+    cues.push({ kind: 'myHurt', pan: 0, gain: 1 });
+  }
+  for (const effect of fresh) {
+    if (effect.id === myHit) continue;
+    at(effectCues[effect.kind], effect.x, effect.y);
   }
 
   // 적이 새로 예고하기 시작했다. 상성마다 소리가 달라 귀로도 손을 가린다(RPS 정보를 감추지 않는다).
-  // 여럿이 함께 예고하면 상성마다 가장 가까운 하나만 울린다.
+  // 여럿이 함께 예고하면 상성·티어마다 가장 가까운(거리로 고른다) 하나만 울린다. 크기로 고르면 먼 적끼리는 가장 작은 크기가 같아 목록에서
+  // 먼저 온 적의 자리에서 났다(PR #42 리뷰 9).
   const seenActions = new Set(previous.enemies.flatMap(enemy => enemy.action ? [enemy.action.id] : []));
-  const telegraphs = new Map<string, Cue>();
+  const telegraphs = new Map<string, { cue: Cue; distance: number }>();
   for (const enemy of current.enemies) {
     const action = enemy.action;
     if (!action || action.phase !== 'telegraph' || seenActions.has(action.id)) continue;
     const cue: Cue = { kind: 'telegraph', ...place(enemy.x, enemy.y, listener), affinity: action.kind, tier: action.tier };
+    const distance = Math.hypot(enemy.x - listener.x, enemy.y - listener.y);
     const key = `${action.kind}-${action.tier}`;
     const known = telegraphs.get(key);
-    if (!known || known.gain < cue.gain) telegraphs.set(key, cue);
+    if (!known || distance < known.distance) telegraphs.set(key, { cue, distance });
   }
-  cues.push(...telegraphs.values());
+  for (const { cue } of telegraphs.values()) cues.push(cue);
 
   // 시설이 부서졌다. 같은 시설이 지난 스냅샷에서 서 있었을 때만이다(처음 본 부서진 시설은 울리지 않는다).
   for (const facility of current.facilities) {
