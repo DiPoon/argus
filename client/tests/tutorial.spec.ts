@@ -249,28 +249,39 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
   const guide = page.locator('#tutorial-guide');
   await expect(guide).toContainText('누른 채 끌면 걷습니다');
 
-  // 안내가 가장 긴 단계에서 잰다. 보급 단계(착지 직후), 가까운 병사가 타격을 예고하는 받아치기 단계, 그 단계에서 막 맞은 때(스냅샷을 바꿔 만든다).
-  // 막 맞은 때는 스냅샷마다 체력을 5와 4로 번갈아 보내 안내의 피격 줄이 재는 동안 계속 보이게 한다.
+  // 안내가 가장 긴 장면마다 잰다(스냅샷을 바꿔 만든다). 보급 단계(착지 직후), 가까운 병사가 타격을 예고하는 받아치기 단계, 그 단계에서
+  // 막 맞은 때, 한 번 채운 뒤 마나를 다 쓴 때(막 맞은 때, 상자 대기와 막 맞은 때, 빈 상자, 빈 상자와 막 맞은 때)다. 막 맞은 때는 스냅샷마다
+  // 체력을 5와 4로 번갈아 보내 안내의 피격 줄이 재는 동안 계속 보이게 한다. 마나를 다 쓴 장면은 2단계에 피격 줄이 붙어 세 줄이 되자
+  // 320×568에서 한글·CI 실행기 글꼴로 대원을 덮어 더했다(PR #41 재리뷰 가).
   const now = () => wire.snapshot!.now;
-  let hurt = false, flip = 0;
-  const drillCue = () => {
-    wire.change = state => {
-      const me = state.players.find(player => player.id === state.you)!;
-      me.mana = 24;
-      if (hurt) me.hp = flip++ % 2 ? 4 : 5;
-      const drill = state.enemies[0];
-      if (drill) drill.action = { id: 990001, skill: 'strike', kind: 'strike', slot: 0, tier: 1, phase: 'telegraph', aim: Math.PI,
-        startedAt: now(), contactAt: now() + 2, activeUntil: now() + 2.25, endsAt: now() + 3, range: 60, halfWidth: 30 };
-      return state;
-    };
+  const scene = { mana: undefined as number | undefined, hurt: false, drill: false, cooldown: undefined as number | undefined, uses: undefined as number | undefined };
+  let flip = 0;
+  wire.change = state => {
+    const me = state.players.find(player => player.id === state.you)!;
+    if (scene.mana !== undefined) me.mana = scene.mana;
+    if (scene.hurt) me.hp = flip++ % 2 ? 4 : 5;
+    const drill = state.enemies[0];
+    if (scene.drill && drill) drill.action = { id: 990001, skill: 'strike', kind: 'strike', slot: 0, tier: 1, phase: 'telegraph', aim: Math.PI,
+      startedAt: now(), contactAt: now() + 2, activeUntil: now() + 2.25, endsAt: now() + 3, range: 60, halfWidth: 30 };
+    const camp = state.supplies.find(supply => supply.kind === 'camp');
+    if (camp && scene.cooldown !== undefined) camp.cooldown = scene.cooldown;
+    if (camp && scene.uses !== undefined) camp.uses = scene.uses;
+    return state;
   };
   // 짧은 세로 화면(390×400·360×360, 분할 화면·작은 창)도 본다. 대원이 위쪽 줄 가까이에 있어 넓은 안내가 대원을 덮었다(PR #40을 합친 뒤).
   const sizes = [{ width: 533, height: 320 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 390, height: 844 }, { width: 320, height: 568 },
     { width: 390, height: 400 }, { width: 360, height: 360 }];
-  for (const stage of ['보급', '받아치기', '피격']) {
+  for (const stage of ['보급', '보급+피격', '받아치기', '피격', '다 씀+피격', '대기+피격', '빈 상자', '빈 상자+피격']) {
+    if (stage === '보급+피격') {
+      // 처음 채우기 전에 맞으면 걷기 줄 대신 피격 줄이다(두 줄).
+      scene.hurt = true;
+      await expect(guide.locator('.guide-alert')).toContainText('체력을 잃었습니다');
+      await expect(guide).not.toContainText('누른 채 끌면 걷습니다');
+    }
     if (stage === '받아치기') {
-      drillCue();
+      Object.assign(scene, { mana: 24, drill: true, hurt: false });
       await expect(guide).toContainText('타격 예고 → 회전 방어 버튼');
+      await expect(guide.locator('.guide-alert')).toHaveCount(0, { timeout: 5000 });
       // 같은 안내는 다시 쓰지 않는다. 손 그림의 마스크 id가 부를 때마다 달라 스냅샷마다 안내 전체를 다시 썼다(PR #41 리뷰 4).
       const rewrites = await guide.evaluate(element => new Promise<number>(resolve => {
         let count = 0;
@@ -282,10 +293,33 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
     }
     if (stage === '피격') {
       // 막 맞으면 그 까닭을 알림이 아니라 안내에 보인다. 알림으로 띄우면 다음 예고를 봐야 할 때 알림이 대원을 덮었다(PR #41 리뷰 1).
-      hurt = true;
+      scene.hurt = true;
       await expect(guide.locator('.guide-alert')).toContainText('체력을 잃었습니다');
       await expect(page.locator('#toast')).not.toContainText('체력을 잃었습니다');
     }
+    // 한 번 채운 뒤 마나를 다 쓰면 제목이 바뀌고 상자 줄 하나만 남는다. 상자를 다시 쓸 때까지 기다리는 동안과 상자를 다 썼을 때는
+    // 그렇다고 알린다. 다 쓴 상자를 가리키며 "다시 채우세요"만 되풀이하지 않는다(PR #41 리뷰 2).
+    if (stage === '다 씀+피격') {
+      Object.assign(scene, { mana: 0, drill: false, hurt: true });
+      await expect(guide).toContainText('마나를 다 썼습니다');
+      await expect(guide).toContainText('캠프 보급 상자에서 다시 채우세요');
+      await expect(guide.locator('.guide-alert')).toContainText('체력을 잃었습니다');
+    }
+    if (stage === '대기+피격') {
+      scene.cooldown = 12;
+      await expect(guide).toContainText('보급 상자는 12초 뒤 다시 쓸 수 있습니다');
+    }
+    if (stage === '빈 상자') {
+      Object.assign(scene, { cooldown: 0, uses: 0, hurt: false });
+      await expect(guide).toContainText('보급 상자를 다 썼습니다. 훈련을 다시 시작하세요.');
+      await expect(guide.locator('.guide-alert')).toHaveCount(0, { timeout: 5000 });
+    }
+    if (stage === '빈 상자+피격') {
+      scene.hurt = true;
+      await expect(guide.locator('.guide-alert')).toContainText('체력을 잃었습니다');
+    }
+    // 안내는 피격 줄을 더해도 두 줄까지다(받아치기 단계 PC는 셋).
+    expect(await guide.locator('p').count(), `${stage}: 안내 줄 수`).toBeLessThanOrEqual(2);
     for (const size of sizes) {
       await page.setViewportSize(size);
       await page.waitForTimeout(300);
@@ -322,21 +356,6 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
       if (['844×390', '390×844', '320×568'].includes(`${size.width}×${size.height}`)) expect(overlaps(layout.single, player), `${where}: 알림이 대원을 덮습니다`).toBe(false);
     }
   }
-  // 보급 상자를 다시 쓸 때까지 기다리는 동안과 상자를 다 썼을 때는 그렇다고 알린다. 다 쓴 상자를 가리키며 "다시 채우세요"만 되풀이하지
-  // 않는다(PR #41 리뷰 2).
-  const box = (change: (supply: { cooldown: number; uses: number }) => void) => {
-    hurt = false;
-    wire.change = state => {
-      state.players.find(player => player.id === state.you)!.mana = 0;
-      const camp = state.supplies.find(supply => supply.kind === 'camp');
-      if (camp) change(camp);
-      return state;
-    };
-  };
-  box(camp => { camp.cooldown = 12; });
-  await expect(guide).toContainText('보급 상자는 12초 뒤 다시 쓸 수 있습니다');
-  box(camp => { camp.uses = 0; });
-  await expect(guide).toContainText('캠프 보급 상자를 다 썼습니다');
   wire.change = state => state;
   // 서랍을 여는 동안은 안내가 숨어 서랍이 위쪽 줄 바로 아래에서 시작한다.
   await page.setViewportSize({ width: 844, height: 390 });
