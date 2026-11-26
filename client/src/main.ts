@@ -5,7 +5,7 @@ import { Minimap } from './minimap';
 import { handIcon } from './rps';
 import { freeSkills, kindOfSkill, kindSlots, touchSkills } from './loadout';
 import { copiedNotices, inviteLink, linkReach, normalizeRoomCode, readInvite, withoutInvite } from './invite';
-import { applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
+import { affinityNames, applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -88,6 +88,7 @@ const desktopLobby = `  <main id="lobby" class="lobby">
       </div>
       <p id="lobby-error" class="error" role="alert"></p>
       <p class="entry-note"><span>◌</span> 투입 준비 5초 · 아군 피해 없음 · 전원 사망 시 실패</p>
+      <p class="tutorial-entry"><button id="lobby-tutorial" type="button" class="text-button">처음이라면 훈련부터 ↗</button></p>
     </section>
     <footer class="lobby-footer"><span>4명까지 함께하는 협동 전투</span><span>PC 브라우저 · 키보드 + 마우스</span></footer>
   </main>`;
@@ -102,10 +103,24 @@ const touchLobby = `<main id="lobby" class="lobby touch-lobby">
         <button id="create" class="primary">새 작전 시작 <span>↗</span></button>
         <div class="join-row"><input id="room-input" aria-label="방 코드" placeholder="방 코드" maxlength="6" autocomplete="off"/><button id="join" class="secondary">참가</button></div>
         <p id="lobby-error" class="error" role="alert"></p>
-        <button id="lobby-full" type="button" class="touch-button">전체 화면</button>
+        <div class="touch-entry-tools"><button id="lobby-tutorial" type="button" class="touch-button">훈련</button><button id="lobby-full" type="button" class="touch-button">전체 화면</button></div>
       </div>
       <div class="touch-gear"><p class="touch-gear-note">휴대폰에서는 조준 없이 둘레 모두에 닿는 <b>둘레 기술</b>을 씁니다. 버튼만 누르면 됩니다.</p>${loadoutFields}
         <p class="combat-intro touch-intro">투입 마나 <b>0</b> · 보급 상자에서 충전 · 기술마다 마나 <b>1</b> · 자연 회복 없음<br>투입 준비 5초 · 아군 피해 없음 · 전원 사망 시 실패</p></div>
+    </section>
+  </main>`;
+// 처음 온 사람을 맞는 화면이다(이슈 #36, 2026-11-24 사용자 결정: 첫 방문이면 로비 대신 이 화면, 초대 링크로 온 사람만 예외).
+// 이 브라우저에서 훈련을 시작했거나 건너뛴 적이 없으면 로비 자리에 보인다(tutorialDone). 훈련은 서버의 튜토리얼 방(layout "tutorial")이다.
+// 조작 안내는 기기에 맞춘다. 손가락 기기(touchMode)면 조이스틱과 버튼, 아니면 키보드와 마우스다.
+const welcome = `<main id="welcome" class="welcome" hidden>
+    <section class="welcome-card">
+      <div class="eyebrow">ARGUS · 처음 오셨나요?</div>
+      <h2>훈련부터 해 보세요</h2>
+      <p>적이 가위바위보처럼 손을 예고합니다. 예고 안에서 이기는 손을 누르면 그 순간 쓰러집니다.</p>
+      <p class="welcome-rps">${(['strike', 'block', 'channel'] as const).map(kind => `<span class="skill-${kind}">${handIcon(kind)}${affinityNames[kind]}</span>`).join(' &lt; ')} &lt; <span class="skill-strike">${handIcon('strike')}타격</span></p>
+      <p>${touchMode ? '화면 왼쪽 아래를 끌어 걷고, 오른쪽 아래의 버튼으로 받아칩니다.' : '키보드(WASD)로 걷고, 마우스 버튼과 Space로 받아칩니다.'} 2분 남짓한 훈련에서 이동, 보급, 세 손, 탈출을 익힙니다.</p>
+      <div class="welcome-actions"><button id="tutorial-start" class="primary">훈련 시작 <span>↗</span></button><button id="tutorial-skip" class="secondary">건너뛰고 로비로</button></div>
+      <p id="welcome-error" class="error" role="alert"></p>
     </section>
   </main>`;
 // 투입 위치를 고르는 동작이다. 터치 기기에서는 손가락으로 누른다.
@@ -120,11 +135,12 @@ $('app').innerHTML = `
     <div class="top-right"><span id="connection" class="connection"><i></i> 투입 대기</span><span class="build-tag">CO-OP PVE · 1–4</span></div>
   </header>
 ${touchMode ? touchLobby : desktopLobby}
+${welcome}
   <main id="operation" class="operation" hidden>
     <aside class="sidebar">
-      <div class="eyebrow">OPERATION 001</div><h2>침묵의 전초기지</h2>
+      <div id="op-kicker" class="eyebrow">OPERATION 001</div><h2 id="op-title">침묵의 전초기지</h2>
       <button id="copy-code" class="room-code" title="누르면 초대 링크를 복사합니다. 받은 사람은 링크를 열고 참가만 누르면 됩니다."><span>초대 링크 복사</span><b id="room-code">------</b><span>⧉</span></button>
-      <div class="side-section"><div class="section-label">MISSION <span id="mission-state">준비 중</span></div>
+      <div class="side-section mission-section"><div class="section-label">MISSION <span id="mission-state">준비 중</span></div>
         <div class="objective"><span class="objective-icon primary-dot">◇</span><div><b>적 시설 파괴</b><small>구역 내 시설을 모두 무력화</small></div><strong id="primary-count">0/3</strong></div>
         <div id="facility-list" class="facility-list"></div>
         <div class="objective"><span class="objective-icon gold">◇</span><div><b>보급품 회수</b><small>부목표 · 가까이 가서 회수</small></div><strong id="secondary-count">0/2</strong></div>
@@ -144,22 +160,22 @@ ${touchMode ? touchLobby : desktopLobby}
           <div class="skill-bar" id="skill-bar">${slotKeys.map((key, index) => `<div class="skill-slot" data-slot="${index + 1}"><kbd>${key}</kbd><b><span class="hand"></span><span class="name"></span></b><small></small><i></i></div>`).join('')}</div><p id="combat-status" aria-live="polite"></p>
         </div>
         <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span id="mission-mini" class="mission-mini"></span><span>경과 <b id="elapsed">00:00</b></span></div><span id="touch-extract" class="mission-mini touch-extract"></span></div>
-        <canvas id="minimap" class="minimap" hidden aria-hidden="true"></canvas>
-      </div><div id="toast" class="toast" role="status" hidden></div></div>
+        <canvas id="minimap" class="minimap" hidden aria-hidden="true"></canvas><div id="tutorial-guide" class="tutorial-guide" hidden></div>
+      </div><div id="toast" class="toast" role="status" hidden></div></div><p id="tutorial-live" class="screen-reader" aria-live="polite"></p>
       <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 ${pick}. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
       <div id="touch-controls" class="touch-controls" hidden>
         <div id="touch-move" class="touch-move" aria-label="이동"><i id="touch-base" class="touch-base" hidden><b id="touch-knob" class="touch-knob"></b></i></div>
         ${slotKeys.map((_, index) => `<button type="button" class="touch-skill" data-slot="${index + 1}"><span class="hand"></span><b></b><small></small></button>`).join('')}
       </div>
       <div class="map-bottom"><span id="controls">클릭 위치 선택 · 캠프는 권장 투입 지점</span><span id="performance">공유 시야</span></div>
-      <div id="result" class="result-overlay" hidden><div class="result-card"><span class="eyebrow">OPERATION COMPLETE</span><h2 id="result-title">작전 종료</h2><p id="result-description"></p><div id="result-stats"></div><button id="again" class="primary">다음 작전 준비 <span>↗</span></button></div></div>
+      <div id="result" class="result-overlay" hidden><div class="result-card"><span id="result-kicker" class="eyebrow">OPERATION COMPLETE</span><h2 id="result-title">작전 종료</h2><p id="result-description"></p><div id="result-stats"></div><button id="again" class="primary">다음 작전 준비 <span>↗</span></button></div></div>
     </section>
   </main>`;
 
 // 방마다 바뀌는 HUD 글자의 처음 값이다. 방을 나갈 때 이 값으로 되돌린다(leave). 되돌리지 않으면 다음 방의 첫 스냅샷이 오기 전에
 // 옆 패널과 지도 위쪽 줄이 지난 방의 초대 코드·명단·임무 수를 보인다. 처음 값을 따로 적어 두지 않고 방금 만든 화면에서 읽는다.
 const firstTexts = new Map(['room-code', 'mission-state', 'primary-count', 'facility-list', 'secondary-count', 'extract-note', 'team-count', 'roster',
-  'elapsed', 'view-label', 'controls', 'performance'].map(id => [id, $(id).innerHTML]));
+  'elapsed', 'view-label', 'controls', 'performance', 'op-kicker', 'op-title', 'result-kicker', 'again'].map(id => [id, $(id).innerHTML]));
 
 // 터치 화면의 서랍과 작전 종료 카드는 지도 위쪽 줄과 알림 아래에서 시작한다. 그 높이는 화면 폭과 글자와 알림 수에 달려 있어 px로 정하지 않고 재서 쓴다.
 if (touchMode) {
@@ -184,6 +200,31 @@ function savedGuest(): Guest | undefined {
 // 초대 링크(주소의 ?room=방 코드)로 들어와 아직 쓰지 않은 초대의 방 코드다. 있는 동안 로비가 그 방의 참가를 앞세운다(showInvite).
 // 그 방이든 다른 방이든 방의 첫 스냅샷을 받으면 다 쓴 것으로 치운다(connect).
 let invitedRoom: string | undefined;
+// 튜토리얼(이슈 #36)이다. 이 브라우저에서 훈련을 시작했거나 건너뛰었으면 localStorage에 적어 두고, 그 뒤로는 첫 방문 화면 없이 로비를 보인다.
+// 읽거나 쓸 수 없는 브라우저(저장소를 막은 창)는 마친 것으로 친다. 그런 창에서 들를 때마다 첫 방문 화면을 보이지 않는다. 로비의 훈련 버튼은 그대로 있다.
+const tutorialDoneKey = 'argus-tutorial';
+function tutorialDone() {
+  try { return localStorage.getItem(tutorialDoneKey) === 'done'; } catch { return true; }
+}
+function markTutorialDone() {
+  try { localStorage.setItem(tutorialDoneKey, 'done'); } catch { /* 적지 못해도 이번 방문은 로비로 간다. */ }
+}
+// 이 탭이 튜토리얼로 만든 방의 코드다. 그 방의 스냅샷이면 임무 HUD 대신 훈련 안내를 보인다. 서버는 방이 튜토리얼인지 보내지 않으므로
+// 만든 탭이 기억한다(새로 고쳐도 이어지게 탭별 sessionStorage, 복구 정보 argus-guest와 같은 수명). 방 코드로 들어온 다른 사람에게는 평소 HUD다.
+const tutorialRoomKey = 'argus-tutorial-room';
+let tutorialRoom: string | undefined;
+// 복구 정보로 돌아가는 방이 이 탭이 만든 훈련 방이면 기억한다. 처음 열 때와, 초대받은 방이 409라 있던 방으로 돌아갈 때 함께 쓴다.
+// 409 길에서 정하지 않으면 훈련 방에 돌아가도 작전 화면(시설 0/3, 초대 링크)이 나왔다(PR #41 리뷰 3).
+const rememberTutorialRoom = (room: string) => { tutorialRoom = sessionStorage.getItem(tutorialRoomKey) === room ? room : undefined; };
+// 훈련 병사마다 예고한 손이다(적 id → 상성). 훈련 병사는 늘 같은 손만 내므로(서버의 EnemySpot.Drill), 한 번 본 손으로 예고하지 않는 동안에도 이길 손을 알린다.
+const drillKinds = new Map<number, Affinity>();
+// 훈련 중 지난 스냅샷의 내 체력이다. 줄면 지거나 비기면 체력을 잃는다고 알린다. 살아 있지 않으면 비운다.
+let tutorialHp: number | undefined;
+// 이번 훈련에서 마나를 한 번이라도 채웠는지다. 보급 단계의 안내를 처음 채울 때와 다 쓴 뒤로 나눈다.
+let tutorialSupplied = false;
+// 훈련 중 체력이 준 때부터 3.5초 동안 안내에 그 까닭을 보인다(performance.now 기준). 알림으로 띄우면 막 맞아 다음 예고를 봐야 할 때
+// 알림이 대원을 덮었다(PR #41 리뷰 1).
+let tutorialHurtUntil = 0;
 let snapshot: Snapshot | undefined;
 let socket: WebSocket | undefined;
 let world: World | undefined;
@@ -357,25 +398,29 @@ function clearInput() {
 // 방을 만들 때 고를 검사용 맵이다. 주소의 ?layout=… 값이고, 없으면 서버가 생성 작전을 만든다.
 const testLayout = new URLSearchParams(location.search).get('layout');
 
-async function enter(code?: string) {
+// tutorial이면 튜토리얼 방을 만든다(코드는 받지 않는다).
+async function enter(code?: string, tutorial = false) {
   if (connecting) return;
   // 입력란에 친 코드도 초대 링크로 받은 코드와 같은 함수로 맞춘다(invite.ts). 서버가 쓰지 않는 글자(I·O·0·1)가 있으면 보내지 않는다.
   const inputCode = code === undefined ? undefined : normalizeRoomCode(code);
   if (code !== undefined && inputCode === undefined) { $('lobby-error').textContent = '방 코드 6자리를 확인해 주세요.'; return; }
+  // 방을 만드는 동안에는 첫 방문 화면의 건너뛰기도 막는다. 누르면 로비가 보였다가 요청이 끝나는 순간 훈련 방이 열렸다(PR #41 리뷰 5).
+  const entryButtons = ['create', 'join', 'tutorial-start', 'tutorial-skip', 'lobby-tutorial'].map(id => $<HTMLButtonElement>(id));
   // 전체 화면은 누름 안에서만 켤 수 있으므로 서버의 답을 기다리기 전에 켠다.
   if (touchMode) enterFullscreen();
   connecting = true;
-  $('lobby-error').textContent = '';
-  $<HTMLButtonElement>('create').disabled = $<HTMLButtonElement>('join').disabled = true;
+  $('lobby-error').textContent = $('welcome-error').textContent = '';
+  for (const button of entryButtons) button.disabled = true;
   try {
     const response = await fetch(inputCode ? `/api/rooms/${inputCode}/join` : '/api/rooms', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: $<HTMLInputElement>('callsign').value || '대원',
         slots: [chosenSkill('slot-1'), chosenSkill('slot-2'), chosenSkill('slot-3'), chosenSkill('free-slot')],
+        // 튜토리얼은 서버 설정 없이 받는 훈련장(tutorial)이다.
         // 주소에 ?layout=…이 있으면 방을 만들 때 그 맵을 고른다. 서버가 설정으로 허락한 검사용 맵(handmade, quiet)만 받고,
         // 운영 서버는 거절한다(HTTP 403). 조작을 보는 브라우저 검사가 적이 없는 방(quiet)을 이렇게 만든다.
-        ...(!inputCode && testLayout ? { layout: testLayout } : {}),
+        ...(tutorial ? { layout: 'tutorial' } : !inputCode && testLayout ? { layout: testLayout } : {}),
       }),
     });
     if (!response.ok) {
@@ -389,6 +434,7 @@ async function enter(code?: string) {
         const saved = savedGuest();
         if (saved && saved.room !== inputCode) {
           guest = saved;
+          rememberTutorialRoom(saved.room);
           toast(`${inputCode} 방에는 들어갈 수 없어 있던 방으로 돌아왔습니다.`);
           await openOperation();
           return;
@@ -398,14 +444,19 @@ async function enter(code?: string) {
     }
     guest = await response.json() as Guest;
     sessionStorage.setItem('argus-guest', JSON.stringify(guest));
+    // 훈련을 시작하면 마친 것으로 적는다. 중간에 나가거나 창을 닫아도 다음 방문은 로비다(로비의 훈련 버튼으로 다시 할 수 있다).
+    tutorialRoom = tutorial ? guest.room : undefined;
+    if (tutorial) { markTutorialDone(); sessionStorage.setItem(tutorialRoomKey, guest.room); } else sessionStorage.removeItem(tutorialRoomKey);
     // 초대는 여기서 치우지 않는다. 그 방의 첫 스냅샷을 받은 때 치운다(connect).
     await openOperation();
-  } catch (error) { $('lobby-error').textContent = error instanceof Error ? error.message : '서버에 연결할 수 없습니다.'; }
-  finally { connecting = false; $<HTMLButtonElement>('create').disabled = $<HTMLButtonElement>('join').disabled = false; }
+  } catch (error) {
+    // 첫 방문 화면에서 누른 훈련이면 그 화면에 알린다. 로비는 숨어 있다.
+    $(tutorial && !$('welcome').hidden ? 'welcome-error' : 'lobby-error').textContent = error instanceof Error ? error.message : '서버에 연결할 수 없습니다.';
+  } finally { connecting = false; for (const button of entryButtons) button.disabled = false; }
 }
 
 async function openOperation() {
-  $('lobby').hidden = true; $('operation').hidden = false; document.body.classList.add('operating');
+  $('lobby').hidden = true; $('welcome').hidden = true; $('operation').hidden = false; document.body.classList.add('operating');
   // 당겨서 새로고침을 막는 규칙은 html에 있어야 한다(style.css). :has()를 쓰지 않으려고 html에도 붙인다.
   document.documentElement.classList.toggle('touch-operating', touchMode);
   if (!world) {
@@ -579,6 +630,10 @@ function leave() {
   deployRequested = false;
   closeReportNote();
   sessionStorage.removeItem('argus-guest');
+  // 훈련 상태도 비운다. 다음 방이 훈련이면 enter가 다시 정한다.
+  tutorialRoom = undefined; tutorialHp = undefined; tutorialSupplied = false; tutorialHurtUntil = 0; drillKinds.clear();
+  $('tutorial-live').textContent = '';
+  sessionStorage.removeItem(tutorialRoomKey);
   window.clearTimeout(reconnectTimer);
   socket?.close(); socket = undefined;
   // 손가락 상태를 다음 작전으로 넘기지 않는다. 터치 조작도 숨긴다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아 지난 작전의 버튼이 남는다.
@@ -587,24 +642,132 @@ function leave() {
   // 지난 방의 지도와 미니맵을 비운다(World.reset). 비우지 않으면 다음 방의 첫 스냅샷이 오기 전에 지난 방이 그려진다.
   // 미니맵이 숨으므로 알림도 제자리로 돌아온다.
   if (world) { world.app.ticker.stop(); world.reset(); }
-  $('operation').hidden = true; $('lobby').hidden = false; $('result').hidden = true; $('touch-controls').hidden = true;
+  $('operation').hidden = true; $('lobby').hidden = false; $('welcome').hidden = true; $('result').hidden = true; $('touch-controls').hidden = true;
   // 지난 방의 HUD도 치운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않는다. 지도 위에 뜨는 체력·마나 상자와 투입 안내는
   // 숨겨 두고(첫 스냅샷이 올 때 updateUi가 다시 보인다), 초대 코드·명단·임무 수 같은 글자는 처음 값으로 되돌린다.
   $('combat-hud').hidden = true; $('deploy-panel').hidden = true;
   for (const [id, html] of firstTexts) $(id).innerHTML = html;
   $('extract-progress').style.width = '0%';
   // 작은 임무 진행도 비운다. 다음 방의 첫 스냅샷이 오기 전에는 updateUi가 돌지 않아, 비우지 않으면 지난 작전의 진행이 보인다.
-  for (const id of ['mission-mini', 'touch-mission', 'touch-extract']) setMarkup(id, '');
-  document.body.classList.remove('operating', 'ended', 'skills-on');
+  for (const id of ['mission-mini', 'touch-mission', 'touch-extract', 'tutorial-guide']) setMarkup(id, '');
+  $('tutorial-guide').hidden = true;
+  document.body.classList.remove('operating', 'ended', 'skills-on', 'tutorial');
   setMenu(false);
   document.documentElement.classList.remove('touch-operating');
   status('투입 대기');
+}
+
+// 이기는 손이다. 상성은 타격 < 방어 < 잡기 < 타격이다(서버의 Affinity.Beats).
+const winningKind: Record<Exclude<Affinity, 'none'>, Exclude<Affinity, 'none'>> = { strike: 'block', block: 'channel', channel: 'strike' };
+// 안내의 손 그림은 종류마다 한 번 만들어 다시 쓴다. handIcon은 부를 때마다 마스크 id가 달라, 그대로 쓰면 같은 안내도 스냅샷마다 글이 달라져
+// 다시 쓰지 않는 확인(setMarkup)이 듣지 않았다(PR #41 리뷰 4). 한 안내에는 한 종류의 손이 한 번씩만 나와 id가 겹치지 않는다.
+const guideHands = new Map<Affinity, string>();
+const guideHand = (kind: Affinity) => {
+  if (!guideHands.has(kind)) guideHands.set(kind, handIcon(kind));
+  return guideHands.get(kind)!;
+};
+const kindMark = (kind: Exclude<Affinity, 'none'>) => `<span class="skill-${kind}">${guideHand(kind)}${affinityNames[kind]}</span>`;
+// 그 종류의 기술을 내는 내 칸과 누를 것이다. 종류 칸(1~3번)은 칸마다 종류가 정해져 있다(loadout.ts의 kindSlots). 터치 화면은 버튼 이름이다.
+function answerMark(p: Player, kind: Exclude<Affinity, 'none'>) {
+  const slot = kindSlots.findIndex(entry => entry.kind === kind) + 1;
+  const name = `<span class="skill-${kind}">${guideHand(kind)}${skillNames[p.slots[slot - 1]]}</span>`;
+  return touchMode ? `<em>${name}</em> 버튼` : `<em>${name}</em> <kbd>${slotKeys[slot - 1]}</kbd>`;
+}
+// 훈련 병사는 셋이다(서버의 MissionLayout.CreateTutorial). 분대가 쓰러뜨린 수로 단계를 정한다. 병사는 시야에 들어와야 스냅샷에 오므로
+// 남은 병사 수로는 알 수 없다.
+const tutorialDrills = 3;
+
+// 훈련 중 지도 위의 안내다. 단계는 넷이고 스냅샷의 상태로 정한다. 투입(살아 있지 않음) → 이동과 보급(마나 없음) → 받아치기(병사 셋)
+// → 탈출. 받아치기 단계에서는 가장 가까운 병사가 예고한 손과 그것을 이기는 내 칸을 기기에 맞춰 알린다(PC는 키, 터치 화면은 버튼 이름).
+// 터치 화면은 자리가 좁아(가장 좁은 가로 화면에서 폭 180px 안팎) 줄을 줄인다.
+// html은 안내 상자에 그릴 글, say는 화면 읽기 프로그램에 읽어 줄 글이다. say에는 0.1초마다 바뀌는 수(투입 초읽기, 탈출 초, 보급 대기 초)를
+// 넣지 않는다. 안내 상자를 live 영역으로 두었을 때 스냅샷마다 다시 읽혔다(PR #41 리뷰 4).
+const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+function tutorialGuide(s: Snapshot, p: Player): { html: string; say: string } {
+  const kills = s.players.reduce((sum, member) => sum + member.kills, 0);
+  // 막 체력을 잃었으면 그 까닭을 보인다. 받아치기 단계에서는 늘 있는 손해 줄을 이 줄로 바꾸고, 다른 단계에서는 덧붙인다. 덧붙이는 단계는
+  // 줄이 하나뿐이도록 둔다(보급 단계는 아래에서 줄을 바꾼다).
+  const hurt = performance.now() < tutorialHurtUntil ? '<strong>체력을 잃었습니다</strong> · 지거나 비기거나 늦으면 맞습니다.' : '';
+  const step = (n: number, title: string, lines: string[], say: string[]) => {
+    const shown = hurt && n !== 3 ? [...lines, hurt] : lines;
+    return {
+      html: `<span class="guide-step">훈련 ${n} / 4</span><b>${title}</b>${shown.map(line => `<p${line === hurt ? ' class="guide-alert"' : ''}>${line}</p>`).join('')}`,
+      say: [`훈련 ${n} / 4 ${title}`, ...say, ...(hurt ? [plain(hurt)] : [])].join('. '),
+    };
+  };
+  if (p.state !== 'alive') {
+    // 지도에서 다른 자리를 골라 투입할 수도 있으므로 "캠프에" 내린다고 하지 않는다(PR #41 리뷰 6).
+    if (p.state === 'deploying') return step(1, '투입', [`${p.deploy.toFixed(1)}초 뒤 고른 자리에 내립니다.`], ['곧 고른 자리에 내립니다']);
+    const line = p.hasDeployed ? '쓰러졌습니다. 캠프를 골라 다시 투입하세요.' : '아래의 <em>캠프 선택</em>을 누르고 <em>투입</em>을 누르세요.';
+    return step(1, '투입', [line], [plain(line)]);
+  }
+  if (kills >= tutorialDrills) {
+    const ext = s.extraction;
+    const goal = ext ? `탈출 지점 안에서 ${ext.duration}초 버티면 훈련이 끝납니다` : '오른쪽 끝으로 가면 탈출 지점이 보입니다.';
+    return step(4, '탈출', [ext ? `${goal} · <em>${extractSeconds(ext.progress)}초</em>` : goal, ...(touchMode ? [] : ['실전에서는 적 시설 셋을 부숴야 탈출이 열립니다.'])], [goal]);
+  }
+  const walk = touchMode ? '화면 왼쪽 아래를 누른 채 끌면 걷습니다.' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>로 걷습니다.';
+  if (p.mana < 1) {
+    // 기술마다 드는 마나는 터치 화면에서 빼고 알린다. 기술 버튼마다 적혀 있고, 가장 작은 세로 화면(320×568)에서 한 줄 길면 대원을 덮었다.
+    // 다시 채울 때는 캠프 상자의 대기(같은 대원은 18초)와 남은 횟수를 알린다. 상자가 비었는데 "다시 채우세요"만 되풀이하지 않는다(PR #41 리뷰 2).
+    // 안내는 피격 줄을 더해도 두 줄까지다. 처음 채우기 전에는 걷기 줄과 상자 줄이고, 막 맞았으면 걷기 줄 대신 피격 줄이다. 한 번 채운
+    // 뒤에는 걷기 줄을 빼고 제목을 "마나를 다 썼습니다"로 바꿔 상자 줄 하나만 둔다. 걷기·상자·피격 세 줄이거나 상자 줄이 두 줄로 꺾이면
+    // 가장 작은 세로 화면(320×568)에서 한글·CI 실행기 글꼴로 대원을 덮었다(PR #41 재리뷰 가).
+    if (!tutorialSupplied) {
+      const supply = `캠프 옆 청록색 보급 상자에 닿으면 마나가 찹니다.${touchMode ? '' : ' 기술마다 마나 1을 씁니다.'}`;
+      return step(2, '이동과 보급', hurt ? [supply] : [walk, supply], [plain(walk), plain(supply)]);
+    }
+    const camp = s.supplies.find(supply => supply.kind === 'camp');
+    let line = '캠프 보급 상자에서 다시 채우세요.';
+    let say = line;
+    if (camp && camp.uses <= 0) line = say = '보급 상자를 다 썼습니다. 훈련을 다시 시작하세요.';
+    else if (camp && camp.cooldown > 0) {
+      line = `보급 상자는 <em>${Math.ceil(camp.cooldown)}초</em> 뒤 다시 쓸 수 있습니다.`;
+      say = '보급 상자를 다시 쓸 수 있을 때까지 기다리세요.';
+    }
+    return step(2, '마나를 다 썼습니다', [line], [say]);
+  }
+  // 가장 가까운 병사다. 시야(410) 안의 병사만 스냅샷에 온다.
+  let near: Snapshot['enemies'][number] | undefined;
+  let nearest = Infinity;
+  for (const enemy of s.enemies) {
+    const distance = Math.hypot(enemy.x - p.x, enemy.y - p.y);
+    if (distance < nearest) { nearest = distance; near = enemy; }
+  }
+  const kind = near ? drillKinds.get(near.id) : undefined;
+  const cue = !near ? '오른쪽으로 걸어 병사에게 다가가세요.'
+    : kind === undefined || kind === 'none' ? '다가가면 병사가 손을 예고합니다.'
+    : `${kindMark(kind)} 예고 → ${answerMark(p, winningKind[kind])}`;
+  const penalty = hurt || '지면 나만, 비기면 서로 체력 1을 잃습니다.';
+  return step(3, `이기는 손으로 받아치기 · ${kills}/${tutorialDrills}`, touchMode ? [cue, penalty] : [cue, '예고 장판 안에서 누르면 그 순간 쓰러집니다.', penalty], [plain(cue)]);
+}
+
+// 훈련 중 스냅샷마다 부른다. 병사가 예고한 손과 마나를 채웠는지를 적고, 체력이 줄면 안내에 까닭을 3.5초 보인 뒤 안내를 고친다.
+// 화면 읽기 프로그램에 읽어 줄 글은 따로 두고(#tutorial-live), 글이 바뀔 때만 고친다.
+function updateTutorial(s: Snapshot, p: Player) {
+  for (const enemy of s.enemies) if (enemy.action && enemy.action.kind !== 'none') drillKinds.set(enemy.id, enemy.action.kind);
+  const alive = p.state === 'alive';
+  if (alive && p.mana > 0) tutorialSupplied = true;
+  if (alive && tutorialHp !== undefined && p.hp < tutorialHp) tutorialHurtUntil = performance.now() + 3500;
+  tutorialHp = alive ? p.hp : undefined;
+  const guide = tutorialGuide(s, p);
+  setMarkup('tutorial-guide', guide.html);
+  if ($('tutorial-live').textContent !== guide.say) $('tutorial-live').textContent = guide.say;
 }
 
 function updateUi() {
   const s = snapshot, p = me();
   if (!s || !p) return;
   const alive = p.state === 'alive', ended = s.phase === 'ended';
+  // 이 탭이 튜토리얼로 만든 방이다. 임무 HUD(시설·보급품·초대) 대신 훈련 안내를 보인다(style.css의 body.tutorial).
+  const tutorial = tutorialRoom !== undefined && s.room === tutorialRoom;
+  document.body.classList.toggle('tutorial', tutorial);
+  $('op-kicker').textContent = tutorial ? 'TRAINING' : firstTexts.get('op-kicker')!;
+  $('op-title').textContent = tutorial ? '훈련장' : firstTexts.get('op-title')!;
+  $('tutorial-guide').hidden = !tutorial || ended;
+  if (tutorial && !ended) updateTutorial(s, p);
+  // 터치 화면의 훈련 안내는 미니맵 자리에 놓인다(style.css). 미니맵이 보이는지는 World가 정하므로 알린다.
+  if (world) world.minimapYielded = tutorial && touchMode;
   $('room-code').textContent = s.room;
   $('mission-state').textContent = ended ? '작전 종료' : s.phase === 'active' ? '진행 중' : '투입 대기';
   $('elapsed').textContent = time(s.elapsed);
@@ -625,9 +788,10 @@ function updateUi() {
   const objectives = item('시설', `${destroyed}/${facilityGoal}`, destroyed >= facilityGoal) + item('보급품', `${collected}/${supplyGoal}`, collected >= supplyGoal);
   const extraction = !primaryDone ? ''
     : ext ? item('탈출', `${extractSeconds(ext.progress)}/${ext.duration}`, false, '초') : item('탈출 지점 찾기', '', false);
-  setMarkup('mission-mini', objectives + extraction);
-  setMarkup('touch-mission', objectives);
-  setMarkup('touch-extract', extraction);
+  // 훈련장에는 시설과 보급품이 없다. 탈출은 안내가 알린다.
+  setMarkup('mission-mini', tutorial ? '' : objectives + extraction);
+  setMarkup('touch-mission', tutorial ? '' : objectives);
+  setMarkup('touch-extract', tutorial ? '' : extraction);
   $('primary-count').textContent = `${destroyed}/${facilityGoal}`;
   $('secondary-count').textContent = `${collected}/${supplyGoal}`;
   // 시설과 탈출 지점은 분대가 본 것만 온다. 아직 찾지 못한 시설은 자리만 표시한다.
@@ -707,13 +871,32 @@ function updateUi() {
   // 종료 카드가 보이는 동안이다. CSS가 :has() 없이 이 상태를 고른다(임무 진행과 알림 숨김).
   document.body.classList.toggle('ended', ended);
   if (ended) {
-    $('result-title').textContent = s.result === 'success' ? '분대, 복귀 완료.' : '분대 신호 소실.';
-    $('result-description').textContent = s.result === 'success' ? '적 시설을 무력화하고 탈출 지점을 확보했습니다.' : '전원이 사망하여 작전이 종료되었습니다.';
-    $('result-stats').innerHTML = `<div><b>${time(s.elapsed)}</b><span>작전 시간</span></div><div><b>${s.players.reduce((sum, member) => sum + member.kills, 0)}</b><span>분대 처치</span></div><div><b>${collected}/${supplyGoal}</b><span>보급품 회수</span></div>`;
+    const success = s.result === 'success', kills = s.players.reduce((sum, member) => sum + member.kills, 0);
+    // 훈련이 끝나면 로비로 간다. 실전에서 달라지는 것(섞여 오는 적, 시설, 엘리트)을 한 줄로 알린다.
+    $('result-kicker').textContent = tutorial ? 'TRAINING' : firstTexts.get('result-kicker')!;
+    $('again').innerHTML = tutorial ? '작전 로비로 <span>↗</span>' : firstTexts.get('again')!;
+    if (tutorial) {
+      $('result-title').textContent = success ? '훈련 완료.' : '훈련 중 쓰러졌습니다.';
+      $('result-description').textContent = success ? '실전에서는 적이 섞여 오고, 적 시설 셋을 부숴야 탈출이 열립니다. Ⅱ가 붙은 엘리트는 동료와 함께 받아치세요.'
+        : '로비의 훈련 버튼으로 다시 해 볼 수 있습니다.';
+      $('result-stats').innerHTML = `<div><b>${time(s.elapsed)}</b><span>훈련 시간</span></div><div><b>${kills}/${tutorialDrills}</b><span>쓰러뜨린 병사</span></div>`;
+    } else {
+      $('result-title').textContent = success ? '분대, 복귀 완료.' : '분대 신호 소실.';
+      $('result-description').textContent = success ? '적 시설을 무력화하고 탈출 지점을 확보했습니다.' : '전원이 사망하여 작전이 종료되었습니다.';
+      $('result-stats').innerHTML = `<div><b>${time(s.elapsed)}</b><span>작전 시간</span></div><div><b>${kills}</b><span>분대 처치</span></div><div><b>${collected}/${supplyGoal}</b><span>보급품 회수</span></div>`;
+    }
   }
 }
 
 $('create').addEventListener('click', () => void enter());
+// 첫 방문 화면과 로비의 훈련 버튼이다. 건너뛰면 마친 것으로 적고 로비를 보인다.
+$('tutorial-start').addEventListener('click', () => void enter(undefined, true));
+$('lobby-tutorial').addEventListener('click', () => void enter(undefined, true));
+$('tutorial-skip').addEventListener('click', () => {
+  markTutorialDone();
+  $('welcome').hidden = true; $('lobby').hidden = false;
+  if (!touchMode) $<HTMLInputElement>('callsign').focus();
+});
 $('join').addEventListener('click', () => void enter($<HTMLInputElement>('room-input').value));
 $('room-input').addEventListener('keydown', event => { if (event.key === 'Enter') void enter($<HTMLInputElement>('room-input').value); });
 // 호출명을 적고 Enter를 누르면 초대받은 방에 참가한다. 평소에는 새 작전을 시작할지 참가할지 알 수 없어 아무 일도 하지 않는다.
@@ -949,6 +1132,7 @@ if (saved && (invite.room === undefined || invite.room === saved.room)) {
   // 이 탭이 들어가 있던 방으로 돌아간다. 그 방의 초대 링크를 다시 연 것이어도 이미 그 방의 대원이므로 새로 참가하지 않는다.
   // 그 방의 초대는 남겨 두었다가 첫 스냅샷에서 치운다. 복구 정보가 만료되어 들어가지 못하면(1008) 로비가 그 방의 참가를 보인다(PR #31 리뷰 1).
   guest = saved;
+  rememberTutorialRoom(saved.room);
   if (invite.room !== undefined) showInvite(invite.room);
   void openOperation();
 } else {
@@ -959,4 +1143,11 @@ if (saved && (invite.room === undefined || invite.room === saved.room)) {
   if (invite.malformed) $('lobby-error').textContent = '초대 링크의 방 코드가 올바르지 않습니다. 방 코드를 직접 입력해 주세요.';
   // 초대받은 사람이 곧바로 이름을 적고 Enter로 들어가게 한다. 터치 화면에서는 자판이 로비를 덮으므로 커서를 두지 않는다.
   if (invite.room && !touchMode) { $<HTMLInputElement>('callsign').focus(); $<HTMLInputElement>('callsign').select(); }
+  // 처음 온 사람은 로비 대신 첫 방문 화면을 본다. 초대 링크로 온 사람(모양이 틀린 초대 포함)은 그 방의 참가 로비를 바로 보고,
+  // 훈련은 나중에 로비의 훈련 버튼으로 한다(2026-11-24 사용자 결정). 친구를 기다리게 하지 않으려는 것이다.
+  // PC에서는 훈련 시작 버튼에 커서를 두어 Enter로 시작한다. 터치 화면은 커서를 두지 않는다.
+  if (invite.room === undefined && !invite.malformed && !tutorialDone()) {
+    $('lobby').hidden = true; $('welcome').hidden = false;
+    if (!touchMode) $('tutorial-start').focus();
+  }
 }

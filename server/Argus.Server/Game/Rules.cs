@@ -23,7 +23,8 @@ public sealed class Rules
     public const int MaxPlayers = 4;
 
     // 운영 방(생성 작전)의 규칙이다. 엘리트가 나오고 적의 준비 동작은 기본 길이(1배)다.
-    // 기본 규칙(new Rules())은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 준비 동작 두 배)이다.
+    // 기본 규칙(new Rules())은 튜토리얼 수준(병사만, 준비 동작 두 배)이다. 손으로 만든 맵의 검사와, 운영의 튜토리얼 훈련장(RoomHost의
+    // tutorial 방, 증원을 끄고 캠프 상자를 늘림)이 쓴다. 기본값을 바꾸면 훈련장도 함께 바뀐다(PR #41 리뷰 7).
     public static Rules ForGeneratedMission()
     {
         return new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1 };
@@ -37,6 +38,9 @@ public sealed class Rules
     public double FirstConnectSeconds { get; init; } = 15;
     public double SpawnInterval { get; init; } = 7;
     public int MaxEnemies { get; init; } = 60;
+    // 시간이 지나며 증원이 오는지다. 튜토리얼은 끈다(처음에 둔 훈련용 적만 있다). 적 상한을 처음 적 수로 두어도, 처음 적이 쓰러지면
+    // 자리가 나 증원이 온다.
+    public bool Reinforcements { get; init; } = true;
     // 첫 작전에서는 기본 상성을 익히도록 일반 적만 내보내고 준비 시간을 늘린다.
     public bool AllowEliteEnemies { get; init; } = false;
     public double EnemyWindupMultiplier { get; init; } = 2;

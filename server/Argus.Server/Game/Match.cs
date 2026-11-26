@@ -153,7 +153,7 @@ public sealed partial class Match
             {
                 kind = EnemyDefinition.Grunt;
             }
-            PlaceInitialEnemy(spot.Position, kind);
+            PlaceInitialEnemy(spot, kind);
         }
         // 처음에는 캠프의 시야만큼 보인다. 대원이 투입하기 전에는 여기에만 투입할 수 있다.
         Explore();
@@ -579,7 +579,7 @@ public sealed partial class Match
                 UpdatePlayer(Players[i]);
             }
         }
-        if (ElapsedTicks >= _nextSpawnTick && Enemies.Count < Rules.MaxEnemies)
+        if (Rules.Reinforcements && ElapsedTicks >= _nextSpawnTick && Enemies.Count < Rules.MaxEnemies)
         {
             // 증원 간격은 시간이 지날수록 줄어들고 2.5초 아래로는 줄지 않는다.
             double interval = Math.Max(2.5, Rules.SpawnInterval - Elapsed / 240);
@@ -690,7 +690,16 @@ public sealed partial class Match
             {
                 Phase = "active";
                 StartedTick = Tick;
-                Note("작전 시작 · 보급 상자에서 마나를 채우고 시설 3곳을 파괴하세요");
+                // 부술 시설 수는 배치를 따른다. 시설이 없는 배치(튜토리얼 훈련장)는 탈출이 처음부터 열려 있어 마나만 알린다.
+                int facilities = Layout.Facilities.Count;
+                if (facilities > 0)
+                {
+                    Note($"작전 시작 · 보급 상자에서 마나를 채우고 시설 {facilities}곳을 파괴하세요");
+                }
+                else
+                {
+                    Note("작전 시작 · 보급 상자에서 마나를 채우세요");
+                }
             }
         }
     }

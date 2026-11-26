@@ -1519,7 +1519,8 @@ body { --touch-skills-edge-w:104px }
 .touch-entry .primary { width:100%; padding:11px 14px; margin-top:4px }
 .touch-entry .join-row button { padding:9px 14px }
 .touch-entry .error { margin:0 }
-.touch-entry #lobby-full { align-self:flex-start; margin-top:auto }
+/* 훈련 버튼과 전체 화면 버튼은 아래쪽에 한 줄로 둔다. 전체 화면 버튼이 없는 아이폰에서도 줄 하나다. */
+.touch-entry .touch-entry-tools { display:flex; gap:6px; margin-top:auto }
 /* 초대받은 터치 로비: 참가 줄이 호출명 바로 아래에 온다(main.ts의 showInvite가 새 작전 시작과 자리를 맞바꾼다).
    두 버튼의 크기는 평소의 주된 버튼(새 작전 시작)·보조 버튼(참가)과 같게 둔다. 그래서 줄 수와 높이가 평소와 같거나 낮아
    한 장에 들어오는 것이 그대로다. */
@@ -1552,3 +1553,54 @@ body { --touch-skills-edge-w:104px }
   .touch-lobby { overflow:auto; height:auto }
   .touch-lobby .loadout-panel { grid-template-columns:1fr; height:auto }
 }
+
+/* 튜토리얼(이슈 #36). 처음 온 사람에게 로비 대신 보이는 첫 방문 화면과, 훈련 중 지도 위의 안내 상자다(main.ts의 welcome·tutorialGuide). */
+.welcome { display:grid; place-items:center; padding:72px 20px 40px }
+.welcome-card { width:min(560px,100%); padding:34px 36px; background:#17221e; border:1px solid #4b5844; box-shadow:0 12px 25px #0004 }
+.welcome-card h2 { font-size:30px; margin:14px 0 12px }
+.welcome-card p { margin:0 0 10px; color:#a6b3aa; font-size:13px; line-height:1.8 }
+.welcome-card .welcome-rps { color:#d7e0d0 }
+.welcome-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px }
+.welcome-card .error { margin:12px 0 0 }
+.tutorial-entry { margin:6px 0 0; text-align:center }
+/* 터치 화면의 첫 방문 화면은 가장 낮은 가로 화면(533×320) 한 장에 들어가게 줄인다. */
+body.touch .welcome { height:100dvh; padding:8px; overflow:auto }
+body.touch .welcome-card { padding:14px 18px }
+body.touch .welcome-card h2 { font-size:20px; margin:6px 0 }
+body.touch .welcome-card p { font-size:11px; line-height:1.6; margin:0 0 6px }
+body.touch .welcome-actions { margin-top:10px }
+/* 훈련 안내는 PC에서 지도 왼쪽 가운데에 둔다. 알림은 위 가운데, 미니맵은 오른쪽 위, 체력·마나와 투입 안내는 아래 가운데라 겹치지 않는다.
+   훈련장은 왼쪽(캠프)에서 오른쪽(탈출)으로 나아가므로 왼쪽은 지나온 자리다. 누름을 받지 않아 그 자리에서도 조준과 클릭이 된다. */
+.tutorial-guide { position:absolute; z-index:3; left:var(--map-inset); top:50%; transform:translateY(-50%); width:min(300px, calc(40% - var(--map-inset)));
+  padding:14px 16px; background:#17221ef2; border:1px solid #536047; box-shadow:0 8px 20px #0004; pointer-events:none; color:#d7e0d0; font-size:12px; line-height:1.7 }
+.tutorial-guide .guide-step { display:block; font-family:monospace; font-size:10px; letter-spacing:1px; color:var(--lime) }
+.tutorial-guide b { display:block; font-size:14px; font-weight:600; margin:4px 0 6px }
+.tutorial-guide p { margin:0 0 4px; color:#b4c0ae }
+.tutorial-guide em { font-style:normal; color:#e6eed8 }
+.tutorial-guide kbd { margin:0 2px }
+/* 막 체력을 잃었을 때 3.5초 동안 보이는 줄이다(main.ts의 tutorialHurtUntil). 알림으로 띄우면 대원을 덮었다(PR #41 리뷰 1). */
+.tutorial-guide .guide-alert { color:#f6c3b4 }
+.tutorial-guide .guide-alert strong { color:#ff9b8a; font-weight:600 }
+/* 화면에는 보이지 않고 화면 읽기 프로그램만 읽는 글이다. 훈련 안내의 단계와 할 일을 바뀔 때만 읽어 준다(#tutorial-live). */
+.screen-reader { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0 }
+/* 훈련장에는 시설과 보급품이 없고 다른 사람을 부를 일도 없으므로 옆 패널의 임무와 초대 링크를 숨긴다. */
+body.tutorial .mission-section, body.tutorial .room-code { display:none }
+/* 터치 화면의 안내는 미니맵 자리(위쪽 줄 바로 아래 왼쪽)에 둔다. 훈련 중에는 미니맵을 숨긴다(World.minimapYielded).
+   미니맵처럼 위쪽 줄(.top-row) 안에서 흐름 밖에 놓는다. 흐름 안(알림 앞)에 두었을 때는 알림이 안내 높이만큼 밀려 내려가 대원을 덮었다
+   (844×390·320×568에서 잼, PR #41 리뷰 1). 이제 알림은 보통 작전과 같은 자리(위쪽 줄 바로 밑)에 뜨고, 뜨는 동안(3.5초) 안내를 덮는다.
+   보통 작전에서 폭 600px 이하일 때 알림이 미니맵을 잠시 덮는 것과 같다. 안내가 움직이지 않는다.
+   알림과 미니맵 사이 가운데에 두었을 때는 가장 좁은 가로 화면(533×320)에서 화면 가운데의 대원을 덮었다. 가로 화면에서는 폭을 화면의
+   절반에서 40px 모자라게 해 대원(가운데)에 닿지 않는다. 세로 화면은 대원이 아래쪽 가운데라 넓게 쓴다. 서랍이 열린 동안은 숨긴다. */
+body.touch .tutorial-guide { position:absolute; top:calc(100% + 6px); left:0; right:auto; z-index:0; transform:none; width:max-content; max-width:min(360px,100%);
+  padding:6px 10px; font-size:10px; line-height:1.5 }
+/* 높이 520px 이하의 짧은 세로 화면(분할 화면·작은 창)도 대원이 위쪽 줄 가까이에 있어 가로 화면처럼 좁힌다. 390×400에서 넓게 두었을 때 안내가
+   대원의 이름표와 몸 위쪽을 덮었다(2026-11-26, PR #40을 합친 뒤 잼). 짧은 화면의 기준은 알림이 기술 버튼 쪽을 비우는 기준과 같다. */
+@media(orientation:landscape), (max-height:520px) {
+  body.touch .tutorial-guide { max-width:min(360px, calc(50% - 40px)) }
+}
+body.touch.menu-open .tutorial-guide { display:none }
+/* 단계 번호와 제목은 한 줄에 둔다. 가장 작은 세로 화면(320×568)은 위쪽 줄이 세 줄이라 안내가 한 줄만 길어도 대원의 이름표를 덮었다. */
+body.touch .tutorial-guide .guide-step { display:inline; margin-right:8px; font-size:8px }
+body.touch .tutorial-guide b { display:inline; font-size:11px }
+body.touch .tutorial-guide p:first-of-type { margin-top:3px }
+body.touch .tutorial-guide p { margin:0 0 2px }
