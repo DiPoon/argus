@@ -246,6 +246,10 @@ internal static class TutorialTests
         Guest guest = host.Create(new EntryRequest("pilot", null, EntryRequest.TutorialLayout))!;
         (Room room, Player player, Peer peer) = host.Attach(guest.Room, guest.Token)!.Value;
         Check(!room.Match.Rules.Reinforcements, "튜토리얼 방에 증원이 켜져 있습니다");
+        // 캠프 상자를 넉넉히 둔다. 기본(4번)이면 체력을 채우러 몇 번 오가다 다 써서 훈련을 이어 갈 수 없었다(PR #41 리뷰 2).
+        Equal(room.Match.Rules.CampSupplyUses, RoomHost.TutorialSupplyUses);
+        Check(RoomHost.TutorialSupplyUses >= 20, "튜토리얼 캠프 상자 횟수가 적습니다");
+        Equal(room.Match.Supplies[0].UsesLeft, RoomHost.TutorialSupplyUses);
         Check(!room.Match.Rules.AllowEliteEnemies, "튜토리얼 방에 엘리트가 나옵니다");
         Equal(room.Match.Rules.EnemyWindupMultiplier, 2.0);
         MissionLayout reference = MissionLayout.CreateTutorial();

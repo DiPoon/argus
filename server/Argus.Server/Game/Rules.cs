@@ -23,7 +23,8 @@ public sealed class Rules
     public const int MaxPlayers = 4;
 
     // 운영 방(생성 작전)의 규칙이다. 엘리트가 나오고 적의 준비 동작은 기본 길이(1배)다.
-    // 기본 규칙(new Rules())은 손으로 만든 맵의 검사가 쓰는 튜토리얼 수준(병사만, 준비 동작 두 배)이다.
+    // 기본 규칙(new Rules())은 튜토리얼 수준(병사만, 준비 동작 두 배)이다. 손으로 만든 맵의 검사와, 운영의 튜토리얼 훈련장(RoomHost의
+    // tutorial 방, 증원을 끄고 캠프 상자를 늘림)이 쓴다. 기본값을 바꾸면 훈련장도 함께 바뀐다(PR #41 리뷰 7).
     public static Rules ForGeneratedMission()
     {
         return new Rules { AllowEliteEnemies = true, EnemyWindupMultiplier = 1 };

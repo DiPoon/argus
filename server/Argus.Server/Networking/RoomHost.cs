@@ -335,6 +335,8 @@ public sealed class RoomHost : BackgroundService
     // 연속해서 이만큼 진행에 실패한 방은 닫는다. 30번이면 약 1초다.
     private const int MaxRoomFailures = 30;
     // 서버 전체에 동시에 둘 수 있는 방 수다.
+    // 튜토리얼 훈련장의 캠프 상자 횟수다. 병사 셋을 받아치는 동안 마나와 체력을 채우러 오갈 만큼이다.
+    public const int TutorialSupplyUses = 20;
     public const int MaxRooms = 32;
     // 한 주소가 동시에 가질 수 있는 방 수다. 방을 만들고 접속을 붙잡아 두는 방법으로 몇 개 주소만으로
     // 방 32개 상한을 채우지 못하게 한다. 끝난 방도 마지막 대원이 나간 뒤 약 2분(재접속 유예) 동안 남으므로
@@ -451,7 +453,9 @@ public sealed class RoomHost : BackgroundService
             else if (tutorial)
             {
                 // 튜토리얼은 병사만, 준비 동작 두 배(기본 규칙)에 증원이 없다. 훈련용 병사 셋만 있다(CreateTutorial).
-                rules = new Rules { Reinforcements = false };
+                // 캠프 상자는 들판 상자가 없으므로 넉넉히 둔다(TutorialSupplyUses). 기본 네 번이면 지거나 비겨 체력을 채우러 몇 번 오가는
+                // 사이에 다 써서, 그 뒤로 마나가 떨어지면 훈련을 이어 갈 길이 없었다(PR #41 리뷰 2).
+                rules = new Rules { Reinforcements = false, CampSupplyUses = TutorialSupplyUses };
                 layout = MissionLayout.CreateTutorial();
             }
             else if (quiet)
