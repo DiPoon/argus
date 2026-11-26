@@ -7,9 +7,9 @@ paths:
 
 ## 실행과 하나만 실행하기
 
-서버 검사는 xUnit이 아니라 `tests/Argus.Server.Tests/Program.cs`의 자체 콘솔 하네스다. 인자 없이 돌리면 `Main()`이 열세 개의 `Register` 호출로 모든 검사를 등록한 뒤 순서대로 실행한다. 이름으로 고르는 필터는 없고, `-- determinism`을 주면 결정론 검사(`DeterminismTests`, `FixedTests`, `ClientParityTests`, `GeneratorTests`)만 돌린다. `-- vectors`는 검사 대신 클라이언트 예측 대조 자료를 다시 쓴다. 전체가 빌드를 포함해 20초 안팎이면 끝나므로 보통 그대로 돌린다. 하나만 보려면 `Program.cs`의 `Register` 호출을 임시로 줄이거나 해당 `*Tests.cs`의 `Register`에서 `tests.Add` 줄을 임시로 주석 처리한다. **임시 수정을 되돌리고 전체를 다시 통과시킨 뒤 커밋한다.**
+서버 검사는 xUnit이 아니라 `tests/Argus.Server.Tests/Program.cs`의 자체 콘솔 하네스다. 인자 없이 돌리면 `Main()`이 열네 개의 `Register` 호출로 모든 검사를 등록한 뒤 순서대로 실행한다. 이름으로 고르는 필터는 없고, `-- determinism`을 주면 결정론 검사(`DeterminismTests`, `FixedTests`, `ClientParityTests`, `GeneratorTests`)만 돌린다. `-- vectors`는 검사 대신 클라이언트 예측 대조 자료를 다시 쓴다. 전체가 빌드를 포함해 20초 안팎이면 끝나므로 보통 그대로 돌린다. 하나만 보려면 `Program.cs`의 `Register` 호출을 임시로 줄이거나 해당 `*Tests.cs`의 `Register`에서 `tests.Add` 줄을 임시로 주석 처리한다. **임시 수정을 되돌리고 전체를 다시 통과시킨 뒤 커밋한다.**
 
-검사 하나는 `Register` 안의 `tests.Add(new TestCase("영어 문장으로 쓴 이름", 메서드))` 한 줄이고, 실패는 예외다. 출력은 검사마다 `PASS 이름`이나 `FAIL 이름`, 마지막 줄은 `218/218 checks passed`다(2026-11-20. `-- determinism`은 26개, 약 13초).
+검사 하나는 `Register` 안의 `tests.Add(new TestCase("영어 문장으로 쓴 이름", 메서드))` 한 줄이고, 실패는 예외다. 출력은 검사마다 `PASS 이름`이나 `FAIL 이름`, 마지막 줄은 `225/225 checks passed`다(2026-11-24. `-- determinism`은 26개, 약 13초).
 
 ## 파일마다 다루는 것
 
@@ -28,10 +28,11 @@ paths:
 | `LayoutTests.cs` | 6 | 배치 검증, 맵 크기 | `mission.md` |
 | `GeneratorTests.cs` | 8 | 맵 생성 조건과 고정값(SHA-256) | `mission.md` |
 | `ExplorationTests.cs` | 8 | 분대가 본 칸, 바뀐 벽 보내기 | `authority.md` |
+| `TutorialTests.cs` | 7 | 튜토리얼 훈련장의 배치, 훈련 병사(한 상성·제자리·체력 3), 증원 없음, 방, 요약, 기록 재생 | `mission.md` |
 
 ## 도우미(`Program.cs`, `Pad.cs`)
 
-- `Fixture`: 손으로 만든 맵, 시드 73, 기본 규칙은 `new Rules { MaxEnemies = 0 }`이라 처음 적도 증원도 없다(`PlaceInitialEnemy`가 상한을 보고 넘어간다). 대원 `p`가 캠프에 착지해 살아 있는 상태로 시작한다. 적은 검사가 아래 도우미로 직접 둔다.
+- `Fixture`: 손으로 만든 맵(배치를 받는 생성자도 있다. 튜토리얼 훈련장 검사가 쓴다), 시드 73, 기본 규칙은 `new Rules { MaxEnemies = 0 }`이라 처음 적도 증원도 없다(`PlaceInitialEnemy`가 상한을 보고 넘어간다). 대원 `p`가 캠프에 착지해 살아 있는 상태로 시작한다. 적은 검사가 아래 도우미로 직접 둔다.
 - `TestTools.Advance(match, 초)`: 정수 틱으로만 진행하고 나머지는 한 틱으로 올린다. `StepUntil(match, 틱)`은 틱을 정확히 맞춘다.
 - `TestTools.NewHost(...)`: 검사의 `RoomHost`는 모두 이것으로 만든다. 방마다 정수 1, 2, 3, …의 시드를 차례로 쓴다(`TestSeeds`).
 - `TestTools.Scout(match, player, point)`: 캠프에서 먼 곳을 다루기 전에 그곳을 본 칸으로 만든다. 안 본 칸은 스냅샷에 실리지 않고 투입도 받지 않는다.

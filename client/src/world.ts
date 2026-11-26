@@ -122,8 +122,11 @@ export class World {
   overview = false;
   // 터치 화면의 서랍이 열려 있는지다(main.ts가 알린다). 미니맵은 서랍보다 위에 그려지므로 그동안 숨긴다.
   menuOpen = false;
+  // 미니맵 자리를 다른 것이 쓰는지다(main.ts가 알린다). 터치 화면의 훈련(이슈 #36)은 그 자리에 훈련 안내를 둔다.
+  // 가장 좁은 가로 화면에서 안내가 놓일 다른 자리는 화면 가운데의 대원을 덮었다. 훈련장은 짧은 길이라 미니맵이 없어도 된다.
+  minimapYielded = false;
   // 미니맵이다(minimap.ts). main.ts가 작전 화면의 캔버스로 만들어 붙인다. 보이는지는 draw 한 곳에서 정한다:
-  // 메인 화면이 맵 전체를 보이는 동안과 서랍이 열린 동안에는 숨긴다.
+  // 메인 화면이 맵 전체를 보이는 동안, 서랍이 열린 동안, 미니맵 자리를 다른 것이 쓰는 동안에는 숨긴다.
   minimap?: Minimap;
   landing?: Position;
   fps = 60;
@@ -237,6 +240,7 @@ export class World {
     this.landing = undefined;
     this.overview = false;
     this.menuOpen = false;
+    this.minimapYielded = false;
     for (const layer of [this.ground, this.light, this.props, this.units]) layer.clear();
     for (const chunk of [...this.fogChunks, ...this.wallChunks]) chunk.destroy();
     this.fogChunks = [];
@@ -791,7 +795,9 @@ export class World {
       const aim = action?.aim ?? Math.atan2((me?.y ?? p.y) - p.y, (me?.x ?? p.x) - p.x);
       u.circle(p.x + Math.cos(aim) * r * .7, p.y + Math.sin(aim) * r * .7, 3).fill(0x172222);
       if (enemy.maxHp > 1) {
-        this.label(`enemy-type-${enemy.id}`, `${enemy.name} · 타${enemy.tiers[0]} 방${enemy.tiers[1]} 잡${enemy.tiers[2]}`, p.x, p.y + r + 17, color, 11);
+        // 티어 0은 그 상성을 쓰지 않는다는 뜻이라 적지 않는다(튜토리얼의 훈련 병사는 한 상성만 쓴다, protocol.md의 tiers).
+        const tierText = ['타', '방', '잡'].map((name, index) => enemy.tiers[index] > 0 ? `${name}${enemy.tiers[index]}` : '').filter(text => text !== '').join(' ');
+        this.label(`enemy-type-${enemy.id}`, `${enemy.name} · ${tierText}`, p.x, p.y + r + 17, color, 11);
         for (let i = 0; i < enemy.maxHp; i++) {
           u.rect(p.x - enemy.maxHp * 5 + i * 10, p.y - r - 10, 7, 4).fill(i < enemy.hp ? color : 0x394342);
         }
@@ -856,7 +862,7 @@ export class World {
     this.removeUnusedLabels();
     this.hideUnusedHands();
     if (this.minimap) {
-      const shown = !overview && !this.menuOpen;
+      const shown = !overview && !this.menuOpen && !this.minimapYielded;
       this.minimap.show(shown);
       if (shown) {
         // 미니맵에도 메인 화면이 그리는 위치를 넘긴다. 적은 그리기 상한(renderBudget)과 관계없이 보이는 적을 모두 넘긴다. 점 하나라 가볍다.

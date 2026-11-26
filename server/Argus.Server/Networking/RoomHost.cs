@@ -280,6 +280,8 @@ public sealed class EntryRequest
     // 손으로 만든 맵에 적이 처음부터 없고 증원도 오지 않는 조용한 방이다. 같은 서버 설정이 켜져 있어야 받는다.
     // 조작과 화면을 보는 브라우저 검사가 쓴다. 적이 다가와 대원을 치면 그런 검사의 결과가 흔들린다.
     public const string QuietLayout = "quiet";
+    // 튜토리얼 훈련장이다. 처음 온 사람이 로비에서 고른다(이슈 #36). 서버 설정 없이 받는다.
+    public const string TutorialLayout = "tutorial";
     public string? Name { get; }
     public string[]? Slots { get; }
     // 방을 만들 때 고르는 맵이다. 비어 있으면 생성 작전이다. 참가할 때는 쓰지 않는다.
@@ -332,6 +334,8 @@ public sealed class RoomHost : BackgroundService
     private long _connection;
     // 연속해서 이만큼 진행에 실패한 방은 닫는다. 30번이면 약 1초다.
     private const int MaxRoomFailures = 30;
+    // 튜토리얼 훈련장의 캠프 상자 횟수다. 병사 셋을 받아치는 동안 마나와 체력을 채우러 오갈 만큼이다.
+    public const int TutorialSupplyUses = 20;
     // 서버 전체에 동시에 둘 수 있는 방 수다.
     public const int MaxRooms = 32;
     // 한 주소가 동시에 가질 수 있는 방 수다. 방을 만들고 접속을 붙잡아 두는 방법으로 몇 개 주소만으로
@@ -402,14 +406,17 @@ public sealed class RoomHost : BackgroundService
         }
         // 운영 방은 모두 생성 작전이다. 손으로 만든 맵과 그 맵의 조용한 방은 서버 설정이 허락할 때 검사가 고를 수 있고,
         // 다른 값은 받지 않는다.
+        // 튜토리얼 훈련장(tutorial)은 운영에서도 쓰므로 설정 없이 고를 수 있다(이슈 #36).
         bool handmade = false;
         bool quiet = false;
+        bool tutorial = false;
         if (request.Layout != null)
         {
             handmade = request.Layout == EntryRequest.HandmadeLayout;
             quiet = request.Layout == EntryRequest.QuietLayout;
-            bool known = handmade || quiet;
-            if (!known || !_allowHandmade)
+            tutorial = request.Layout == EntryRequest.TutorialLayout;
+            bool known = handmade || quiet || tutorial;
+            if (!known || (!tutorial && !_allowHandmade))
             {
                 failure = EntryFailure.LayoutUnavailable;
                 return null;
@@ -442,6 +449,14 @@ public sealed class RoomHost : BackgroundService
             {
                 rules = new Rules();
                 layout = MissionLayout.CreateHandmade();
+            }
+            else if (tutorial)
+            {
+                // 튜토리얼은 병사만, 준비 동작 두 배(기본 규칙)에 증원이 없다. 훈련용 병사 셋만 있다(CreateTutorial).
+                // 캠프 상자는 들판 상자가 없으므로 넉넉히 둔다(TutorialSupplyUses). 기본 네 번이면 지거나 비겨 체력을 채우러 몇 번 오가는
+                // 사이에 다 써서, 그 뒤로 마나가 떨어지면 훈련을 이어 갈 길이 없었다(PR #41 리뷰 2).
+                rules = new Rules { Reinforcements = false, CampSupplyUses = TutorialSupplyUses };
+                layout = MissionLayout.CreateTutorial();
             }
             else if (quiet)
             {

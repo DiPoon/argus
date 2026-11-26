@@ -325,6 +325,11 @@ public sealed class Enemy
     // 마지막으로 움직인 걸음이다(움직이던 쪽). 서 있는 동안에는 그대로 둔다. 더 갈 수 없어 기다리는 적이 이 방향을 거슬러
     // 되돌아가지 않게 하는 데 쓴다(Match.KeepsCourse).
     public FixedVector LastMove;
+    // 최대 체력이다. 보통은 종류의 체력이고, 튜토리얼의 훈련용 적은 배치가 정한다(EnemySpot.Health).
+    public int MaxHp;
+    // 튜토리얼의 훈련용 적이다. 늘 이 행동만 예고하고(null이면 종류의 행동 가운데 무작위), 제자리에 서서 걷지 않는다(EnemySpot).
+    public EnemySkill? FixedSkill;
+    public bool Holds;
 
     public Enemy(int id, FixedVector position, EnemyDefinition definition)
     {
@@ -332,6 +337,7 @@ public sealed class Enemy
         Position = position;
         Definition = definition;
         Hp = definition.Health;
+        MaxHp = definition.Health;
     }
 }
 

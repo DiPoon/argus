@@ -146,6 +146,15 @@ public sealed partial class Match
         hasher.AddPoint(enemy.Position);
         hasher.AddText(enemy.Definition.Id);
         hasher.AddDouble(enemy.Hp);
+        hasher.AddInt(enemy.MaxHp);
+        // 훈련용 적의 늘 쓰는 행동(정의 안의 순서, 없으면 -1)과 제자리에 서기다.
+        int fixedSkill = -1;
+        if (enemy.FixedSkill != null)
+        {
+            fixedSkill = Array.IndexOf(enemy.Definition.Skills, enemy.FixedSkill);
+        }
+        hasher.AddInt(fixedSkill);
+        hasher.AddBool(enemy.Holds);
         hasher.AddLong(enemy.NextActionTick);
         // 움직이던 쪽은 기다리는 적의 다음 걸음을 가른다.
         hasher.AddPoint(enemy.LastMove);

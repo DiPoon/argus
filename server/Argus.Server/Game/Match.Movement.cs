@@ -317,15 +317,27 @@ public sealed partial class Match
     // 처음 배치는 정해진 자료이므로 자리가 막혀 있으면 결함이다. AddEnemy처럼 조용히 빼지 않고 예외를 낸다.
     // 이 시점에는 대원도 숨은 정보도 없으므로 실패를 알려도 안개 속을 엿보는 수단이 되지 않는다.
     // 규칙이 적을 두지 않게 한 경우(검사의 MaxEnemies = 0 등)는 결함이 아니므로 그냥 넘어간다.
-    private void PlaceInitialEnemy(FixedVector spot, EnemyDefinition definition)
+    private void PlaceInitialEnemy(EnemySpot spot, EnemyDefinition definition)
     {
         if (Enemies.Count >= Rules.MaxEnemies)
         {
             return;
         }
-        if (!AddEnemy(spot, definition))
+        if (!AddEnemy(spot.Position, definition))
         {
-            throw new InvalidOperationException($"처음 배치 자리 {spot}에 {definition.Id}을 둘 수 없습니다. 벽이나 다른 적과 겹칩니다.");
+            throw new InvalidOperationException($"처음 배치 자리 {spot.Position}에 {definition.Id}을 둘 수 없습니다. 벽이나 다른 적과 겹칩니다.");
+        }
+        // 튜토리얼의 훈련용 적이면 늘 쓸 행동, 제자리에 서기, 체력을 배치대로 정한다(EnemySpot).
+        Enemy placed = Enemies[Enemies.Count - 1];
+        if (spot.Drill != null)
+        {
+            placed.FixedSkill = definition.SkillOf(spot.Drill);
+        }
+        placed.Holds = spot.Holds;
+        if (spot.Health != null)
+        {
+            placed.Hp = spot.Health.Value;
+            placed.MaxHp = spot.Health.Value;
         }
     }
 
@@ -604,12 +616,26 @@ public sealed partial class Match
             bool sight = Map.LineOfSight(enemy.Position, target.Position);
             if (Tick >= enemy.NextActionTick && closest < Fixed.FromInt(EngageDistance * EngageDistance) && sight)
             {
-                int index = _random.NextInt(0, enemy.Definition.Skills.Length);
-                EnemySkill skill = enemy.Definition.Skills[index];
+                // 훈련용 적은 늘 정해진 행동을 고른다. 그때는 난수를 뽑지 않는다.
+                EnemySkill skill;
+                if (enemy.FixedSkill != null)
+                {
+                    skill = enemy.FixedSkill;
+                }
+                else
+                {
+                    int index = _random.NextInt(0, enemy.Definition.Skills.Length);
+                    skill = enemy.Definition.Skills[index];
+                }
                 _nextId++;
                 enemy.Action = new EnemyAction(_nextId, skill, Angle.Of(direct), Tick, Rules.EnemyWindupMultiplier, target.Id);
                 // 회복이 끝난 틱에서 0.25초(8틱) 쉰 뒤 다음 행동을 고른다.
                 enemy.NextActionTick = enemy.Action.EndsTick + Rules.ToTicks(0.25);
+                continue;
+            }
+            // 제자리에 서는 훈련용 적은 걷지 않는다. 행동하는 적처럼 이동 계획을 만들지 않으므로, 다른 적에게는 서 있는 몸이다.
+            if (enemy.Holds)
+            {
                 continue;
             }
             // 조향: 몸이 직선으로 지나갈 수 있으면 직진하고, 사선이 가려졌거나 몸이 모서리에 걸리면 흐름장 경로를 따른다.
