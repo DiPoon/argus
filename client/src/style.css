@@ -1578,13 +1578,20 @@ body.touch .welcome-actions { margin-top:10px }
 .tutorial-guide p { margin:0 0 4px; color:#b4c0ae }
 .tutorial-guide em { font-style:normal; color:#e6eed8 }
 .tutorial-guide kbd { margin:0 2px }
+/* 막 체력을 잃었을 때 3.5초 동안 보이는 줄이다(main.ts의 tutorialHurtUntil). 알림으로 띄우면 대원을 덮었다(PR #41 리뷰 1). */
+.tutorial-guide .guide-alert { color:#f6c3b4 }
+.tutorial-guide .guide-alert strong { color:#ff9b8a; font-weight:600 }
+/* 화면에는 보이지 않고 화면 읽기 프로그램만 읽는 글이다. 훈련 안내의 단계와 할 일을 바뀔 때만 읽어 준다(#tutorial-live). */
+.screen-reader { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0 }
 /* 훈련장에는 시설과 보급품이 없고 다른 사람을 부를 일도 없으므로 옆 패널의 임무와 초대 링크를 숨긴다. */
 body.tutorial .mission-section, body.tutorial .room-code { display:none }
 /* 터치 화면의 안내는 미니맵 자리(위쪽 줄 바로 아래 왼쪽)에 둔다. 훈련 중에는 미니맵을 숨긴다(World.minimapYielded).
+   미니맵처럼 위쪽 줄(.top-row) 안에서 흐름 밖에 놓는다. 흐름 안(알림 앞)에 두었을 때는 알림이 안내 높이만큼 밀려 내려가 대원을 덮었다
+   (844×390·320×568에서 잼, PR #41 리뷰 1). 이제 알림은 보통 작전과 같은 자리(위쪽 줄 바로 밑)에 뜨고, 뜨는 동안(3.5초) 안내를 덮는다.
+   보통 작전에서 폭 600px 이하일 때 알림이 미니맵을 잠시 덮는 것과 같다. 안내가 움직이지 않는다.
    알림과 미니맵 사이 가운데에 두었을 때는 가장 좁은 가로 화면(533×320)에서 화면 가운데의 대원을 덮었다. 가로 화면에서는 폭을 화면의
-   절반에서 40px 모자라게 해 대원(가운데)에 닿지 않는다. 세로 화면은 대원이 아래쪽 가운데라 넓게 쓴다. DOM에서 알림 앞에 두어 알림이
-   떠도 안내는 움직이지 않는다. 서랍이 열린 동안은 숨긴다. 서랍은 위쪽 줄 묶음 아래 끝(--top-stack)에서 시작하므로 안내가 있으면 낮아진다. */
-body.touch .tutorial-guide { position:static; z-index:1; transform:none; width:auto; align-self:flex-start; max-width:min(360px,100%);
+   절반에서 40px 모자라게 해 대원(가운데)에 닿지 않는다. 세로 화면은 대원이 아래쪽 가운데라 넓게 쓴다. 서랍이 열린 동안은 숨긴다. */
+body.touch .tutorial-guide { position:absolute; top:calc(100% + 6px); left:0; right:auto; z-index:0; transform:none; width:max-content; max-width:min(360px,100%);
   padding:6px 10px; font-size:10px; line-height:1.5 }
 /* 높이 520px 이하의 짧은 세로 화면(분할 화면·작은 창)도 대원이 위쪽 줄 가까이에 있어 가로 화면처럼 좁힌다. 390×400에서 넓게 두었을 때 안내가
    대원의 이름표와 몸 위쪽을 덮었다(2026-11-26, PR #40을 합친 뒤 잼). 짧은 화면의 기준은 알림이 기술 버튼 쪽을 비우는 기준과 같다. */

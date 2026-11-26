@@ -160,8 +160,8 @@ ${welcome}
           <div class="skill-bar" id="skill-bar">${slotKeys.map((key, index) => `<div class="skill-slot" data-slot="${index + 1}"><kbd>${key}</kbd><b><span class="hand"></span><span class="name"></span></b><small></small><i></i></div>`).join('')}</div><p id="combat-status" aria-live="polite"></p>
         </div>
         <div class="map-top"><span class="map-title"><i></i><span id="view-label">전술 지도 / 투입 위치 선택</span></span><div class="timers"><span id="mission-mini" class="mission-mini"></span><span>경과 <b id="elapsed">00:00</b></span></div><span id="touch-extract" class="mission-mini touch-extract"></span></div>
-        <canvas id="minimap" class="minimap" hidden aria-hidden="true"></canvas>
-      </div><div id="tutorial-guide" class="tutorial-guide" aria-live="polite" hidden></div><div id="toast" class="toast" role="status" hidden></div></div>
+        <canvas id="minimap" class="minimap" hidden aria-hidden="true"></canvas><div id="tutorial-guide" class="tutorial-guide" hidden></div>
+      </div><div id="toast" class="toast" role="status" hidden></div></div><p id="tutorial-live" class="screen-reader" aria-live="polite"></p>
       <div id="deploy-panel" class="deploy-panel"><div><span class="eyebrow" id="deploy-kicker">READY TO DEPLOY</span><h3 id="deploy-title">투입할 위치를 선택하세요</h3><p id="deploy-description">분대가 본 곳의 빈 지면을 ${pick}. 선택 전에는 계속 대기합니다.</p></div><div class="deploy-actions"><button id="camp" class="secondary">캠프 선택</button><button id="deploy" class="primary" disabled>위치 선택 필요</button></div></div>
       <div id="touch-controls" class="touch-controls" hidden>
         <div id="touch-move" class="touch-move" aria-label="이동"><i id="touch-base" class="touch-base" hidden><b id="touch-knob" class="touch-knob"></b></i></div>
@@ -213,12 +213,18 @@ function markTutorialDone() {
 // 만든 탭이 기억한다(새로 고쳐도 이어지게 탭별 sessionStorage, 복구 정보 argus-guest와 같은 수명). 방 코드로 들어온 다른 사람에게는 평소 HUD다.
 const tutorialRoomKey = 'argus-tutorial-room';
 let tutorialRoom: string | undefined;
+// 복구 정보로 돌아가는 방이 이 탭이 만든 훈련 방이면 기억한다. 처음 열 때와, 초대받은 방이 409라 있던 방으로 돌아갈 때 함께 쓴다.
+// 409 길에서 정하지 않으면 훈련 방에 돌아가도 작전 화면(시설 0/3, 초대 링크)이 나왔다(PR #41 리뷰 3).
+const rememberTutorialRoom = (room: string) => { tutorialRoom = sessionStorage.getItem(tutorialRoomKey) === room ? room : undefined; };
 // 훈련 병사마다 예고한 손이다(적 id → 상성). 훈련 병사는 늘 같은 손만 내므로(서버의 EnemySpot.Drill), 한 번 본 손으로 예고하지 않는 동안에도 이길 손을 알린다.
 const drillKinds = new Map<number, Affinity>();
 // 훈련 중 지난 스냅샷의 내 체력이다. 줄면 지거나 비기면 체력을 잃는다고 알린다. 살아 있지 않으면 비운다.
 let tutorialHp: number | undefined;
 // 이번 훈련에서 마나를 한 번이라도 채웠는지다. 보급 단계의 안내를 처음 채울 때와 다 쓴 뒤로 나눈다.
 let tutorialSupplied = false;
+// 훈련 중 체력이 준 때부터 3.5초 동안 안내에 그 까닭을 보인다(performance.now 기준). 알림으로 띄우면 막 맞아 다음 예고를 봐야 할 때
+// 알림이 대원을 덮었다(PR #41 리뷰 1).
+let tutorialHurtUntil = 0;
 let snapshot: Snapshot | undefined;
 let socket: WebSocket | undefined;
 let world: World | undefined;
@@ -398,7 +404,8 @@ async function enter(code?: string, tutorial = false) {
   // 입력란에 친 코드도 초대 링크로 받은 코드와 같은 함수로 맞춘다(invite.ts). 서버가 쓰지 않는 글자(I·O·0·1)가 있으면 보내지 않는다.
   const inputCode = code === undefined ? undefined : normalizeRoomCode(code);
   if (code !== undefined && inputCode === undefined) { $('lobby-error').textContent = '방 코드 6자리를 확인해 주세요.'; return; }
-  const entryButtons = ['create', 'join', 'tutorial-start', 'lobby-tutorial'].map(id => $<HTMLButtonElement>(id));
+  // 방을 만드는 동안에는 첫 방문 화면의 건너뛰기도 막는다. 누르면 로비가 보였다가 요청이 끝나는 순간 훈련 방이 열렸다(PR #41 리뷰 5).
+  const entryButtons = ['create', 'join', 'tutorial-start', 'tutorial-skip', 'lobby-tutorial'].map(id => $<HTMLButtonElement>(id));
   // 전체 화면은 누름 안에서만 켤 수 있으므로 서버의 답을 기다리기 전에 켠다.
   if (touchMode) enterFullscreen();
   connecting = true;
@@ -427,6 +434,7 @@ async function enter(code?: string, tutorial = false) {
         const saved = savedGuest();
         if (saved && saved.room !== inputCode) {
           guest = saved;
+          rememberTutorialRoom(saved.room);
           toast(`${inputCode} 방에는 들어갈 수 없어 있던 방으로 돌아왔습니다.`);
           await openOperation();
           return;
@@ -623,7 +631,8 @@ function leave() {
   closeReportNote();
   sessionStorage.removeItem('argus-guest');
   // 훈련 상태도 비운다. 다음 방이 훈련이면 enter가 다시 정한다.
-  tutorialRoom = undefined; tutorialHp = undefined; tutorialSupplied = false; drillKinds.clear();
+  tutorialRoom = undefined; tutorialHp = undefined; tutorialSupplied = false; tutorialHurtUntil = 0; drillKinds.clear();
+  $('tutorial-live').textContent = '';
   sessionStorage.removeItem(tutorialRoomKey);
   window.clearTimeout(reconnectTimer);
   socket?.close(); socket = undefined;
@@ -650,11 +659,18 @@ function leave() {
 
 // 이기는 손이다. 상성은 타격 < 방어 < 잡기 < 타격이다(서버의 Affinity.Beats).
 const winningKind: Record<Exclude<Affinity, 'none'>, Exclude<Affinity, 'none'>> = { strike: 'block', block: 'channel', channel: 'strike' };
-const kindMark = (kind: Exclude<Affinity, 'none'>) => `<span class="skill-${kind}">${handIcon(kind)}${affinityNames[kind]}</span>`;
+// 안내의 손 그림은 종류마다 한 번 만들어 다시 쓴다. handIcon은 부를 때마다 마스크 id가 달라, 그대로 쓰면 같은 안내도 스냅샷마다 글이 달라져
+// 다시 쓰지 않는 확인(setMarkup)이 듣지 않았다(PR #41 리뷰 4). 한 안내에는 한 종류의 손이 한 번씩만 나와 id가 겹치지 않는다.
+const guideHands = new Map<Affinity, string>();
+const guideHand = (kind: Affinity) => {
+  if (!guideHands.has(kind)) guideHands.set(kind, handIcon(kind));
+  return guideHands.get(kind)!;
+};
+const kindMark = (kind: Exclude<Affinity, 'none'>) => `<span class="skill-${kind}">${guideHand(kind)}${affinityNames[kind]}</span>`;
 // 그 종류의 기술을 내는 내 칸과 누를 것이다. 종류 칸(1~3번)은 칸마다 종류가 정해져 있다(loadout.ts의 kindSlots). 터치 화면은 버튼 이름이다.
 function answerMark(p: Player, kind: Exclude<Affinity, 'none'>) {
   const slot = kindSlots.findIndex(entry => entry.kind === kind) + 1;
-  const name = `<span class="skill-${kind}">${handIcon(kind)}${skillNames[p.slots[slot - 1]]}</span>`;
+  const name = `<span class="skill-${kind}">${guideHand(kind)}${skillNames[p.slots[slot - 1]]}</span>`;
   return touchMode ? `<em>${name}</em> 버튼` : `<em>${name}</em> <kbd>${slotKeys[slot - 1]}</kbd>`;
 }
 // 훈련 병사는 셋이다(서버의 MissionLayout.CreateTutorial). 분대가 쓰러뜨린 수로 단계를 정한다. 병사는 시야에 들어와야 스냅샷에 오므로
@@ -664,23 +680,44 @@ const tutorialDrills = 3;
 // 훈련 중 지도 위의 안내다. 단계는 넷이고 스냅샷의 상태로 정한다. 투입(살아 있지 않음) → 이동과 보급(마나 없음) → 받아치기(병사 셋)
 // → 탈출. 받아치기 단계에서는 가장 가까운 병사가 예고한 손과 그것을 이기는 내 칸을 기기에 맞춰 알린다(PC는 키, 터치 화면은 버튼 이름).
 // 터치 화면은 자리가 좁아(가장 좁은 가로 화면에서 폭 180px 안팎) 줄을 줄인다.
-function tutorialGuide(s: Snapshot, p: Player) {
+// html은 안내 상자에 그릴 글, say는 화면 읽기 프로그램에 읽어 줄 글이다. say에는 0.1초마다 바뀌는 수(투입 초읽기, 탈출 초, 보급 대기 초)를
+// 넣지 않는다. 안내 상자를 live 영역으로 두었을 때 스냅샷마다 다시 읽혔다(PR #41 리뷰 4).
+const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+function tutorialGuide(s: Snapshot, p: Player): { html: string; say: string } {
   const kills = s.players.reduce((sum, member) => sum + member.kills, 0);
-  const step = (n: number, title: string, lines: string[]) => `<span class="guide-step">훈련 ${n} / 4</span><b>${title}</b>${lines.map(line => `<p>${line}</p>`).join('')}`;
+  // 막 체력을 잃었으면 그 까닭을 보인다. 받아치기 단계에서는 늘 있는 손해 줄을 이 줄로 바꾸고, 다른 단계에서는 덧붙인다.
+  const hurt = performance.now() < tutorialHurtUntil ? '<strong>체력을 잃었습니다</strong> · 지거나 비기거나 늦으면 맞습니다.' : '';
+  const step = (n: number, title: string, lines: string[], say: string[]) => {
+    const shown = hurt && n !== 3 ? [...lines, hurt] : lines;
+    return {
+      html: `<span class="guide-step">훈련 ${n} / 4</span><b>${title}</b>${shown.map(line => `<p${line === hurt ? ' class="guide-alert"' : ''}>${line}</p>`).join('')}`,
+      say: [`훈련 ${n} / 4 ${title}`, ...say, ...(hurt ? [plain(hurt)] : [])].join('. '),
+    };
+  };
   if (p.state !== 'alive') {
-    return step(1, '투입', [p.state === 'deploying' ? `${p.deploy.toFixed(1)}초 뒤 캠프에 내립니다.`
-      : p.hasDeployed ? '쓰러졌습니다. 캠프를 골라 다시 투입하세요.' : '아래의 <em>캠프 선택</em>을 누르고 <em>투입</em>을 누르세요.']);
+    // 지도에서 다른 자리를 골라 투입할 수도 있으므로 "캠프에" 내린다고 하지 않는다(PR #41 리뷰 6).
+    if (p.state === 'deploying') return step(1, '투입', [`${p.deploy.toFixed(1)}초 뒤 고른 자리에 내립니다.`], ['곧 고른 자리에 내립니다']);
+    const line = p.hasDeployed ? '쓰러졌습니다. 캠프를 골라 다시 투입하세요.' : '아래의 <em>캠프 선택</em>을 누르고 <em>투입</em>을 누르세요.';
+    return step(1, '투입', [line], [plain(line)]);
   }
   if (kills >= tutorialDrills) {
     const ext = s.extraction;
-    return step(4, '탈출', [ext ? `탈출 지점 안에서 ${ext.duration}초 버티면 훈련이 끝납니다 · <em>${extractSeconds(ext.progress)}초</em>` : '오른쪽 끝으로 가면 탈출 지점이 보입니다.',
-      ...(touchMode ? [] : ['실전에서는 적 시설 셋을 부숴야 탈출이 열립니다.'])]);
+    const goal = ext ? `탈출 지점 안에서 ${ext.duration}초 버티면 훈련이 끝납니다` : '오른쪽 끝으로 가면 탈출 지점이 보입니다.';
+    return step(4, '탈출', [ext ? `${goal} · <em>${extractSeconds(ext.progress)}초</em>` : goal, ...(touchMode ? [] : ['실전에서는 적 시설 셋을 부숴야 탈출이 열립니다.'])], [goal]);
   }
   const walk = touchMode ? '화면 왼쪽 아래를 누른 채 끌면 걷습니다.' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>로 걷습니다.';
   if (p.mana < 1) {
     // 기술마다 드는 마나는 터치 화면에서 빼고 알린다. 기술 버튼마다 적혀 있고, 가장 작은 세로 화면(320×568)에서 한 줄 길면 대원을 덮었다.
-    const supply = `캠프 옆 청록색 보급 상자에 닿으면 마나가 찹니다.${touchMode ? '' : ' 기술마다 마나 1을 씁니다.'}`;
-    return step(2, '이동과 보급', [walk, tutorialSupplied ? '마나를 다 썼습니다. 보급 상자에서 다시 채우세요.' : supply]);
+    // 다시 채울 때는 캠프 상자의 대기(같은 대원은 18초)와 남은 횟수를 알린다. 상자가 비었는데 "다시 채우세요"만 되풀이하지 않는다(PR #41 리뷰 2).
+    const camp = s.supplies.find(supply => supply.kind === 'camp');
+    let supply = `캠프 옆 청록색 보급 상자에 닿으면 마나가 찹니다.${touchMode ? '' : ' 기술마다 마나 1을 씁니다.'}`;
+    let say = supply;
+    if (camp && camp.uses <= 0) supply = say = '캠프 보급 상자를 다 썼습니다. 로비에서 훈련을 다시 시작하세요.';
+    else if (tutorialSupplied && camp && camp.cooldown > 0) {
+      supply = `마나를 다 썼습니다. 보급 상자는 <em>${Math.ceil(camp.cooldown)}초</em> 뒤 다시 쓸 수 있습니다.`;
+      say = '마나를 다 썼습니다. 보급 상자를 다시 쓸 수 있을 때까지 기다리세요.';
+    } else if (tutorialSupplied) supply = say = '마나를 다 썼습니다. 보급 상자에서 다시 채우세요.';
+    return step(2, '이동과 보급', [walk, supply], [plain(walk), plain(say)]);
   }
   // 가장 가까운 병사다. 시야(410) 안의 병사만 스냅샷에 온다.
   let near: Snapshot['enemies'][number] | undefined;
@@ -693,18 +730,21 @@ function tutorialGuide(s: Snapshot, p: Player) {
   const cue = !near ? '오른쪽으로 걸어 병사에게 다가가세요.'
     : kind === undefined || kind === 'none' ? '다가가면 병사가 손을 예고합니다.'
     : `${kindMark(kind)} 예고 → ${answerMark(p, winningKind[kind])}`;
-  const penalty = '지면 나만, 비기면 서로 체력 1을 잃습니다.';
-  return step(3, `이기는 손으로 받아치기 · ${kills}/${tutorialDrills}`, touchMode ? [cue, penalty] : [cue, '예고 장판 안에서 누르면 그 순간 쓰러집니다.', penalty]);
+  const penalty = hurt || '지면 나만, 비기면 서로 체력 1을 잃습니다.';
+  return step(3, `이기는 손으로 받아치기 · ${kills}/${tutorialDrills}`, touchMode ? [cue, penalty] : [cue, '예고 장판 안에서 누르면 그 순간 쓰러집니다.', penalty], [plain(cue)]);
 }
 
-// 훈련 중 스냅샷마다 부른다. 병사가 예고한 손과 마나를 채웠는지를 적고, 체력이 줄면 까닭을 알린 뒤 안내를 고친다.
+// 훈련 중 스냅샷마다 부른다. 병사가 예고한 손과 마나를 채웠는지를 적고, 체력이 줄면 안내에 까닭을 3.5초 보인 뒤 안내를 고친다.
+// 화면 읽기 프로그램에 읽어 줄 글은 따로 두고(#tutorial-live), 글이 바뀔 때만 고친다.
 function updateTutorial(s: Snapshot, p: Player) {
   for (const enemy of s.enemies) if (enemy.action && enemy.action.kind !== 'none') drillKinds.set(enemy.id, enemy.action.kind);
   const alive = p.state === 'alive';
   if (alive && p.mana > 0) tutorialSupplied = true;
-  if (alive && tutorialHp !== undefined && p.hp < tutorialHp) toast('체력을 잃었습니다. 지거나 비기거나 늦게 누르면 맞습니다.');
+  if (alive && tutorialHp !== undefined && p.hp < tutorialHp) tutorialHurtUntil = performance.now() + 3500;
   tutorialHp = alive ? p.hp : undefined;
-  setMarkup('tutorial-guide', tutorialGuide(s, p));
+  const guide = tutorialGuide(s, p);
+  setMarkup('tutorial-guide', guide.html);
+  if ($('tutorial-live').textContent !== guide.say) $('tutorial-live').textContent = guide.say;
 }
 
 function updateUi() {
@@ -1084,7 +1124,7 @@ if (saved && (invite.room === undefined || invite.room === saved.room)) {
   // 이 탭이 들어가 있던 방으로 돌아간다. 그 방의 초대 링크를 다시 연 것이어도 이미 그 방의 대원이므로 새로 참가하지 않는다.
   // 그 방의 초대는 남겨 두었다가 첫 스냅샷에서 치운다. 복구 정보가 만료되어 들어가지 못하면(1008) 로비가 그 방의 참가를 보인다(PR #31 리뷰 1).
   guest = saved;
-  if (sessionStorage.getItem(tutorialRoomKey) === saved.room) tutorialRoom = saved.room;
+  rememberTutorialRoom(saved.room);
   if (invite.room !== undefined) showInvite(invite.room);
   void openOperation();
 } else {
