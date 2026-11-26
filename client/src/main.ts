@@ -685,7 +685,8 @@ const tutorialDrills = 3;
 const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 function tutorialGuide(s: Snapshot, p: Player): { html: string; say: string } {
   const kills = s.players.reduce((sum, member) => sum + member.kills, 0);
-  // 막 체력을 잃었으면 그 까닭을 보인다. 받아치기 단계에서는 늘 있는 손해 줄을 이 줄로 바꾸고, 다른 단계에서는 덧붙인다.
+  // 막 체력을 잃었으면 그 까닭을 보인다. 받아치기 단계에서는 늘 있는 손해 줄을 이 줄로 바꾸고, 다른 단계에서는 덧붙인다. 덧붙이는 단계는
+  // 줄이 하나뿐이도록 둔다(보급 단계는 아래에서 줄을 바꾼다).
   const hurt = performance.now() < tutorialHurtUntil ? '<strong>체력을 잃었습니다</strong> · 지거나 비기거나 늦으면 맞습니다.' : '';
   const step = (n: number, title: string, lines: string[], say: string[]) => {
     const shown = hurt && n !== 3 ? [...lines, hurt] : lines;
@@ -709,15 +710,22 @@ function tutorialGuide(s: Snapshot, p: Player): { html: string; say: string } {
   if (p.mana < 1) {
     // 기술마다 드는 마나는 터치 화면에서 빼고 알린다. 기술 버튼마다 적혀 있고, 가장 작은 세로 화면(320×568)에서 한 줄 길면 대원을 덮었다.
     // 다시 채울 때는 캠프 상자의 대기(같은 대원은 18초)와 남은 횟수를 알린다. 상자가 비었는데 "다시 채우세요"만 되풀이하지 않는다(PR #41 리뷰 2).
+    // 안내는 피격 줄을 더해도 두 줄까지다. 처음 채우기 전에는 걷기 줄과 상자 줄이고, 막 맞았으면 걷기 줄 대신 피격 줄이다. 한 번 채운
+    // 뒤에는 걷기 줄을 빼고 제목을 "마나를 다 썼습니다"로 바꿔 상자 줄 하나만 둔다. 걷기·상자·피격 세 줄이거나 상자 줄이 두 줄로 꺾이면
+    // 가장 작은 세로 화면(320×568)에서 한글·CI 실행기 글꼴로 대원을 덮었다(PR #41 재리뷰 가).
+    if (!tutorialSupplied) {
+      const supply = `캠프 옆 청록색 보급 상자에 닿으면 마나가 찹니다.${touchMode ? '' : ' 기술마다 마나 1을 씁니다.'}`;
+      return step(2, '이동과 보급', hurt ? [supply] : [walk, supply], [plain(walk), plain(supply)]);
+    }
     const camp = s.supplies.find(supply => supply.kind === 'camp');
-    let supply = `캠프 옆 청록색 보급 상자에 닿으면 마나가 찹니다.${touchMode ? '' : ' 기술마다 마나 1을 씁니다.'}`;
-    let say = supply;
-    if (camp && camp.uses <= 0) supply = say = '캠프 보급 상자를 다 썼습니다. 로비에서 훈련을 다시 시작하세요.';
-    else if (tutorialSupplied && camp && camp.cooldown > 0) {
-      supply = `마나를 다 썼습니다. 보급 상자는 <em>${Math.ceil(camp.cooldown)}초</em> 뒤 다시 쓸 수 있습니다.`;
-      say = '마나를 다 썼습니다. 보급 상자를 다시 쓸 수 있을 때까지 기다리세요.';
-    } else if (tutorialSupplied) supply = say = '마나를 다 썼습니다. 보급 상자에서 다시 채우세요.';
-    return step(2, '이동과 보급', [walk, supply], [plain(walk), plain(say)]);
+    let line = '캠프 보급 상자에서 다시 채우세요.';
+    let say = line;
+    if (camp && camp.uses <= 0) line = say = '보급 상자를 다 썼습니다. 훈련을 다시 시작하세요.';
+    else if (camp && camp.cooldown > 0) {
+      line = `보급 상자는 <em>${Math.ceil(camp.cooldown)}초</em> 뒤 다시 쓸 수 있습니다.`;
+      say = '보급 상자를 다시 쓸 수 있을 때까지 기다리세요.';
+    }
+    return step(2, '마나를 다 썼습니다', [line], [say]);
   }
   // 가장 가까운 병사다. 시야(410) 안의 병사만 스냅샷에 온다.
   let near: Snapshot['enemies'][number] | undefined;
