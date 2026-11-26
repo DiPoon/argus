@@ -52,7 +52,14 @@ async function startTutorial(page: Page) {
   await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined);
   await page.locator('#camp').click();
   await page.locator('#deploy').click();
+  // 내릴 때까지 안내는 자리를 말하지 않는다. 지도에서 다른 곳을 골라 투입할 수도 있다(PR #41 리뷰 6).
+  await expect(page.locator('#tutorial-guide')).toContainText('고른 자리에 내립니다');
+  // 화면 읽기 프로그램에는 따로 둔 글(#tutorial-live)로 단계와 할 일만 읽어 준다. 초읽기 수는 넣지 않아 0.1초마다 다시 읽히지 않는다
+  // (PR #41 리뷰 4). 안내 상자 자체는 live 영역이 아니다.
+  await expect(page.locator('#tutorial-live')).toHaveText('훈련 1 / 4 투입. 곧 고른 자리에 내립니다');
+  expect(await page.locator('#tutorial-guide').getAttribute('aria-live')).toBeNull();
   await expect(page.locator('#tutorial-guide')).toContainText('훈련 2 / 4', { timeout: 15000 });
+  await expect(page.locator('#tutorial-live')).toContainText('훈련 2 / 4 이동과 보급');
   return request;
 }
 
@@ -178,6 +185,24 @@ test('skipping the welcome shows the lobby for good, and the lobby can start the
   expect(await page.evaluate(() => sessionStorage.getItem('argus-tutorial-room'))).toBeNull();
 });
 
+test('a tab back from a closed invited room is still in training, and skipping waits while the training room is made', async ({ page }) => {
+  // 건너뛰기는 훈련 방을 만드는 동안 막힌다. 누르면 로비가 보였다가 요청이 끝나는 순간 훈련 방이 열렸다(PR #41 리뷰 5).
+  await page.route('**/api/rooms', async route => { await new Promise(resolve => setTimeout(resolve, 1200)); await route.continue(); });
+  await page.goto('/');
+  await page.locator('#tutorial-start').click();
+  await expect(page.locator('#tutorial-skip')).toBeDisabled();
+  await expect(page.locator('#tutorial-guide')).toContainText('훈련 1 / 4');
+  await page.unroute('**/api/rooms');
+  // 훈련 중인 탭에서 다른 방의 초대 링크를 열고, 그 방이 없어(409) 있던 방으로 돌아간다. 돌아간 방은 여전히 훈련 방이다.
+  // 예전에는 이 길에서 훈련 방을 기억하지 않아 작전 화면(시설 0/3, 초대 링크)이 나왔다(PR #41 리뷰 3).
+  await page.goto('/?room=ZZZZZZ');
+  await expect(page.locator('#lobby')).toHaveClass(/invited/);
+  await page.locator('#join').click();
+  await expect(page.locator('#tutorial-guide')).toContainText('훈련 1 / 4');
+  await expect(page.locator('#op-title')).toHaveText('훈련장');
+  await expect(page.locator('.mission-section')).toBeHidden();
+});
+
 test('an invite link skips the welcome screen, and a browser that cannot keep the flag goes straight to the lobby', async ({ page, browser }) => {
   // 초대 링크로 처음 온 사람은 그 방의 참가 로비를 바로 본다(2026-11-24 사용자 결정). 모양이 틀린 초대도 로비가 알린다.
   await page.goto('/?room=ABCDEF');
@@ -224,12 +249,15 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
   const guide = page.locator('#tutorial-guide');
   await expect(guide).toContainText('누른 채 끌면 걷습니다');
 
-  // 안내가 가장 긴 두 단계에서 잰다. 보급 단계(착지 직후)와, 가까운 병사가 타격을 예고하는 받아치기 단계(스냅샷을 바꿔 만든다).
+  // 안내가 가장 긴 단계에서 잰다. 보급 단계(착지 직후), 가까운 병사가 타격을 예고하는 받아치기 단계, 그 단계에서 막 맞은 때(스냅샷을 바꿔 만든다).
+  // 막 맞은 때는 스냅샷마다 체력을 5와 4로 번갈아 보내 안내의 피격 줄이 재는 동안 계속 보이게 한다.
   const now = () => wire.snapshot!.now;
+  let hurt = false, flip = 0;
   const drillCue = () => {
     wire.change = state => {
       const me = state.players.find(player => player.id === state.you)!;
       me.mana = 24;
+      if (hurt) me.hp = flip++ % 2 ? 4 : 5;
       const drill = state.enemies[0];
       if (drill) drill.action = { id: 990001, skill: 'strike', kind: 'strike', slot: 0, tier: 1, phase: 'telegraph', aim: Math.PI,
         startedAt: now(), contactAt: now() + 2, activeUntil: now() + 2.25, endsAt: now() + 3, range: 60, halfWidth: 30 };
@@ -239,10 +267,24 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
   // 짧은 세로 화면(390×400·360×360, 분할 화면·작은 창)도 본다. 대원이 위쪽 줄 가까이에 있어 넓은 안내가 대원을 덮었다(PR #40을 합친 뒤).
   const sizes = [{ width: 533, height: 320 }, { width: 568, height: 320 }, { width: 844, height: 390 }, { width: 390, height: 844 }, { width: 320, height: 568 },
     { width: 390, height: 400 }, { width: 360, height: 360 }];
-  for (const stage of ['보급', '받아치기']) {
+  for (const stage of ['보급', '받아치기', '피격']) {
     if (stage === '받아치기') {
       drillCue();
       await expect(guide).toContainText('타격 예고 → 회전 방어 버튼');
+      // 같은 안내는 다시 쓰지 않는다. 손 그림의 마스크 id가 부를 때마다 달라 스냅샷마다 안내 전체를 다시 썼다(PR #41 리뷰 4).
+      const rewrites = await guide.evaluate(element => new Promise<number>(resolve => {
+        let count = 0;
+        const observer = new MutationObserver(records => { count += records.length; });
+        observer.observe(element, { childList: true, subtree: true, characterData: true });
+        setTimeout(() => { observer.disconnect(); resolve(count); }, 600);
+      }));
+      expect(rewrites, '스냅샷 여섯 장 동안 안내를 다시 쓴 횟수').toBe(0);
+    }
+    if (stage === '피격') {
+      // 막 맞으면 그 까닭을 알림이 아니라 안내에 보인다. 알림으로 띄우면 다음 예고를 봐야 할 때 알림이 대원을 덮었다(PR #41 리뷰 1).
+      hurt = true;
+      await expect(guide.locator('.guide-alert')).toContainText('체력을 잃었습니다');
+      await expect(page.locator('#toast')).not.toContainText('체력을 잃었습니다');
     }
     for (const size of sizes) {
       await page.setViewportSize(size);
@@ -252,7 +294,17 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
         const guide = rect(document.getElementById('tutorial-guide')!);
         const skills = [...document.querySelectorAll('.touch-skill')].map(rect);
         const top = ['.touch-top', '#combat-hud', '.map-top'].map(selector => rect(document.querySelector(selector)!));
-        return { guide, skills, top, minimapHidden: (document.getElementById('minimap') as HTMLCanvasElement).hidden, width: innerWidth, height: innerHeight };
+        // 알림 셋(가장 긴 안내들)을 잠시 띄워 자리를 잰다. 안내에 밀리지 않고 보통 작전처럼 위쪽 줄 바로 밑에 뜬다.
+        const toast = document.getElementById('toast')!;
+        const saved = [toast.hidden, toast.innerHTML] as const;
+        toast.hidden = false;
+        toast.innerHTML = ['연결을 복구하고 있습니다. 캐릭터와 임무는 계속 진행됩니다.', '아직 보지 못한 곳에는 투입할 수 없습니다.', '작전 시작 · 보급 상자에서 마나를 채우세요'].map(text => `<div>${text}</div>`).join('');
+        const notice = rect(toast);
+        // 한 줄짜리 알림(리뷰가 잰 장면의 알림 하나)이다. 셋이 쌓이면 보통 작전에서도 낮은 화면의 대원 자리에 닿는다.
+        toast.innerHTML = '<div>연결을 복구하고 있습니다. 캐릭터와 임무는 계속 진행됩니다.</div>';
+        const single = rect(toast);
+        toast.hidden = saved[0]; toast.innerHTML = saved[1];
+        return { guide, skills, top, notice, single, row: rect(document.querySelector('.top-row')!), minimapHidden: (document.getElementById('minimap') as HTMLCanvasElement).hidden, width: innerWidth, height: innerHeight };
       });
       const overlaps = (a: typeof layout.guide, b: typeof layout.guide) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
       const where = `${stage} ${size.width}×${size.height}`;
@@ -263,8 +315,29 @@ test('on a phone the welcome fits one screen, and the guide takes the minimap sp
       // 카메라는 대원을 화면 가운데에 둔다. 대원의 몸(반지름 13에 화면 배율)과 그 위의 이름표 자리를 덮지 않는다.
       const player = { left: layout.width / 2 - 22, right: layout.width / 2 + 22, top: layout.height / 2 - 45, bottom: layout.height / 2 + 22 };
       expect(overlaps(layout.guide, player), `${where}: 안내가 대원을 덮습니다`).toBe(false);
+      // 알림은 안내에 밀려 내려오지 않는다(위쪽 줄 밑 6px 사이). 안내를 흐름 안에 두었을 때는 안내 높이만큼 밀려 844×390·320×568에서
+      // 한 줄짜리 알림도 대원을 덮었다(PR #41 리뷰 1). 그 크기들과 큰 세로 화면에서는 한 줄짜리 알림이 대원을 덮지 않는다. 더 낮은 화면
+      // (533·568×320, 짧은 세로 화면)과 알림 셋이 쌓인 때는 보통 작전에서도 대원 자리에 닿는다(이 PR 전부터, 알림은 3.5초 뒤 사라짐).
+      expect(layout.notice.top - layout.row.bottom, `${where}: 알림이 위쪽 줄 밑에 뜸`).toBeLessThanOrEqual(7);
+      if (['844×390', '390×844', '320×568'].includes(`${size.width}×${size.height}`)) expect(overlaps(layout.single, player), `${where}: 알림이 대원을 덮습니다`).toBe(false);
     }
   }
+  // 보급 상자를 다시 쓸 때까지 기다리는 동안과 상자를 다 썼을 때는 그렇다고 알린다. 다 쓴 상자를 가리키며 "다시 채우세요"만 되풀이하지
+  // 않는다(PR #41 리뷰 2).
+  const box = (change: (supply: { cooldown: number; uses: number }) => void) => {
+    hurt = false;
+    wire.change = state => {
+      state.players.find(player => player.id === state.you)!.mana = 0;
+      const camp = state.supplies.find(supply => supply.kind === 'camp');
+      if (camp) change(camp);
+      return state;
+    };
+  };
+  box(camp => { camp.cooldown = 12; });
+  await expect(guide).toContainText('보급 상자는 12초 뒤 다시 쓸 수 있습니다');
+  box(camp => { camp.uses = 0; });
+  await expect(guide).toContainText('캠프 보급 상자를 다 썼습니다');
+  wire.change = state => state;
   // 서랍을 여는 동안은 안내가 숨어 서랍이 위쪽 줄 바로 아래에서 시작한다.
   await page.setViewportSize({ width: 844, height: 390 });
   await page.locator('#touch-menu').click();
