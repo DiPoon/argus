@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type CDPSession, type Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 import { createServer, type ViteDevServer } from 'vite';
 import { affinityColors, bodyColor, colors, extractionRadius, team } from '../src/palette';
 import type { Snapshot } from '../src/types';
@@ -26,6 +27,8 @@ let url: string;
 test.beforeAll(async () => {
   server = await createServer({
     configFile: false,
+    // 실행한 폴더와 관계없이 client 폴더를 root로 둔다. 저장소 루트에서 -c client/playwright.config.ts로 돌리면 /src를 찾지 못했다.
+    root: fileURLToPath(new URL('..', import.meta.url)),
     server: { host: '127.0.0.1', port: 0 },
     plugins: [{
       name: 'minimap-test-page',
