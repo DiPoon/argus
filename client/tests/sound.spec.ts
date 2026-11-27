@@ -190,15 +190,27 @@ test('sound starts with the first press, plays the landing and a press, and keep
   expect((await audioLog(page)).gains[0].value).toBeCloseTo(.3);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('argus-sound')!))).toEqual({ on: true, volume: .3 });
 
-  // 크기 막대에 커서가 있어도 게임 키는 먹는다(D로 오른쪽으로 걷는다). 방향키는 막대를 움직인다(PR #42 리뷰 6).
-  await page.locator('#sound-volume-top').focus();
-  const sent = wire.inputs.length;
-  await page.keyboard.down('KeyD');
-  await expect.poll(() => wire.inputs.slice(sent).some(input => input.moveX === 1)).toBe(true);
-  await page.keyboard.up('KeyD');
+  // 크기 막대를 마우스로 눌러 고친 뒤에도 커서는 막대에 남는다. 그래도 게임 키는 먹는다. D도 →도 오른쪽으로 걷고 막대는 그대로다
+  // (PR #42 재리뷰 가: 마우스로 고친 뒤 방향키가 크기만 바꿨다).
+  const slider = page.locator('#sound-volume-top');
+  await slider.click();
+  await expect(slider).toBeFocused();
+  const clicked = await slider.inputValue();
+  for (const key of ['KeyD', 'ArrowRight']) {
+    const sent = wire.inputs.length;
+    await page.keyboard.down(key);
+    await expect.poll(() => wire.inputs.slice(sent).some(input => input.moveX === 1)).toBe(true);
+    await page.keyboard.up(key);
+  }
+  await expect(slider).toHaveValue(clicked);
+  // 키보드로(Shift+Tab으로 소리 버튼에 갔다가 Tab으로) 막대에 다시 오면 방향키는 막대를 움직인다(PR #42 리뷰 6).
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#sound-toggle')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(slider).toBeFocused();
   await page.keyboard.press('ArrowRight');
-  await expect(page.locator('#sound-volume-top')).toHaveValue('35');
-  await page.locator('#sound-volume-top').fill('30');
+  await expect(slider).toHaveValue(String(Number(clicked) + 5));
+  await slider.fill('30');
   // 버튼의 이름은 "소리"이고 켬·끔은 눌림(aria-pressed)으로 알린다(PR #42 리뷰 7).
   // PC는 위쪽 줄의 버튼이 보이고, 옆 패널의 버튼은 숨어 있다(터치 화면의 서랍용). 숨은 버튼도 같은 상태다.
   await expect(page.getByRole('button', { name: '소리', exact: true, pressed: true })).toHaveCount(1);
