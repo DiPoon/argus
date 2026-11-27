@@ -213,13 +213,17 @@ for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('i
 // - :focus-visible로는 가리지 못한다. Chromium·WebKit은 마우스로 누른 막대도 키를 누르는 그 keydown에서 이미 참이었다(11-27, 세 엔진에서 잼).
 // - 막대의 pointerdown으로 적고 blur로 지웠을 때는(재리뷰 반영의 첫 판) 창을 다녀오면 막대에 blur·focus가 와서 방향키가 다시 막대로 갔다.
 //   누른 폼 요소에 커서를 주지 않는 브라우저(macOS Safari)에서는 blur가 오지 않아, 그 뒤 Tab으로 온 막대의 방향키가 걸었다(PR #42 리뷰, ee96b62).
-// 창을 다녀와 다시 받은 커서는 그 직전의 조작(Tab인지)이 그대로라 앞의 판단을 잇는다. Alt+Tab 같은 창 바꾸기는 Tab으로 치지 않는다.
+// 창을 다녀와 다시 받은 커서는 그 직전의 조작(Tab인지)이 그대로라 앞의 판단을 잇는다.
+// Alt(Option)가 눌린 Tab도 Tab으로 친다. macOS Safari는 기본 설정에서 Tab이 글 입력란만 지나고 버튼·막대에는 Option+Tab으로 간다. Alt를
+// 뺐을 때는 그렇게 온 막대의 방향키가 걸었다(PR #42 리뷰, c1d5077. 실제 Safari에서는 재지 않음). 창 바꾸기(Alt+Tab)의 Tab이 페이지에 오더라도
+// 창이 포커스를 잃을 때(window의 blur) 잊으므로, 돌아와 막대가 커서를 다시 받아도 키보드로 치지 않는다. Ctrl·Meta가 눌린 Tab은 탭·앱 바꾸기다.
 let tabbing = false;
 let volumeByKeyboard = false;
 window.addEventListener('keydown', event => {
-  if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) tabbing = true;
+  if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey) tabbing = true;
 }, { capture: true });
 window.addEventListener('pointerdown', () => { tabbing = false; volumeByKeyboard = false; }, { capture: true });
+window.addEventListener('blur', event => { if (event.target === window) tabbing = false; });
 for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('focus', () => { volumeByKeyboard = tabbing; });
 showSound();
 
@@ -355,11 +359,25 @@ function pressSlot(slot: number) {
 function pressSound(slot: number) {
   const player = me(), definition = snapshot?.rules.skills.find(skill => skill.id === player?.slots[slot - 1]);
   if (!player || !definition || snapshot?.phase === 'ended') return;
+  // 연결이 끊긴 동안(재접속 중) 누른 기술은 서버에 닿지 않고 사라진다(sendInput이 보내지 못한다). 확인음 대신 막힌 소리를 낸다. 확인음을 냈을
+  // 때는 기술이 나가지 않는데도 나간 것처럼 들렸다(PR #42 리뷰, c1d5077).
+  if (socket?.readyState !== WebSocket.OPEN) { sound.play({ kind: 'empty', pan: 0, gain: 1 }); return; }
   const cost = (other: number) => snapshot?.rules.skills.find(skill => skill.id === player.slots[other - 1])?.mana ?? 0;
+  const repressed = (other: number) => pressedSinceSend.includes(other) || pressSequence[other] > player.ack;
   let pending = 0;
   for (const other of pressedSinceSend.slice(0, -1)) pending += cost(other);
   for (let other = 1; other <= 4; other++) if (pressSequence[other] > player.ack) pending += cost(other);
-  for (const other of snapshot?.waiting ?? []) pending += cost(other);
+  // 기다리는 누름 가운데 마나를 쓰지 않을 것은 빼지 않는다. 같은 슬롯을 다시 눌렀으면 서버가 앞의 누름을 버린다. 버튼을 뗀 누름(waitingReleased)은
+  // 다음 틱에 앞의 기술이 끝날 때만 시작하고 아니면 버려진다(input.md). 모두 뺐을 때는 마나 1에서 2번을 톡 눌렀다 떼고 3번을 누르면, 서버가
+  // 3번을 시작하는데도 막힌 소리가 났다(PR #42 리뷰, c1d5077).
+  let ends = -Infinity;
+  for (const action of player.actions) ends = Math.max(ends, action.endsAt);
+  const nextTick = (snapshot?.now ?? 0) + 1 / 30 + .001;
+  for (const other of snapshot?.waiting ?? []) {
+    if (repressed(other)) continue;
+    if (snapshot?.waitingReleased?.includes(other) && ends > nextTick) continue;
+    pending += cost(other);
+  }
   sound.play(player.mana - pending < definition.mana ? { kind: 'empty', pan: 0, gain: 1 } : { kind: 'press', pan: 0, gain: 1, affinity: definition.kind });
 }
 // 살아 있지 않을 때 누른 기술 키와, 살아 있는 상태를 벗어날 때 눌려 있던 기술 키다. 떼었다 다시 눌러야 기술이 나간다.

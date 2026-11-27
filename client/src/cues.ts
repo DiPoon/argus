@@ -38,6 +38,18 @@ export function place(x: number, y: number, listener: { x: number; y: number }) 
   return { pan, gain };
 }
 
+// (x, y)에 가장 가까운 살아 있는 대원의 id다. 거리가 같으면 목록에서 먼저 온 대원이다.
+function nearestPlayer(snapshot: Snapshot, spot: { x: number; y: number }): string | undefined {
+  let nearest: string | undefined;
+  let best = Infinity;
+  for (const player of snapshot.players) {
+    if (player.state !== 'alive') continue;
+    const distance = Math.hypot(player.x - spot.x, player.y - spot.y);
+    if (distance < best) { best = distance; nearest = player.id; }
+  }
+  return nearest;
+}
+
 // 들은 예고와 효과다. id에서 그 행동·효과가 끝나는 서버 시각(초)으로 간다. 스냅샷은 지금 시야에 든 적과 효과만 담으므로, 바로 앞 스냅샷
 // 하나와만 견주면 시야 끝에서 한 장 빠졌다 돌아온 적의 같은 예고가 "새 예고" 소리로 다시 났다(PR #42 리뷰, ee96b62). 그래서 끝날 때까지
 // 기억한다. 접속할 때마다 새로 만든다(main.ts).
@@ -75,7 +87,12 @@ export function snapshotCues(previous: Snapshot | undefined, current: Snapshot, 
   // 멀어진다. 자리로 가렸을 때는 겹쳐 선 동료가 맞으면 내가 맞은 소리가, 맞고 대시하면 동료가 맞은 소리가 났다(PR #42 리뷰 1).
   // 체력이 줄었으면 내가 맞은 소리를 한 번 내고(효과를 못 봤어도 낸다), 내 자리에서 myHitReach 안의 새 피격은 모두 그 소리로 본다.
   const fresh = current.effects.filter(effect => !seenEffects.has(effect.id) && effectCues[effect.kind]);
-  const hurtMe = before !== undefined && before.state === 'alive' && me.hp < before.hp;
+  // 서버의 한 틱에서 보급(체력·마나를 가득 채움)이 전투 판정보다 먼저다. 같은 0.1초에 보급을 받고 맞으면 체력이 지난 스냅샷보다 높을 수 있어
+  // (2 → 6 → 5), 그때는 가득 찬 체력과 견준다(PR #42 리뷰, c1d5077). 보급을 받았는지는 마나가 늘었는지(마나는 보급으로만 는다)와, 마나가 이미
+  // 가득했을 때를 위해 새 보급 효과에 가장 가까운 대원이 나인지로 본다. 효과는 보급을 받은 대원의 자리에 난다.
+  const healedMe = before !== undefined && (me.mana > before.mana || current.effects.some(effect =>
+    effect.kind === 'heal' && !seenEffects.has(effect.id) && nearestPlayer(current, effect) === me.id));
+  const hurtMe = before !== undefined && before.state === 'alive' && me.hp < (healedMe ? me.maxHp : before.hp);
   if (hurtMe) cues.push({ kind: 'myHurt', pan: 0, gain: 1 });
   // 한 스냅샷의 같은 종류 효과는 가장 가까운 하나만 울린다. 한 스냅샷의 소리는 같은 순간에 시작해 같은 종류면 파형이 똑같이 겹치므로, 그대로
   // 내면 크기가 그 수만큼 더해진다. 회전 베기로 병사 다섯을 한꺼번에 받아치면 받아친 소리가 다섯 배로 커져 넘치고 내가 맞은 소리보다

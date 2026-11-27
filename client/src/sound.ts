@@ -1,5 +1,5 @@
 import type { Affinity } from './types';
-import { personal, type Cue } from './cues';
+import { personal, type Cue, type CueKind } from './cues';
 
 // 게임 소리다(이슈 #35, 2026-11-24). 소리 파일 없이 Web Audio로 그때그때 합성한다. 파일을 쓰면 출처와 이용 조건을 따로 챙겨야 하고
 // 내려받을 것이 늘어난다. 무엇을 울릴지는 cues.ts가 스냅샷으로 정하고, 여기서는 소리를 만들기만 한다.
@@ -12,6 +12,9 @@ interface Voice { pending: number; end: number; finish: () => void }
 // 한 번에 울리는 소리의 상한이다. 넘으면 새 소리를 버린다. 섞인 무리와 오래 싸워도 소리가 쌓여 끊기지 않게 한다.
 // 소리의 수만 막고 크기의 합은 막지 못한다. 한 스냅샷의 같은 종류 효과는 cues.ts가 하나로 묶는다(PR #42 리뷰, ee96b62).
 const maxVoices = 24;
+// 상한이어도 내는 소리다. 나에게 일어난 일과 작전 종료(cues.ts의 personal), 내가 누른 기술의 확인음과 막힌 소리다. 섞인 무리와 싸우는 중에
+// 내가 맞은 소리나 작전 실패 소리(PR #42 리뷰 3), 마나가 바닥난 줄 알려 줄 막힌 소리(PR #42 리뷰, c1d5077)가 버려졌다.
+const pastLimit: CueKind[] = [...personal, 'press', 'empty'];
 const settingsKey = 'argus-sound';
 
 export class Sound {
@@ -59,7 +62,9 @@ export class Sound {
     this.enabled = on;
     this.save();
     if (on) this.unlock();
-    else if (this.context?.state === 'running') void this.context.suspend().catch(() => undefined);
+    // running일 때만 멈추면, 막 만들어 켜지는 중(suspended에서 비동기로 running이 됨)에 끈 장치가 곧이어 켜져 작전 내내 돌았다(PR #42 리뷰, c1d5077.
+    // 실제 브라우저에서는 재지 않음). suspend는 앞의 resume 뒤로 줄을 서므로 마지막에 멈춘 상태가 된다.
+    else if (this.context && this.context.state !== 'closed') void this.context.suspend().catch(() => undefined);
   }
 
   setVolume(volume: number) {
@@ -81,7 +86,7 @@ export class Sound {
     const context = this.context;
     const master = this.master;
     if (!this.enabled || !context || !master || context.state !== 'running') return;
-    if (this.active >= maxVoices && !personal.includes(cue.kind)) return;
+    if (this.active >= maxVoices && !pastLimit.includes(cue.kind)) return;
     const nodes: AudioNode[] = [];
     let counted = false;
     let finished = false;
