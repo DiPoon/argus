@@ -4,7 +4,7 @@ import { World } from './world';
 import { Minimap } from './minimap';
 import { handIcon } from './rps';
 import { Sound } from './sound';
-import { snapshotCues } from './cues';
+import { Heard, snapshotCues } from './cues';
 import { freeSkills, kindOfSkill, kindSlots, touchSkills } from './loadout';
 import { copiedNotices, inviteLink, linkReach, normalizeRoomCode, readInvite, withoutInvite } from './invite';
 import { affinityNames, applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
@@ -207,15 +207,20 @@ function showSound() {
 }
 for (const id of ['sound-toggle', 'sound-side']) $(id).addEventListener('click', () => { sound.setEnabled(!sound.enabled); showSound(); });
 for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('input', () => { sound.setVolume(Number($<HTMLInputElement>(id).value) / 100); showSound(); });
-// 크기 막대에 포인터(마우스·손가락)로 커서가 왔는지다. 그렇게 온 커서에서는 방향키를 막대로 넘기지 않고 대원을 걷게 한다(keydown). 마우스로 막대를
-// 눌러도 커서가 막대에 남아, 크기를 고친 뒤 방향키로 걷지 못하고 크기만 바뀌었다(PR #42 재리뷰 가). :focus-visible로는 가리지 못한다. Chromium·WebKit은
-// 마우스로 누른 막대도 키를 누르는 그 keydown에서 이미 :focus-visible이 참이었다(2026-11-27, 세 엔진에서 잼. Firefox만 거짓).
-// 커서가 막대를 떠나면 잊으므로, Tab으로 다시 오면 방향키가 막대를 움직인다.
-let volumeByPointer = false;
-for (const id of ['sound-volume', 'sound-volume-top']) {
-  $(id).addEventListener('pointerdown', () => { volumeByPointer = true; });
-  $(id).addEventListener('blur', () => { volumeByPointer = false; });
-}
+// 크기 막대에 키보드(Tab)로 왔는지다. 그렇게 온 막대에서만 방향키를 막대로 넘긴다(keydown). 마우스로 막대를 눌러도 커서가 막대에 남아,
+// 크기를 고친 뒤 방향키로 걷지 못하고 크기만 바뀌었다(PR #42 재리뷰 가). 막대가 커서를 받을 때(focus) 그 직전의 조작이 Tab이었는지로 가리고,
+// 포인터로 누르면(어디든) 잊는다.
+// - :focus-visible로는 가리지 못한다. Chromium·WebKit은 마우스로 누른 막대도 키를 누르는 그 keydown에서 이미 참이었다(11-27, 세 엔진에서 잼).
+// - 막대의 pointerdown으로 적고 blur로 지웠을 때는(재리뷰 반영의 첫 판) 창을 다녀오면 막대에 blur·focus가 와서 방향키가 다시 막대로 갔다.
+//   누른 폼 요소에 커서를 주지 않는 브라우저(macOS Safari)에서는 blur가 오지 않아, 그 뒤 Tab으로 온 막대의 방향키가 걸었다(PR #42 리뷰, ee96b62).
+// 창을 다녀와 다시 받은 커서는 그 직전의 조작(Tab인지)이 그대로라 앞의 판단을 잇는다. Alt+Tab 같은 창 바꾸기는 Tab으로 치지 않는다.
+let tabbing = false;
+let volumeByKeyboard = false;
+window.addEventListener('keydown', event => {
+  if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) tabbing = true;
+}, { capture: true });
+window.addEventListener('pointerdown', () => { tabbing = false; volumeByKeyboard = false; }, { capture: true });
+for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('focus', () => { volumeByKeyboard = tabbing; });
 showSound();
 
 let guest: Guest | undefined;
@@ -541,12 +546,14 @@ async function openOperation() {
   connect();
 }
 
-// 소리를 고를 때 견줄 지난 스냅샷이다. 접속할 때마다(재접속 포함) 비워, 접속 뒤 첫 스냅샷은 소리 없이 기준으로만 받는다. 비우지 않으면
-// 끊기기 전 스냅샷과 견줘 끊긴 동안 일어난 일의 소리가 한꺼번에 늦게 났다(PR #42 리뷰 8).
+// 소리를 고를 때 견줄 지난 스냅샷과 들은 예고·효과다. 접속할 때마다(재접속 포함) 비워, 접속 뒤 첫 스냅샷은 소리 없이 기준으로만 받는다.
+// 비우지 않으면 끊기기 전 스냅샷과 견줘 끊긴 동안 일어난 일의 소리가 한꺼번에 늦게 났다(PR #42 리뷰 8).
 let soundBase: Snapshot | undefined;
+let soundHeard = new Heard();
 function connect() {
   if (!guest) return;
   soundBase = undefined;
+  soundHeard = new Heard();
   window.clearTimeout(reconnectTimer);
   status('연결 중');
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
@@ -593,9 +600,6 @@ function connect() {
     status('분대 연결됨', true);
     world!.update(snapshot);
     updateUi();
-    // 지난 스냅샷 뒤로 새로 일어난 일의 소리다. 같은 방의 이전 스냅샷이 없으면(접속 직후) 지난 일은 울리지 않는다.
-    for (const cue of snapshotCues(soundBase, snapshot)) sound.play(cue);
-    soundBase = snapshot;
     // 순번이 마지막으로 띄운 것보다 큰 안내를 모두 띄운다. 한 방송에 여러 개가 와도, 같은 틱에 같은 문구가 와도 빠뜨리지 않는다.
     // 방에 들어온 직후에는 지난 안내가 최대 여섯 개 함께 오므로 가장 최근 것만 띄운다.
     const fresh = snapshot.notices.filter(notice => notice.id > lastNotice);
@@ -603,6 +607,11 @@ function connect() {
       for (const notice of lastNotice === 0 ? fresh.slice(-1) : fresh) toast(notice.text, false);
       lastNotice = fresh[fresh.length - 1].id;
     }
+    // 지난 스냅샷 뒤로 새로 일어난 일의 소리다. 같은 방의 이전 스냅샷이 없으면(접속 직후) 지난 일은 울리지 않는다. 게임 처리 맨 뒤에 둔다.
+    // 소리를 내다 예외가 나도(Sound.play가 삼킨다) 안내와 기준 스냅샷은 이미 바뀌어 있다(PR #42 리뷰, ee96b62).
+    const base = soundBase;
+    soundBase = snapshot;
+    for (const cue of snapshotCues(base, snapshot, soundHeard)) sound.play(cue);
   });
   ws.addEventListener('close', event => {
     if (socket !== ws || !guest) return;
@@ -1033,8 +1042,8 @@ window.addEventListener('keydown', event => {
   // 지도를 다시 누를 때까지 WASD가 먹지 않는다.
   if (!guest || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
   // 키보드(Tab)로 소리 크기 막대에 왔으면 방향키·Home·End·PageUp·PageDown은 막대를 움직인다. 게임 키로 막으면 작전 중에 키보드로 크기를 고칠
-  // 수 없었다(PR #42 리뷰 6). 포인터로 막대를 눌러 온 커서에서는 방향키도 대원을 걷게 한다(volumeByPointer). WASD는 언제나 대원을 움직인다.
-  if (event.target instanceof HTMLInputElement && event.target.type === 'range' && !volumeByPointer && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
+  // 수 없었다(PR #42 리뷰 6). 포인터로 막대를 눌러 온 커서에서는 방향키도 대원을 걷게 한다(volumeByKeyboard). WASD는 언제나 대원을 움직인다.
+  if (event.target instanceof HTMLInputElement && event.target.type === 'range' && volumeByKeyboard && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyM', 'Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(event.code)) event.preventDefault();
   const pressed = slotFromCode(event.code);
   // 자동 반복으로 처음 보는 키다. 입력을 비우기 전(창을 떠나기 전)부터, 또는 창 밖에서부터 누르고 있던 키다.

@@ -769,6 +769,9 @@ input::placeholder {
 /* 소리 켬·끔과 크기다(이슈 #35). PC는 위쪽 줄에 두고, 터치 화면은 위쪽 줄이 없어 ☰ 서랍(옆 패널)에 둔다. PC 옆 패널에는 보이지 않는다.
    두면 높이 900px 화면에서 버그 제보·작전에서 나가기가 아래로 밀렸다. */
 .sound-controls { display:flex; align-items:center; gap:12px; margin-bottom:4px }
+/* 글 입력란의 전역 input 규칙(안쪽 여백, 배경, 테두리)을 푼다. 그대로면 막대가 움직이는 폭이 52px(위쪽 줄)로 줄고 막대 둘레에 어두운 상자가
+   그려졌다(PR #42 리뷰, ee96b62). */
+.sound-controls input,.sound-top input { padding:0; border:0; background:none }
 .sound-controls input { flex:1; min-width:0; accent-color:var(--lime) }
 body:not(.touch) .side-bottom .sound-controls { display:none }
 .sound-top { display:flex; align-items:center; gap:8px }
