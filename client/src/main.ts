@@ -207,6 +207,15 @@ function showSound() {
 }
 for (const id of ['sound-toggle', 'sound-side']) $(id).addEventListener('click', () => { sound.setEnabled(!sound.enabled); showSound(); });
 for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('input', () => { sound.setVolume(Number($<HTMLInputElement>(id).value) / 100); showSound(); });
+// 크기 막대에 포인터(마우스·손가락)로 커서가 왔는지다. 그렇게 온 커서에서는 방향키를 막대로 넘기지 않고 대원을 걷게 한다(keydown). 마우스로 막대를
+// 눌러도 커서가 막대에 남아, 크기를 고친 뒤 방향키로 걷지 못하고 크기만 바뀌었다(PR #42 재리뷰 가). :focus-visible로는 가리지 못한다. Chromium·WebKit은
+// 마우스로 누른 막대도 키를 누르는 그 keydown에서 이미 :focus-visible이 참이었다(2026-11-27, 세 엔진에서 잼. Firefox만 거짓).
+// 커서가 막대를 떠나면 잊으므로, Tab으로 다시 오면 방향키가 막대를 움직인다.
+let volumeByPointer = false;
+for (const id of ['sound-volume', 'sound-volume-top']) {
+  $(id).addEventListener('pointerdown', () => { volumeByPointer = true; });
+  $(id).addEventListener('blur', () => { volumeByPointer = false; });
+}
 showSound();
 
 let guest: Guest | undefined;
@@ -1023,9 +1032,9 @@ window.addEventListener('keydown', event => {
   // 글을 적는 입력란에서 친 키는 게임 키로 받지 않는다. 소리 크기 막대(range)는 글을 적지 않으므로 받는다. 받지 않으면 크기를 고친 뒤
   // 지도를 다시 누를 때까지 WASD가 먹지 않는다.
   if (!guest || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
-  // 소리 크기 막대에 커서가 있으면 방향키·Home·End·PageUp·PageDown은 막대를 움직인다. 게임 키로 막으면 작전 중에 키보드로 크기를 고칠 수
-  // 없었다(PR #42 리뷰 6). WASD는 그대로 대원을 움직인다.
-  if (event.target instanceof HTMLInputElement && event.target.type === 'range' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
+  // 키보드(Tab)로 소리 크기 막대에 왔으면 방향키·Home·End·PageUp·PageDown은 막대를 움직인다. 게임 키로 막으면 작전 중에 키보드로 크기를 고칠
+  // 수 없었다(PR #42 리뷰 6). 포인터로 막대를 눌러 온 커서에서는 방향키도 대원을 걷게 한다(volumeByPointer). WASD는 언제나 대원을 움직인다.
+  if (event.target instanceof HTMLInputElement && event.target.type === 'range' && !volumeByPointer && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyM', 'Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(event.code)) event.preventDefault();
   const pressed = slotFromCode(event.code);
   // 자동 반복으로 처음 보는 키다. 입력을 비우기 전(창을 떠나기 전)부터, 또는 창 밖에서부터 누르고 있던 키다.
