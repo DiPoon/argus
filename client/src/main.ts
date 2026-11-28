@@ -1,5 +1,5 @@
 import './style.css';
-import { slotMask, tickMilliseconds } from './movement';
+import { slotBit, slotMask, tickMilliseconds, ticksPerSecond } from './movement';
 import { World } from './world';
 import { Minimap } from './minimap';
 import { handIcon } from './rps';
@@ -195,7 +195,12 @@ if (touchMode) {
 const sound = new Sound();
 // 손가락 누름의 pointerdown은 사용자 동작(activation)으로 치지 않는 브라우저가 있다(HTML 규격은 손가락이면 pointerup·touchend). 그래서 떼는 때와
 // 클릭에서도 켠다(PR #42 리뷰 2). 이미 켜져 있으면 아무것도 하지 않는다.
-for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const) window.addEventListener(type, () => sound.unlock(), { capture: true });
+// 키의 자동 반복은 건너뛴다. 소리 장치가 켜지지 못하는 환경(출력 장치가 없는 PC, 이 개발 환경의 Firefox)에서는 resume()이 끝나지 않아,
+// 키를 쥐고 걷는 동안 반복마다 끝나지 않는 Promise가 쌓였다(PR #42 리뷰, 572ee03). 끝나지 않은 resume()이 있다고 다시 부르지 않으면 안 된다.
+// 손가락의 pointerdown에서 부른 resume()은 사용자 동작이 아니라 끝나지 않으므로 뒤따르는 pointerup·touchend의 호출까지 빠진다.
+for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const) {
+  window.addEventListener(type, event => { if (!(event instanceof KeyboardEvent && event.repeat)) sound.unlock(); }, { capture: true });
+}
 // 버튼의 이름은 "소리"로 두고 켬·끔은 aria-pressed로 알린다. 보이는 "켬·끔"은 화면 읽기 프로그램에 읽히지 않는다. 이름까지 "소리 끔"으로 바꾸면
 // "소리 끔, 누르지 않음"으로 읽혀 무엇이 꺼졌는지 헷갈렸다(PR #42 리뷰 7).
 function showSound() {
@@ -217,13 +222,15 @@ for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('i
 // Alt(Option)가 눌린 Tab도 Tab으로 친다. macOS Safari는 기본 설정에서 Tab이 글 입력란만 지나고 버튼·막대에는 Option+Tab으로 간다. Alt를
 // 뺐을 때는 그렇게 온 막대의 방향키가 걸었다(PR #42 리뷰, c1d5077. 실제 Safari에서는 재지 않음). 창 바꾸기(Alt+Tab)의 Tab이 페이지에 오더라도
 // 창이 포커스를 잃을 때(window의 blur) 잊으므로, 돌아와 막대가 커서를 다시 받아도 키보드로 치지 않는다. Ctrl·Meta가 눌린 Tab은 탭·앱 바꾸기다.
+// 다만 Tab으로 온 막대에 커서가 있는 채 창을 다녀오면 그 판단을 남긴다. 무조건 잊었을 때는 돌아와 막대가 focus를 다시 받을 때 거짓으로 덮여,
+// 포커스 고리가 막대에 그대로인데 →가 대원을 걷게 했다(PR #42 리뷰, 572ee03).
 let tabbing = false;
 let volumeByKeyboard = false;
 window.addEventListener('keydown', event => {
   if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey) tabbing = true;
 }, { capture: true });
 window.addEventListener('pointerdown', () => { tabbing = false; volumeByKeyboard = false; }, { capture: true });
-window.addEventListener('blur', event => { if (event.target === window) tabbing = false; });
+window.addEventListener('blur', event => { if (event.target === window && !volumeByKeyboard) tabbing = false; });
 for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('focus', () => { volumeByKeyboard = tabbing; });
 showSound();
 
@@ -353,32 +360,37 @@ function pressSlot(slot: number) {
   pressSound(slot);
 }
 // 누른 기술의 확인음이다. 서버의 결과를 기다리지 않는 누름의 소리이고, 판정의 소리는 스냅샷의 효과로 따로 난다.
-// 마나가 모자라면 서버가 그 누름을 버리므로 막힌 소리를 낸다. 지난 스냅샷의 마나에서, 아직 마나를 쓰지 않은 앞의 누름이 쓸 마나를 뺀다.
-// 기다리는 누름(waiting), 보내지 않은 누름, 보냈지만 서버가 확인하지 않은 누름이다. 빼지 않으면 마나 1에서 거의 함께 누른 두 기술이 모두
-// 확인음을 냈다(PR #42 리뷰 5). 보급 직후 0.1초쯤은 어긋날 수 있다. 작전이 끝났으면 서버가 누름을 받지 않으므로 소리를 내지 않는다.
+// 서버가 그 누름으로 기술을 시작하지 않으면(마나가 모자람, 앞 기술이 끝나기 전에 뗌) 막힌 소리를 낸다. 앞의 누름들이 마나를 쓸지까지 서버처럼
+// 따라가야 맞는다(마나 1에서 거의 함께 누른 두 기술은 앞의 것만 시작한다, PR #42 리뷰 5). 보급으로 마나가 찬 것은 다음 스냅샷까지 모르므로
+// 보급 직후 0.1초쯤은 어긋날 수 있다. 작전이 끝났으면 서버가 누름을 받지 않으므로 소리를 내지 않는다.
 function pressSound(slot: number) {
   const player = me(), definition = snapshot?.rules.skills.find(skill => skill.id === player?.slots[slot - 1]);
   if (!player || !definition || snapshot?.phase === 'ended') return;
   // 연결이 끊긴 동안(재접속 중) 누른 기술은 서버에 닿지 않고 사라진다(sendInput이 보내지 못한다). 확인음 대신 막힌 소리를 낸다. 확인음을 냈을
   // 때는 기술이 나가지 않는데도 나간 것처럼 들렸다(PR #42 리뷰, c1d5077).
   if (socket?.readyState !== WebSocket.OPEN) { sound.play({ kind: 'empty', pan: 0, gain: 1 }); return; }
+  const confirm = { kind: 'press', pan: 0, gain: 1, affinity: definition.kind } as const;
+  const blocked = { kind: 'empty', pan: 0, gain: 1 } as const;
+  // 이 누름이 서버에서 기술을 시작할지는 예측 상태를 서버처럼 진행해 본다(World.pressStarts). 지금 누른 슬롯은 아직 누르고 있는 것으로 친다.
+  const starts = world?.pressStarts(slotMask(heldSlots()) | slotBit(slot), pressedSinceSend, slot);
+  if (starts !== undefined) { sound.play(starts ? confirm : blocked); return; }
+  // 예측을 끈 동안에는 지난 스냅샷의 마나에서 앞 누름이 쓸 마나를 어림해 뺀다. 같은 슬롯을 다시 눌렀으면 서버가 앞의 누름을 버리고, 버튼을 뗀
+  // 기다리는 누름(waitingReleased)은 다음 틱에 앞의 기술이 끝날 때만 시작한다. 다음 틱인지는 틱으로 되돌려 견준다(초는 소수 둘째 자리로
+  // 반올림되어 틱 사이가 0.03·0.04로 고르지 않다, PR #42 리뷰, 572ee03).
   const cost = (other: number) => snapshot?.rules.skills.find(skill => skill.id === player.slots[other - 1])?.mana ?? 0;
   const repressed = (other: number) => pressedSinceSend.includes(other) || pressSequence[other] > player.ack;
   let pending = 0;
   for (const other of pressedSinceSend.slice(0, -1)) pending += cost(other);
   for (let other = 1; other <= 4; other++) if (pressSequence[other] > player.ack) pending += cost(other);
-  // 기다리는 누름 가운데 마나를 쓰지 않을 것은 빼지 않는다. 같은 슬롯을 다시 눌렀으면 서버가 앞의 누름을 버린다. 버튼을 뗀 누름(waitingReleased)은
-  // 다음 틱에 앞의 기술이 끝날 때만 시작하고 아니면 버려진다(input.md). 모두 뺐을 때는 마나 1에서 2번을 톡 눌렀다 떼고 3번을 누르면, 서버가
-  // 3번을 시작하는데도 막힌 소리가 났다(PR #42 리뷰, c1d5077).
   let ends = -Infinity;
-  for (const action of player.actions) ends = Math.max(ends, action.endsAt);
-  const nextTick = (snapshot?.now ?? 0) + 1 / 30 + .001;
+  for (const action of player.actions) ends = Math.max(ends, Math.round(action.endsAt * ticksPerSecond));
+  const nextTick = Math.round((snapshot?.now ?? 0) * ticksPerSecond) + 1;
   for (const other of snapshot?.waiting ?? []) {
     if (repressed(other)) continue;
     if (snapshot?.waitingReleased?.includes(other) && ends > nextTick) continue;
     pending += cost(other);
   }
-  sound.play(player.mana - pending < definition.mana ? { kind: 'empty', pan: 0, gain: 1 } : { kind: 'press', pan: 0, gain: 1, affinity: definition.kind });
+  sound.play(player.mana - pending < definition.mana ? blocked : confirm);
 }
 // 살아 있지 않을 때 누른 기술 키와, 살아 있는 상태를 벗어날 때 눌려 있던 기술 키다. 떼었다 다시 눌러야 기술이 나간다.
 // 그대로 두면 투입을 기다리며 쥔 키가 착지 뒤 마나가 차는 순간부터 기술을 계속 낸다.

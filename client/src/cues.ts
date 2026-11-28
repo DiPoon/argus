@@ -88,11 +88,21 @@ export function snapshotCues(previous: Snapshot | undefined, current: Snapshot, 
   // 체력이 줄었으면 내가 맞은 소리를 한 번 내고(효과를 못 봤어도 낸다), 내 자리에서 myHitReach 안의 새 피격은 모두 그 소리로 본다.
   const fresh = current.effects.filter(effect => !seenEffects.has(effect.id) && effectCues[effect.kind]);
   // 서버의 한 틱에서 보급(체력·마나를 가득 채움)이 전투 판정보다 먼저다. 같은 0.1초에 보급을 받고 맞으면 체력이 지난 스냅샷보다 높을 수 있어
-  // (2 → 6 → 5), 그때는 가득 찬 체력과 견준다(PR #42 리뷰, c1d5077). 보급을 받았는지는 마나가 늘었는지(마나는 보급으로만 는다)와, 마나가 이미
-  // 가득했을 때를 위해 새 보급 효과에 가장 가까운 대원이 나인지로 본다. 효과는 보급을 받은 대원의 자리에 난다.
-  const healedMe = before !== undefined && (me.mana > before.mana || current.effects.some(effect =>
-    effect.kind === 'heal' && !seenEffects.has(effect.id) && nearestPlayer(current, effect) === me.id));
-  const hurtMe = before !== undefined && before.state === 'alive' && me.hp < (healedMe ? me.maxHp : before.hp);
+  // (2 → 6 → 5), 그때는 가득 찬 체력과 견준다(PR #42 리뷰, c1d5077). 착지한 0.1초 안에 맞았을 때도 가득 찬 체력과 견준다(지난 스냅샷의 나는
+  // 투입 중이다).
+  // 보급을 받았는지는 짐작하지 않는다. 상자의 대기(cooldown)는 받는 대원마다 다른 값이고 서버는 상자를 쓴 대원에게만 대기를 건다. 그래서
+  // 내 대기가 지난 스냅샷보다 는 상자가 있으면 내가 받은 것이다. 지난 스냅샷에 없던 상자는 대기 0으로 본다(시설을 부순 자리의 상자는 생긴
+  // 다음 틱에 쓰일 수 있다). 보급 효과에 가장 가까운 대원으로 짐작했을 때는, 받은 동료가 0~2틱 사이에 효과 자리를 벗어나 내가 더 가까우면
+  // 맞지 않았는데 내가 맞은 소리가 났다(PR #42 리뷰, 572ee03). 마나가 는 것(마나는 보급으로만 는다)도 함께 본다.
+  const oldCooldown = (id: number) => previous.supplies.find(old => old.id === id)?.cooldown ?? 0;
+  const healedMe = before !== undefined && (me.mana > before.mana || current.supplies.some(supply => supply.cooldown > oldCooldown(supply.id)));
+  const landed = before !== undefined && before.state !== 'alive' && me.state === 'alive';
+  let hurtMe = before !== undefined && (before.state === 'alive' || landed) && me.hp < (healedMe || landed ? me.maxHp : before.hp);
+  // 맞은 뒤 같은 0.1초 안에 보급을 받으면 체력이 도로 가득이라 체력으로는 모른다. 그때는 내 자리에서 myHitReach 안의 새 피격 효과 가운데
+  // 가장 가까운 대원이 나인 것이 있으면 내가 맞은 것으로 본다(PR #42 리뷰, 572ee03).
+  if (!hurtMe && healedMe && before?.state === 'alive') {
+    hurtMe = fresh.some(effect => effect.kind === 'hurt' && Math.hypot(effect.x - me.x, effect.y - me.y) <= myHitReach && nearestPlayer(current, effect) === me.id);
+  }
   if (hurtMe) cues.push({ kind: 'myHurt', pan: 0, gain: 1 });
   // 한 스냅샷의 같은 종류 효과는 가장 가까운 하나만 울린다. 한 스냅샷의 소리는 같은 순간에 시작해 같은 종류면 파형이 똑같이 겹치므로, 그대로
   // 내면 크기가 그 수만큼 더해진다. 회전 베기로 병사 다섯을 한꺼번에 받아치면 받아친 소리가 다섯 배로 커져 넘치고 내가 맞은 소리보다

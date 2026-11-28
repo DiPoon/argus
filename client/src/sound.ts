@@ -16,15 +16,27 @@ const maxVoices = 24;
 // 내가 맞은 소리나 작전 실패 소리(PR #42 리뷰 3), 마나가 바닥난 줄 알려 줄 막힌 소리(PR #42 리뷰, c1d5077)가 버려졌다.
 const pastLimit: CueKind[] = [...personal, 'press', 'empty'];
 const settingsKey = 'argus-sound';
+// 같은 소리(종류·상성·티어)를 이 시간(초) 안에 다시 내지 않는다. 밀렸던 스냅샷들이 한꺼번에 오면 장마다 바로 앞 장과 견준 소리를 연달아 내는데,
+// 소리 장치의 시계는 성기게 나아가 그 소리들이 같은 순간에 시작한다. 같은 소리면 파형이 똑같이 겹쳐 그 수만큼 더해져, 1초 밀림에서도 1을
+// 넘었다(PR #42 리뷰, 572ee03). 한 스냅샷 안의 같은 종류 효과는 cues.ts가 묶는다(여덟 개 상한이 여기 앞에서 자르므로 그대로 둔다).
+const sameSoundGap = .05;
+// 크기 막대 100이 소리 장치 전체의 크기 0.8이다. 서로 다른 큰 소리 여덟이 내 곁에서 한 스냅샷에 몰리면(받아침·부분 대응·비김·방어·타격·
+// 2티어 예고·내가 맞음·쓰러짐) 크기 1에서 가장 큰 값이 1.1쯤으로 넘쳤다(PR #42 리뷰, 572ee03). 0.8이면 0.9 아래다.
+const headroom = .8;
 
 export class Sound {
   enabled = true;
-  // 0~1이다. 소리 장치 전체의 크기(master)가 이 값이다. 가장 큰 크기(1)에서 소리 하나의 가장 큰 값이 0.06(탈출 확보의 1초 소리)~0.42(내가 맞은 소리)다(2026-11-24에 메모리에 그려 잼, sound.spec.ts가 들리는지와 넘치지 않는지를 본다).
+  // 0~1이다(크기 막대). 소리 장치 전체의 크기(master)는 이 값에 headroom을 곱한 것이다. 가장 큰 크기(1)에서 소리 하나의 가장 큰 값은
+  // 0.045(탈출 확보의 1초 소리)~0.28(내가 맞은 소리)이다(2026-11-28, 정해 둔 소음으로 메모리에 그려 잼. sound.spec.ts가 들리는지와 넘치지 않는지를 본다).
   volume = .6;
   private context?: AudioContext;
   private master?: GainNode;
   private noiseBuffer?: AudioBuffer;
   private active = 0;
+  // 울리고 있는 소리마다 끝내는 함수다. 소리를 끄거나 소리 장치가 멈추면 모두 그 자리에서 끝낸다.
+  private live = new Set<() => void>();
+  // 소리(종류·상성·티어)마다 마지막으로 낸 소리 장치의 시각이다.
+  private lastStart = new Map<string, number>();
 
   constructor() {
     try {
@@ -42,16 +54,28 @@ export class Sound {
       if (!Context) return;
       try { this.context = new Context(); } catch { return; }
       this.master = this.context.createGain();
-      this.master.gain.value = this.volume;
+      this.master.gain.value = this.volume * headroom;
+      // 소리 장치가 멈추면(소리 끔, 아이폰의 전화·알림으로 interrupted) 울리던 소리를 그 자리에서 끝낸다. 멈춘 장치는 발진기도 얼어 있다가,
+      // 다시 켜면 멈춘 자리부터 이어 울리고 끝을 세는 타이머가 중간에 끊었다(PR #42 리뷰, 572ee03).
+      const context = this.context;
+      context.addEventListener('statechange', () => { if (context.state !== 'running') this.stopAll(); });
       // 끝에 압축기(DynamicsCompressorNode)를 두지 않는다. 스스로 크기를 키우는 보정이 있어(Web Audio 규격의 makeup gain) 긴 소리는 세 배 가까이
       // 커지고 짧은 타격 소리는 도리어 작아졌다(2026-11-24에 메모리에 그려 잼). 겹침은 한 번에 울리는 소리의 상한(maxVoices)과, 한 스냅샷의
       // 같은 종류 효과를 하나로 묶는 것(cues.ts)으로 막는다.
       this.master.connect(this.context.destination);
-      // 흰 소음 1초다. 타격·바람 소리를 거르개로 깎아 만든다.
+      // 흰 소음 1초다. 타격·바람 소리를 거르개로 깎아 만든다. 늘 같은 소음이 되도록 정해 둔 씨앗의 난수로 채운다. Math.random으로 채웠을 때는
+      // 그릴 때마다 크기가 ±0.1쯤 달라 잰 값을 다시 얻을 수 없었다(PR #42 리뷰, 572ee03).
       const length = this.context.sampleRate;
       this.noiseBuffer = this.context.createBuffer(1, length, this.context.sampleRate);
       const data = this.noiseBuffer.getChannelData(0);
-      for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+      let seed = 0x2f6b4a1d;
+      for (let i = 0; i < length; i++) {
+        // xorshift32
+        seed ^= seed << 13;
+        seed ^= seed >>> 17;
+        seed ^= seed << 5;
+        data[i] = (seed >>> 0) / 0x80000000 - 1;
+      }
     }
     // 멈춘 것(suspended)만이 아니라 아이폰이 전화·알림으로 끊어 둔 것(interrupted)도 다시 켠다. running·closed 말고는 모두 부른다(PR #42 리뷰 4).
     const state = this.context.state as string;
@@ -60,7 +84,8 @@ export class Sound {
 
   setEnabled(on: boolean) {
     this.enabled = on;
-    this.save();
+    this.save({ on });
+    if (!on) this.stopAll();
     if (on) this.unlock();
     // running일 때만 멈추면, 막 만들어 켜지는 중(suspended에서 비동기로 running이 됨)에 끈 장치가 곧이어 켜져 작전 내내 돌았다(PR #42 리뷰, c1d5077.
     // 실제 브라우저에서는 재지 않음). suspend는 앞의 resume 뒤로 줄을 서므로 마지막에 멈춘 상태가 된다.
@@ -69,12 +94,24 @@ export class Sound {
 
   setVolume(volume: number) {
     this.volume = Math.max(0, Math.min(1, volume));
-    if (this.master) this.master.gain.value = this.volume;
-    this.save();
+    if (this.master) this.master.gain.value = this.volume * headroom;
+    this.save({ volume: this.volume });
   }
 
-  private save() {
-    try { localStorage.setItem(settingsKey, JSON.stringify({ on: this.enabled, volume: this.volume })); } catch { /* 이번 방문에만 쓴다. */ }
+  // 바꾼 항목만 저장한다. 쓰기 직전에 저장된 값을 다시 읽어 나머지는 그대로 둔다. 이 탭이 쥔 값으로 통째로 쓰면, 다른 탭에서 바꾼 항목이
+  // 사라졌다(탭 A에서 크기를 낮춘 뒤 탭 B에서 끄면 크기가 되돌아감, PR #42 리뷰, 572ee03).
+  private save(change: { on?: boolean; volume?: number }) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(settingsKey) ?? 'null') as { on?: unknown; volume?: unknown } | null;
+      const on = change.on ?? (typeof saved?.on === 'boolean' ? saved.on : this.enabled);
+      const volume = change.volume ?? (typeof saved?.volume === 'number' && saved.volume >= 0 && saved.volume <= 1 ? saved.volume : this.volume);
+      localStorage.setItem(settingsKey, JSON.stringify({ on, volume }));
+    } catch { /* 이번 방문에만 쓴다. */ }
+  }
+
+  // 울리고 있는 소리를 모두 그 자리에서 끝낸다.
+  private stopAll() {
+    for (const finish of [...this.live]) finish();
   }
 
   // 사건 하나의 소리를 낸다. 소리 장치가 아직 켜지지 않았거나(누름 전) 꺼 두었으면 내지 않는다.
@@ -87,6 +124,9 @@ export class Sound {
     const master = this.master;
     if (!this.enabled || !context || !master || context.state !== 'running') return;
     if (this.active >= maxVoices && !pastLimit.includes(cue.kind)) return;
+    const key = `${cue.kind}-${cue.affinity ?? ''}-${cue.tier ?? ''}`;
+    const last = this.lastStart.get(key);
+    if (last !== undefined && context.currentTime - last < sameSoundGap) return;
     const nodes: AudioNode[] = [];
     let counted = false;
     let finished = false;
@@ -94,24 +134,27 @@ export class Sound {
     const finish = () => {
       if (finished) return;
       finished = true;
+      this.live.delete(finish);
       if (counted) this.active -= 1;
       for (const node of nodes) node.disconnect();
     };
+    this.live.add(finish);
     try {
       const output = context.createGain();
       nodes.push(output);
       output.gain.value = cue.gain;
-      let last: AudioNode = output;
+      let tail: AudioNode = output;
       // 좌우 자리는 StereoPannerNode가 없는 브라우저에서는 빼고 가운데에서 낸다.
       if (typeof context.createStereoPanner === 'function') {
         const panner = context.createStereoPanner();
         nodes.push(panner);
         panner.pan.value = cue.pan;
         output.connect(panner);
-        last = panner;
+        tail = panner;
       }
-      last.connect(master);
+      tail.connect(master);
       const now = context.currentTime;
+      this.lastStart.set(key, now);
       const voice: Voice = { pending: 0, end: now, finish };
       this.compose(cue, output, now, voice);
       this.active += 1;
@@ -125,7 +168,8 @@ export class Sound {
     }
   }
 
-  // 소리 하나를 만든다. 수치는 듣고 맞춘 값이다. 끝 시각은 voice가 모든 발진기·소음에서 가장 늦은 것을 모은다. 마지막으로 만든 소리의 끝을
+  // 소리 하나를 만든다. 수치는 정해 둔 규칙이 아니라 만들며 고른 값이다. 크기는 메모리에 그려 잰 값으로 맞췄고(2026-11-24), 높이·길이·파형은
+  // 사람이 들어 보고 맞춘 것이 아니다(검사 브라우저로는 들을 수 없다). 끝 시각은 voice가 모든 발진기·소음에서 가장 늦은 것을 모은다. 마지막으로 만든 소리의 끝을
   // 돌려줄 때는 짧은 소음으로 끝나는 소리(draw)의 정리가 두 음의 끝과 겹쳤다(PR #42 리뷰, ee96b62).
   private compose(cue: Cue, out: AudioNode, t: number, voice: Voice) {
     const tone = (wave: Wave, from: number, start: number, duration: number, peak: number, to?: number) => this.tone(out, voice, wave, from, t + start, duration, peak, to);
