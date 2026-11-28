@@ -1,8 +1,10 @@
 import './style.css';
-import { slotMask, tickMilliseconds } from './movement';
+import { slotBit, slotMask, tickMilliseconds, ticksPerSecond } from './movement';
 import { World } from './world';
 import { Minimap } from './minimap';
 import { handIcon } from './rps';
+import { Sound } from './sound';
+import { Heard, snapshotCues } from './cues';
 import { freeSkills, kindOfSkill, kindSlots, touchSkills } from './loadout';
 import { copiedNotices, inviteLink, linkReach, normalizeRoomCode, readInvite, withoutInvite } from './invite';
 import { affinityNames, applyWallChanges, skillNames, type Affinity, type Guest, type Player, type Snapshot, type SnapshotWire, type Skill } from './types';
@@ -132,7 +134,7 @@ const pick = touchMode ? '누르세요' : '클릭하세요';
 $('app').innerHTML = `
   <header class="topbar">
     <a class="brand" href="/" aria-label="ARGUS 홈"><span class="brand-mark">△</span> ARGUS <span class="version">COMBAT TEST / 02</span></a>
-    <div class="top-right"><span id="connection" class="connection"><i></i> 투입 대기</span><span class="build-tag">CO-OP PVE · 1–4</span></div>
+    <div class="top-right"><div class="sound-top"><button id="sound-toggle" type="button" class="sound-toggle" aria-pressed="true">소리 <span class="sound-state" aria-hidden="true">켬</span></button><input id="sound-volume-top" type="range" min="0" max="100" step="5" aria-label="소리 크기"></div><span id="connection" class="connection"><i></i> 투입 대기</span><span class="build-tag">CO-OP PVE · 1–4</span></div>
   </header>
 ${touchMode ? touchLobby : desktopLobby}
 ${welcome}
@@ -148,7 +150,7 @@ ${welcome}
         <div class="progress"><i id="extract-progress"></i></div>
       </div>
       <div class="side-section"><div class="section-label">SQUAD <span id="team-count">1 / 4</span></div><div id="roster"></div></div>
-      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>적의 예고 안에서 이기는 기술을 누르면 그 순간 처치합니다. 누르고 있으면 기운이 이어지고, 떼면 장판이 나갑니다. Ⅱ(대응 2)는 이기는 기운이 둘 겹쳐야 합니다. 동료와 함께 누르고 있으세요. 혼자 받아치면 나와 엘리트가 1씩, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다.</p><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
+      <div class="side-bottom"><div class="section-label">FIELD NOTES</div><p>밝은 구역은 분대의 공유 시야입니다. 어두운 곳에도 적이 있을 수 있습니다.</p><p class="combat-legend"><span class="skill-strike">타격</span>은 잡기를 이깁니다.<br><span class="skill-block">방어</span>는 타격을 이깁니다.<br><span class="skill-channel">잡기</span>는 방어를 이깁니다.</p><p>적의 예고 안에서 이기는 기술을 누르면 그 순간 처치합니다. 누르고 있으면 기운이 이어지고, 떼면 장판이 나갑니다. Ⅱ(대응 2)는 이기는 기운이 둘 겹쳐야 합니다. 동료와 함께 누르고 있으세요. 혼자 받아치면 나와 엘리트가 1씩, 같은 기술로 맞서면 나는 2, 엘리트는 1을 잃습니다.</p><div class="sound-controls"><button id="sound-side" type="button" class="text-button" aria-pressed="true">소리 <span class="sound-state" aria-hidden="true">켬</span></button><input id="sound-volume" type="range" min="0" max="100" step="5" aria-label="소리 크기"></div><button id="report" class="text-button">버그 제보 ↗</button><button id="leave" class="text-button">작전에서 나가기 ↗</button><form id="report-note" class="report-note" hidden><label for="report-text">무엇이 이상했나요? 비워 둬도 제보는 남았습니다.</label><input id="report-text" maxlength="200" autocomplete="off" placeholder="예: 적이 벽을 지나갔어요"><div class="report-actions"><button type="submit" class="secondary">덧붙이기</button><button type="button" id="report-close" class="text-button">닫기</button></div></form></div>
     </aside>
     <section id="battlefield" class="battlefield" aria-label="작전 지도">
       <div id="canvas-host" class="canvas-host"></div>
@@ -186,6 +188,51 @@ if (touchMode) {
   const mapTop = document.querySelector<HTMLElement>('.map-top')!;
   new ResizeObserver(() => document.body.style.setProperty('--map-top', `${mapTop.offsetTop + mapTop.offsetHeight}px`)).observe(mapTop);
 }
+
+// 게임 소리다(이슈 #35). 무엇을 울릴지는 스냅샷으로 정하고(cues.ts, connect의 스냅샷 처리), 내가 누른 기술의 확인음은 누른 순간에 낸다(pressSlot).
+// 브라우저는 사용자의 누름 안에서만 소리를 켤 수 있어 첫 누름이나 키에서 켠다. 켬·끔과 크기는 PC는 위쪽 줄(로비에서도 보인다), 터치 화면은
+// 위쪽 줄이 없어 ☰ 서랍(옆 패널)에 있다. PC 옆 패널에 두면 높이 900px 화면에서 버그 제보·작전에서 나가기가 아래로 밀려 스크롤해야 보였다.
+const sound = new Sound();
+// 손가락 누름의 pointerdown은 사용자 동작(activation)으로 치지 않는 브라우저가 있다(HTML 규격은 손가락이면 pointerup·touchend). 그래서 떼는 때와
+// 클릭에서도 켠다(PR #42 리뷰 2). 이미 켜져 있으면 아무것도 하지 않는다.
+// 키의 자동 반복은 건너뛴다. 소리 장치가 켜지지 못하는 환경(출력 장치가 없는 PC, 이 개발 환경의 Firefox)에서는 resume()이 끝나지 않아,
+// 키를 쥐고 걷는 동안 반복마다 끝나지 않는 Promise가 쌓였다(PR #42 리뷰, 572ee03). 끝나지 않은 resume()이 있다고 다시 부르지 않으면 안 된다.
+// 손가락의 pointerdown에서 부른 resume()은 사용자 동작이 아니라 끝나지 않으므로 뒤따르는 pointerup·touchend의 호출까지 빠진다.
+for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const) {
+  window.addEventListener(type, event => { if (!(event instanceof KeyboardEvent && event.repeat)) sound.unlock(); }, { capture: true });
+}
+// 버튼의 이름은 "소리"로 두고 켬·끔은 aria-pressed로 알린다. 보이는 "켬·끔"은 화면 읽기 프로그램에 읽히지 않는다. 이름까지 "소리 끔"으로 바꾸면
+// "소리 끔, 누르지 않음"으로 읽혀 무엇이 꺼졌는지 헷갈렸다(PR #42 리뷰 7).
+function showSound() {
+  for (const id of ['sound-toggle', 'sound-side']) {
+    $(id).querySelector('.sound-state')!.textContent = sound.enabled ? '켬' : '끔';
+    $(id).setAttribute('aria-pressed', String(sound.enabled));
+  }
+  for (const id of ['sound-volume', 'sound-volume-top']) $<HTMLInputElement>(id).value = String(Math.round(sound.volume * 100));
+}
+for (const id of ['sound-toggle', 'sound-side']) $(id).addEventListener('click', () => { sound.setEnabled(!sound.enabled); showSound(); });
+for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('input', () => { sound.setVolume(Number($<HTMLInputElement>(id).value) / 100); showSound(); });
+// 크기 막대에 키보드(Tab)로 왔는지다. 그렇게 온 막대에서만 방향키를 막대로 넘긴다(keydown). 마우스로 막대를 눌러도 커서가 막대에 남아,
+// 크기를 고친 뒤 방향키로 걷지 못하고 크기만 바뀌었다(PR #42 재리뷰 가). 막대가 커서를 받을 때(focus) 그 직전의 조작이 Tab이었는지로 가리고,
+// 포인터로 누르면(어디든) 잊는다.
+// - :focus-visible로는 가리지 못한다. Chromium·WebKit은 마우스로 누른 막대도 키를 누르는 그 keydown에서 이미 참이었다(11-27, 세 엔진에서 잼).
+// - 막대의 pointerdown으로 적고 blur로 지웠을 때는(재리뷰 반영의 첫 판) 창을 다녀오면 막대에 blur·focus가 와서 방향키가 다시 막대로 갔다.
+//   누른 폼 요소에 커서를 주지 않는 브라우저(macOS Safari)에서는 blur가 오지 않아, 그 뒤 Tab으로 온 막대의 방향키가 걸었다(PR #42 리뷰, ee96b62).
+// 창을 다녀와 다시 받은 커서는 그 직전의 조작(Tab인지)이 그대로라 앞의 판단을 잇는다.
+// Alt(Option)가 눌린 Tab도 Tab으로 친다. macOS Safari는 기본 설정에서 Tab이 글 입력란만 지나고 버튼·막대에는 Option+Tab으로 간다. Alt를
+// 뺐을 때는 그렇게 온 막대의 방향키가 걸었다(PR #42 리뷰, c1d5077. 실제 Safari에서는 재지 않음). 창 바꾸기(Alt+Tab)의 Tab이 페이지에 오더라도
+// 창이 포커스를 잃을 때(window의 blur) 잊으므로, 돌아와 막대가 커서를 다시 받아도 키보드로 치지 않는다. Ctrl·Meta가 눌린 Tab은 탭·앱 바꾸기다.
+// 다만 Tab으로 온 막대에 커서가 있는 채 창을 다녀오면 그 판단을 남긴다. 무조건 잊었을 때는 돌아와 막대가 focus를 다시 받을 때 거짓으로 덮여,
+// 포커스 고리가 막대에 그대로인데 →가 대원을 걷게 했다(PR #42 리뷰, 572ee03).
+let tabbing = false;
+let volumeByKeyboard = false;
+window.addEventListener('keydown', event => {
+  if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey) tabbing = true;
+}, { capture: true });
+window.addEventListener('pointerdown', () => { tabbing = false; volumeByKeyboard = false; }, { capture: true });
+window.addEventListener('blur', event => { if (event.target === window && !volumeByKeyboard) tabbing = false; });
+for (const id of ['sound-volume', 'sound-volume-top']) $(id).addEventListener('focus', () => { volumeByKeyboard = tabbing; });
+showSound();
 
 let guest: Guest | undefined;
 // 이 탭의 복구 정보다(탭별 sessionStorage, 방에 들어갈 때 적고 나갈 때 지운다). 읽을 수 없으면 지운다.
@@ -310,6 +357,40 @@ function pressSlot(slot: number) {
   }
   pressedSinceSend.push(slot);
   if (pressedSinceSend.length > maxPressesPerInput) pressedSinceSend.shift();
+  pressSound(slot);
+}
+// 누른 기술의 확인음이다. 서버의 결과를 기다리지 않는 누름의 소리이고, 판정의 소리는 스냅샷의 효과로 따로 난다.
+// 서버가 그 누름으로 기술을 시작하지 않으면(마나가 모자람, 앞 기술이 끝나기 전에 뗌) 막힌 소리를 낸다. 앞의 누름들이 마나를 쓸지까지 서버처럼
+// 따라가야 맞는다(마나 1에서 거의 함께 누른 두 기술은 앞의 것만 시작한다, PR #42 리뷰 5). 보급으로 마나가 찬 것은 다음 스냅샷까지 모르므로
+// 보급 직후 0.1초쯤은 어긋날 수 있다. 작전이 끝났으면 서버가 누름을 받지 않으므로 소리를 내지 않는다.
+function pressSound(slot: number) {
+  const player = me(), definition = snapshot?.rules.skills.find(skill => skill.id === player?.slots[slot - 1]);
+  if (!player || !definition || snapshot?.phase === 'ended') return;
+  // 연결이 끊긴 동안(재접속 중) 누른 기술은 서버에 닿지 않고 사라진다(sendInput이 보내지 못한다). 확인음 대신 막힌 소리를 낸다. 확인음을 냈을
+  // 때는 기술이 나가지 않는데도 나간 것처럼 들렸다(PR #42 리뷰, c1d5077).
+  if (socket?.readyState !== WebSocket.OPEN) { sound.play({ kind: 'empty', pan: 0, gain: 1 }); return; }
+  const confirm = { kind: 'press', pan: 0, gain: 1, affinity: definition.kind } as const;
+  const blocked = { kind: 'empty', pan: 0, gain: 1 } as const;
+  // 이 누름이 서버에서 기술을 시작할지는 예측 상태를 서버처럼 진행해 본다(World.pressStarts). 지금 누른 슬롯은 아직 누르고 있는 것으로 친다.
+  const starts = world?.pressStarts(slotMask(heldSlots()) | slotBit(slot), pressedSinceSend, slot);
+  if (starts !== undefined) { sound.play(starts ? confirm : blocked); return; }
+  // 예측을 끈 동안에는 지난 스냅샷의 마나에서 앞 누름이 쓸 마나를 어림해 뺀다. 같은 슬롯을 다시 눌렀으면 서버가 앞의 누름을 버리고, 버튼을 뗀
+  // 기다리는 누름(waitingReleased)은 다음 틱에 앞의 기술이 끝날 때만 시작한다. 다음 틱인지는 틱으로 되돌려 견준다(초는 소수 둘째 자리로
+  // 반올림되어 틱 사이가 0.03·0.04로 고르지 않다, PR #42 리뷰, 572ee03).
+  const cost = (other: number) => snapshot?.rules.skills.find(skill => skill.id === player.slots[other - 1])?.mana ?? 0;
+  const repressed = (other: number) => pressedSinceSend.includes(other) || pressSequence[other] > player.ack;
+  let pending = 0;
+  for (const other of pressedSinceSend.slice(0, -1)) pending += cost(other);
+  for (let other = 1; other <= 4; other++) if (pressSequence[other] > player.ack) pending += cost(other);
+  let ends = -Infinity;
+  for (const action of player.actions) ends = Math.max(ends, Math.round(action.endsAt * ticksPerSecond));
+  const nextTick = Math.round((snapshot?.now ?? 0) * ticksPerSecond) + 1;
+  for (const other of snapshot?.waiting ?? []) {
+    if (repressed(other)) continue;
+    if (snapshot?.waitingReleased?.includes(other) && ends > nextTick) continue;
+    pending += cost(other);
+  }
+  sound.play(player.mana - pending < definition.mana ? blocked : confirm);
 }
 // 살아 있지 않을 때 누른 기술 키와, 살아 있는 상태를 벗어날 때 눌려 있던 기술 키다. 떼었다 다시 눌러야 기술이 나간다.
 // 그대로 두면 투입을 기다리며 쥔 키가 착지 뒤 마나가 차는 순간부터 기술을 계속 낸다.
@@ -495,8 +576,14 @@ async function openOperation() {
   connect();
 }
 
+// 소리를 고를 때 견줄 지난 스냅샷과 들은 예고·효과다. 접속할 때마다(재접속 포함) 비워, 접속 뒤 첫 스냅샷은 소리 없이 기준으로만 받는다.
+// 비우지 않으면 끊기기 전 스냅샷과 견줘 끊긴 동안 일어난 일의 소리가 한꺼번에 늦게 났다(PR #42 리뷰 8).
+let soundBase: Snapshot | undefined;
+let soundHeard = new Heard();
 function connect() {
   if (!guest) return;
+  soundBase = undefined;
+  soundHeard = new Heard();
   window.clearTimeout(reconnectTimer);
   status('연결 중');
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
@@ -550,6 +637,11 @@ function connect() {
       for (const notice of lastNotice === 0 ? fresh.slice(-1) : fresh) toast(notice.text, false);
       lastNotice = fresh[fresh.length - 1].id;
     }
+    // 지난 스냅샷 뒤로 새로 일어난 일의 소리다. 같은 방의 이전 스냅샷이 없으면(접속 직후) 지난 일은 울리지 않는다. 게임 처리 맨 뒤에 둔다.
+    // 소리를 내다 예외가 나도(Sound.play가 삼킨다) 안내와 기준 스냅샷은 이미 바뀌어 있다(PR #42 리뷰, ee96b62).
+    const base = soundBase;
+    soundBase = snapshot;
+    for (const cue of snapshotCues(base, snapshot, soundHeard)) sound.play(cue);
   });
   ws.addEventListener('close', event => {
     if (socket !== ws || !guest) return;
@@ -976,7 +1068,12 @@ window.addEventListener('pointermove', event => { if (!fingerLike(event) && even
 window.addEventListener('blur', clearInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
 window.addEventListener('keydown', event => {
-  if (!guest || event.target instanceof HTMLInputElement) return;
+  // 글을 적는 입력란에서 친 키는 게임 키로 받지 않는다. 소리 크기 막대(range)는 글을 적지 않으므로 받는다. 받지 않으면 크기를 고친 뒤
+  // 지도를 다시 누를 때까지 WASD가 먹지 않는다.
+  if (!guest || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
+  // 키보드(Tab)로 소리 크기 막대에 왔으면 방향키·Home·End·PageUp·PageDown은 막대를 움직인다. 게임 키로 막으면 작전 중에 키보드로 크기를 고칠
+  // 수 없었다(PR #42 리뷰 6). 포인터로 막대를 눌러 온 커서에서는 방향키도 대원을 걷게 한다(volumeByKeyboard). WASD는 언제나 대원을 움직인다.
+  if (event.target instanceof HTMLInputElement && event.target.type === 'range' && volumeByKeyboard && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyM', 'Space', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(event.code)) event.preventDefault();
   const pressed = slotFromCode(event.code);
   // 자동 반복으로 처음 보는 키다. 입력을 비우기 전(창을 떠나기 전)부터, 또는 창 밖에서부터 누르고 있던 키다.

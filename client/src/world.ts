@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js
 import { fromDouble, toDouble, type FixedVector } from './fixed';
 import {
   clonePilot, deployable, receiveInput, slotSkill, stepPilot, tickMilliseconds, ticksPerSecond, toTicks, unknownTile,
-  type Body, type Pilot, type PilotAction, type PilotInput, type PilotRules, type SlotSkill, type Terrain,
+  type Body, type Pilot, type PilotAction, type PilotInput, type PilotPress, type PilotRules, type SlotSkill, type Terrain,
 } from './movement';
 import { affinityNames, type Affinity, type CombatAction, type Control, type Position, type SkillDefinition, type Snapshot } from './types';
 // 색(상성 색, 지도 색, 대원 색, 적 몸 색)은 미니맵·CSS·검사가 함께 쓰도록 pixi 없는 palette.ts에 둔다.
@@ -417,6 +417,30 @@ export class World {
     if (last) for (let i = 0; i < left; i++) stepPilot(this.terrain, this.bodies, pilot, last, this.pilotRules);
     this.spots.set(ticks, pilot.position);
     return pilot.position;
+  }
+
+  // 지금 보내려는 누름들(pressed, 누른 차례대로)이 서버에 닿으면 slot의 누름이 기술을 시작할지다. 예측 상태(tip: 보낸 입력까지 서버처럼 걸은
+  // 마나·쓰는 중인 기술·기다리는 누름)에서 그 누름들이 담긴 입력이 도착한 뒤로, 지금 누르고 있는 버튼(held, 슬롯 비트 묶음)을 그대로 쥐고
+  // 틱마다 입력을 보낸다고 보고 서버와 같은 계산(receiveInput·stepPilot)으로 진행한다. 시작하면 true, 마나가 모자라거나 뗀 누름이라 버려지면
+  // false다. 누른 기술의 확인음을 고르는 데 쓴다(main.ts의 pressSound). 스냅샷의 마나에서 앞 누름의 마나를 어림해 빼던 때는 톡 눌렀다 뗀
+  // 누름(서버가 앞 기술이 끝나지 않아 버림)의 마나까지 빼 틀린 막힌 소리가 났다(PR #42 리뷰, 572ee03). 예측을 끈 동안에는 모른다(undefined).
+  pressStarts(held: number, pressed: readonly number[], slot: number): boolean | undefined {
+    if (!this.terrain || !this.pilotRules || !this.forecast) return undefined;
+    const pilot = clonePilot(this.forecast.tip);
+    receiveInput(pilot, held, pressed);
+    // slot의 누름이다. 같은 슬롯을 쥐고 기다리는 누름이 있으면 서버가 새 누름을 넣지 않고 그 누름이 그대로 남는다(Match.Press).
+    let mine: PilotPress | undefined;
+    for (const waiting of pilot.waiting) if (waiting.slot === slot) mine = waiting;
+    if (!mine) return undefined;
+    const input: PilotInput = { moveX: 0, moveY: 0, aim: 0, held, pressed: [] };
+    // 최대 기운 시간과 가장 긴 기술을 넉넉히 덮는 4초까지 본다.
+    for (let i = 0; i < ticksPerSecond * 4; i++) {
+      const action = pilot.action;
+      stepPilot(this.terrain, this.bodies, pilot, input, this.pilotRules);
+      if (!pilot.waiting.includes(mine)) return pilot.action !== undefined && pilot.action !== action && pilot.action.slot === slot;
+      receiveInput(pilot, held, []);
+    }
+    return undefined;
   }
 
   // 마지막 예측 상태(tip)에서 input을 ticks틱 더 쓴다. arrives면 이 입력이 막 도착한 것이라 버튼의 변화를 먼저 적는다.

@@ -25,7 +25,7 @@ Argus는 1–4인 협동 PvE 브라우저 게임이다. C# 서버(.NET 10, ASP.N
 | `recording.md` | 기록 형식과 쓰기, 재생, 버그 제보, CI의 재생 | `Recording/**`, `MatchRecord.cs`, `MatchReplay.cs`, `tools/**`, `ci.yml` |
 | `mission.md` | 배치 검증, 손으로 만든 맵과 조용한 방, 튜토리얼 훈련장, 맵 생성 순서, 처음 적 | `MissionLayout.cs`, `MissionGenerator.cs` |
 | `prediction.md` | 서버와 같은 계산(대조 자료), 서버 재조정, 예측의 한계 | `fixed.ts`, `movement.ts`, `world.ts` |
-| `client-main.md` | 키·마우스·터치의 누름 보내기, HUD, 방을 나갈 때 비우기, 초대 링크, 터치 화면과 CSS 주의점 | `main.ts`, `invite.ts`, `style.css`, `index.html` |
+| `client-main.md` | 키·마우스·터치의 누름 보내기, HUD, 방을 나갈 때 비우기, 초대 링크, 튜토리얼 화면, 게임 소리, 터치 화면과 CSS 주의점 | `main.ts`, `invite.ts`, `sound.ts`, `cues.ts`, `style.css`, `index.html` |
 | `client-render.md` | 기운·장판 그리기, 원호, 벽 구역, 상성 색, 손 그림 | `world.ts`, `palette.ts`, `rps.ts`, `loadout.ts` |
 | `client-minimap.md` | 미니맵의 크기와 자리, 알림이 비켜 가는 자리 | `minimap.ts`, `style.css` |
 | `server-tests.md` | 하네스, 하나만 실행하기, 파일마다 다루는 것, 도우미 | `tests/Argus.Server.Tests/**` |
@@ -47,7 +47,7 @@ dotnet run --project tests/Argus.Server.Tests -- vectors       # client/tests/fi
 dotnet run --project tools/Argus.Replay -- <기록.jsonl.gz> [--until <틱> [--snapshot <대원 id>]]   # 기록 하나 재생. 그 틱에서 멈춰 상태와 그 대원의 화면 보기
 dotnet run --project tools/Argus.Replay -- <기록 폴더> [--strict]   # 폴더 전체 확인. --strict는 폴더에만 듣는다(파일에 주면 말없이 무시한다)
 cd client && npx playwright install --with-deps chromium       # 브라우저 설치(처음 한 번. root 권한이 없으면 browser-tests.md)
-cd client && npm run test:e2e                                  # 브라우저 검사 전체 (134개, 서버가 5077에 떠 있어야 한다)
+cd client && npm run test:e2e                                  # 브라우저 검사 전체 (153개, 서버가 5077에 떠 있어야 한다)
 cd client && npx playwright test tests/world.spec.ts -g "이름 일부"
 ```
 
@@ -91,15 +91,16 @@ client/src/
   main.ts invite.ts         로비, 접속, 입력(키·마우스·터치), HUD, 재접속. invite.ts는 초대 링크(?room=방 코드)의 주소 계산
   world.ts                  PixiJS 그리기, 스냅샷 보간, 이동 예측과 서버 재조정(World)
   minimap.ts                미니맵(Minimap)
+  sound.ts cues.ts          게임 소리. cues.ts가 두 스냅샷에서 울릴 사건을 고르고 sound.ts가 Web Audio로 합성한다
   movement.ts fixed.ts      서버의 대원 한 틱과 고정소수점을 옮긴 것(예측용)
   types.ts                  통신 형식의 TypeScript 쪽
   palette.ts rps.ts loadout.ts   색과 그리는 규칙, 손 그림 SVG, 로비의 장비 표
   style.css                 모든 화면의 CSS
-client/tests/               Playwright 스펙 9개, 도우미 rooms.ts·wire.ts, 서버가 만든 fixed-vectors.json
+client/tests/               Playwright 스펙 10개, 도우미 rooms.ts·wire.ts, 서버가 만든 fixed-vectors.json
 docs/                       requirements·combat·protocol·verification (아래 "문서")
 ```
 
-의존 방향은 한쪽이다. 서버는 `Program.cs` → `Networking` → `Recording` → `Game`이고, `Game`은 기록을 `IMatchRecorder` 인터페이스로만 안다. 검사와 재생 도구는 서버 프로젝트를 참조한다. 클라이언트는 `main.ts` → `world.ts`·`minimap.ts` → `movement.ts` → `fixed.ts`이고, 색은 `palette.ts`, 형식은 `types.ts`를 함께 쓴다.
+의존 방향은 한쪽이다. 서버는 `Program.cs` → `Networking` → `Recording` → `Game`이고, `Game`은 기록을 `IMatchRecorder` 인터페이스로만 안다. 검사와 재생 도구는 서버 프로젝트를 참조한다. 클라이언트는 `main.ts` → `world.ts`·`minimap.ts` → `movement.ts` → `fixed.ts`이고(소리는 `main.ts` → `sound.ts`·`cues.ts`), 색은 `palette.ts`, 형식은 `types.ts`를 함께 쓴다.
 
 읽는 요령:
 
