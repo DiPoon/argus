@@ -52,16 +52,26 @@ test('a new effect sounds once, and my own hurt is told by my health, not by whe
   // 같은 0.1초에 두 적에게 맞았다. 내 자리의 피격 둘은 모두 내가 맞은 소리 하나다.
   expect(kinds(snapshotCues(state(), myHp(4, { effects: [effect(23, 'hurt', 500), effect(24, 'hurt', 505)] })))).toEqual(['myHurt']);
   // 체력 2로 보급 상자에 들어서는 0.1초에 맞았다. 서버는 보급(가득 채움)을 판정보다 먼저 하므로 체력이 2 → 6 → 5로 지난 스냅샷보다 높다.
-  // 그래도 내가 맞은 소리다(PR #42 리뷰, c1d5077). 보급을 받은 것은 마나가 는 것으로 안다.
-  const low = myHp(2, {}, 0);
-  expect(kinds(snapshotCues(low, myHp(5, { effects: [effect(25, 'heal', 500), effect(26, 'hurt', 500)] }, 24)))).toEqual(['heal', 'myHurt']);
-  // 보급 효과를 못 봤어도(한 장 놓침) 마나가 늘었으면 보급을 받은 것이다.
-  expect(kinds(snapshotCues(low, myHp(5, {}, 23)))).toEqual(['myHurt']);
-  // 마나가 이미 가득했으면 새 보급 효과에 가장 가까운 대원이 나인지로 안다.
-  expect(kinds(snapshotCues(myHp(2, {}, 24), myHp(5, { effects: [effect(27, 'heal', 505), effect(28, 'hurt', 505)] }, 24)))).toEqual(['heal', 'myHurt']);
-  // 곁의 동료가 보급을 받았다. 내 체력은 3 그대로라 내가 맞은 소리가 아니다(보급 효과에 가장 가까운 대원이 동료다).
-  const beside = (hp: number, extra: Partial2 = {}) => state({ players: [{ id: 'p', x: 500, y: 500, state: 'alive', hp, maxHp: 6, mana: 24 }, { id: 'q', x: 560, y: 500, state: 'alive', hp: 6, maxHp: 6, mana: 24 }], ...extra });
-  expect(kinds(snapshotCues(beside(3), beside(3, { effects: [effect(29, 'heal', 560)] })))).toEqual(['heal']);
+  // 그래도 내가 맞은 소리다(PR #42 리뷰, c1d5077). 보급을 받은 것은 그 상자의 내 대기(cooldown)가 는 것으로 안다(PR #42 리뷰, 572ee03).
+  const box = (cooldown: number) => ({ supplies: [{ id: 9, x: 520, y: 500, kind: 'camp', objective: false, collected: false, uses: 3, cooldown }] });
+  expect(kinds(snapshotCues(myHp(2, box(0), 24), myHp(5, { ...box(18), effects: [effect(25, 'heal', 500), effect(26, 'hurt', 500)] }, 24)))).toEqual(['heal', 'myHurt']);
+  // 보급 효과도 상자도 못 봤어도 마나가 늘었으면 보급을 받은 것이다(마나는 보급으로만 는다).
+  expect(kinds(snapshotCues(myHp(2, {}, 0), myHp(5, {}, 23)))).toEqual(['myHurt']);
+  // 맞은 뒤 같은 0.1초에 보급을 받아 체력이 도로 가득하다(3 → 2 → 6). 내 자리 둘레의 새 피격에 가장 가까운 대원이 나이므로 내가 맞은 소리다.
+  expect(kinds(snapshotCues(myHp(3, box(0), 24), myHp(6, { ...box(18), effects: [effect(27, 'heal', 500), effect(28, 'hurt', 500)] }, 24)))).toEqual(['heal', 'myHurt']);
+  // 곁의 동료가 보급을 받고 한 걸음 벗어났다. 효과 자리에는 내가 더 가깝지만 내 대기는 늘지 않았고 체력도 그대로라 내가 맞은 소리가 아니다.
+  // 효과에 가장 가까운 대원으로 짐작했을 때는 이 장면에서 내가 맞은 소리가 났다(PR #42 리뷰, 572ee03).
+  const pair = (myX: number, mateHp: number, mateMana: number, extra: Partial2 = {}) => state({ players: [
+    { id: 'p', x: myX, y: 500, state: 'alive', hp: 5, maxHp: 6, mana: 20 }, { id: 'q', x: 612, y: 500, state: 'alive', hp: mateHp, maxHp: 6, mana: mateMana },
+  ], ...box(0), ...extra });
+  expect(kinds(snapshotCues(pair(607, 3, 2), pair(607, 6, 24, { effects: [effect(29, 'heal', 600)] })))).toEqual(['heal']);
+  // 착지한 0.1초 안에 맞았다. 지난 스냅샷의 나는 투입 중이었으므로 가득 찬 체력과 견준다. 맞지 않았으면 소리가 없다.
+  const landing = state({ players: [{ id: 'p', x: 500, y: 500, state: 'deploying', hp: 6, maxHp: 6, mana: 0 }] });
+  expect(kinds(snapshotCues(landing, myHp(5)))).toEqual(['myHurt']);
+  expect(kinds(snapshotCues(landing, myHp(6)))).toEqual([]);
+  // 쓰러져 기다리는 동안에는 체력이 가득이 아니어도 내가 맞은 소리를 내지 않는다.
+  const waiting = state({ players: [{ id: 'p', x: 500, y: 500, state: 'waiting', hp: 0, maxHp: 6, mana: 0 }] });
+  expect(kinds(snapshotCues(waiting, waiting))).toEqual([]);
 });
 
 test('the same kind of effect in one snapshot sounds once from the nearest, so a crowd does not add up', () => {
@@ -162,7 +172,7 @@ test('a crowded snapshot keeps the loudest sounds up to the limit, the end of th
 async function recordAudio(page: Page) {
   await page.addInitScript(() => {
     // broken이 참이면 발진기·소음을 만들 때마다 예외를 낸다(소리 코드의 예외가 게임 처리를 멈추지 않는지 본다).
-    const log = { contexts: 0, resumes: 0, suspends: 0, broken: false, sounds: [] as { type: string; frequency?: number }[], gains: [] as { value: number }[] };
+    const log = { contexts: 0, resumes: 0, suspends: 0, broken: false, stuck: false, frozen: undefined as number | undefined, sounds: [] as { type: string; frequency?: number }[], gains: [] as { value: number }[] };
     (window as unknown as { audioLog: typeof log }).audioLog = log;
     const param = (value = 0) => ({ value, setValueAtTime(v: number) { this.value = v; }, linearRampToValueAtTime() { }, exponentialRampToValueAtTime() { } });
     const node = () => ({ connect(next: unknown) { return next; }, disconnect() { } });
@@ -171,12 +181,22 @@ async function recordAudio(page: Page) {
       state = 'suspended';
       sampleRate = 8000;
       destination = node();
-      get currentTime() { return performance.now() / 1000; }
+      // frozen이 있으면 소리 장치의 시계가 그 값에 멈춰 있다(실제 장치의 시계는 성기게 나아가, 연달아 처리한 스냅샷의 소리가 같은 시각을 받는다).
+      get currentTime() { return log.frozen ?? performance.now() / 1000; }
       constructor() { log.contexts += 1; (log as unknown as { context: unknown }).context = this; }
       // 실제 장치처럼 켜기·멈추기는 비동기로 바뀌고 부른 차례대로 줄을 선다. 켜기는 30ms 걸린다.
       queue = Promise.resolve();
-      resume() { log.resumes += 1; this.queue = this.queue.then(() => new Promise(done => setTimeout(done, 30))).then(() => { this.state = 'running'; }); return this.queue; }
-      suspend() { log.suspends += 1; this.queue = this.queue.then(() => { this.state = 'suspended'; }); return this.queue; }
+      // stuck이면 켜기가 끝나지 않는다(출력 장치가 없는 환경). 상태가 바뀌면 statechange를 알린다.
+      listeners: (() => void)[] = [];
+      addEventListener(type: string, listener: () => void) { if (type === 'statechange') this.listeners.push(listener); }
+      change(state: string) { this.state = state; for (const listener of this.listeners) listener(); }
+      resume() {
+        log.resumes += 1;
+        if (log.stuck) return new Promise<void>(() => { });
+        this.queue = this.queue.then(() => new Promise(done => setTimeout(done, 30))).then(() => this.change('running'));
+        return this.queue;
+      }
+      suspend() { log.suspends += 1; this.queue = this.queue.then(() => this.change('suspended')); return this.queue; }
       createGain() { const gain = { ...node(), gain: param(1) }; log.gains.push(gain.gain); return gain; }
       createStereoPanner() { return { ...node(), pan: param() }; }
       createBiquadFilter() { return { ...node(), type: 'lowpass', frequency: param() }; }
@@ -196,7 +216,7 @@ async function recordAudio(page: Page) {
     Object.defineProperty(window, 'AudioContext', { value: FakeContext, configurable: true });
   });
 }
-type AudioLog = { contexts: number; resumes: number; suspends: number; broken: boolean; sounds: { type: string; frequency?: number }[]; gains: { value: number }[] };
+type AudioLog = { contexts: number; resumes: number; suspends: number; broken: boolean; stuck: boolean; frozen?: number; sounds: { type: string; frequency?: number }[]; gains: { value: number }[] };
 const audioLog = (page: Page) => page.evaluate(() => (window as unknown as { audioLog: AudioLog }).audioLog);
 
 test('sound starts with the first press, plays the landing and a press, and keeps its switch and volume', async ({ page }) => {
@@ -225,34 +245,46 @@ test('sound starts with the first press, plays the landing and a press, and keep
   wire.change = data => { data.players.find(player => player.id === data.you)!.mana = 1; return data; };
   await page.waitForTimeout(400);
   const pair = (await audioLog(page)).sounds.length;
+  // 두 누름 사이에 1번을 확인한 스냅샷(마나는 다시 1)이 닿으면 2번도 확인음이라, 그동안 스냅샷을 잡아 둔다(PR #42 리뷰, 572ee03).
+  wire.holding = true;
   await page.keyboard.press('Digit1');
   await page.keyboard.press('Digit2');
   await expect.poll(async () => (await audioLog(page)).sounds.slice(pair).map(sound => sound.frequency)).toEqual([900, 150, 150]);
-  // 기다리는 누름 가운데 버튼을 뗀 것(waitingReleased)은 다음 틱에 앞의 기술이 끝날 때만 시작하고 아니면 버려진다. 마나 1에서 2번을 톡 눌렀다
-  // 뗀 뒤 3번을 누르면, 앞의 기술이 아직 길면 서버가 3번을 시작하므로 확인음이다(PR #42 리뷰, c1d5077). 앞의 기술이 다음 틱에 끝나면
-  // 2번이 마나를 쓰므로 막힌 소리고, 버튼을 쥐고 기다리는 2번도 막힌 소리다. 쓰는 중인 기술과 기다리는 누름을 스냅샷에 넣어 만든다.
+  wire.release();
+  // 앞 기술을 쓰는 동안의 누름은 서버가 기다렸다가 앞 기술이 끝나면 시작한다. 버튼을 뗀 누름은 다음 틱에 앞 기술이 끝날 때만 시작하고 아니면
+  // 버려진다(마나를 쓰지 않는다). 확인음은 예측 상태를 서버처럼 진행해 고른다(PR #42 리뷰 c1d5077·572ee03). 쓰는 중인 기술(endsIn초 뒤에
+  // 끝남)과 기다리는 누름을 스냅샷에 넣고 마나 1에서 누른다. 쥐는 키(hold)는 먼저 눌러 쥔다.
   await page.waitForTimeout(500);
-  const waitingScene = async (released: boolean, endsIn: number, key = 'Digit3') => {
+  const waitingScene = async (waiting: number[], released: number[], endsIn: number, keys: string[], hold?: string) => {
     wire.change = data => {
       const me = data.players.find(player => player.id === data.you)!;
       me.mana = 1;
       me.actions = [{ id: 777001, skill: me.slots[0], kind: 'strike', slot: 1, tier: 1, phase: 'aura', aim: 0, startedAt: data.now, contactAt: data.now + endsIn, activeUntil: data.now + endsIn, endsAt: data.now + endsIn, held: false, holdUntil: data.now + endsIn }];
-      return { ...data, waiting: [2], ...(released ? { waitingReleased: [2] } : {}) };
+      return { ...data, waiting, waitingReleased: released };
     };
     await page.waitForTimeout(400);
+    if (hold) { await page.keyboard.down(hold); await page.waitForTimeout(300); }
     const start = (await audioLog(page)).sounds.length;
-    await page.keyboard.press(key);
+    for (const key of keys) await page.keyboard.press(key);
     await expect.poll(async () => (await audioLog(page)).sounds.length).toBeGreaterThan(start);
+    await page.waitForTimeout(100);
     const blocked = (await audioLog(page)).sounds.slice(start).some(sound => sound.frequency === 150);
+    if (hold) await page.keyboard.up(hold);
     wire.change = data => data;
     await page.waitForTimeout(500);
     return blocked;
   };
-  expect(await waitingScene(true, 5)).toBe(false);
-  expect(await waitingScene(true, 0)).toBe(true);
-  expect(await waitingScene(false, 5)).toBe(true);
-  // 기다리는 2번을 (스냅샷이 알기 전에) 뗐다 다시 눌렀다. 서버는 앞의 누름을 버리고 새 누름을 넣으므로 2번은 한 번만 센다. 확인음이다.
-  expect(await waitingScene(false, 5, 'Digit2')).toBe(false);
+  // 스냅샷에 뗀 2번이 있다. 앞 기술이 1.5초 남았으면 2번은 버려지고 3번이 마나 1로 시작하므로 확인음이다.
+  expect(await waitingScene([2], [2], 1.5, ['Digit3'])).toBe(false);
+  // 앞 기술이 이번 틱에 끝나면 뗀 2번이 다음 틱에 마지막 마나를 쓰므로 3번은 막힌 소리다.
+  expect(await waitingScene([2], [2], 0, ['Digit3'])).toBe(true);
+  // 2번을 쥐고 기다린다. 앞 기술이 끝나면 2번이 마나를 쓰므로 3번은 막힌 소리다.
+  expect(await waitingScene([2], [], 1.5, ['Digit3'], 'Digit2')).toBe(true);
+  // 기다리는 2번을 (스냅샷이 알기 전에) 뗐다 다시 눌렀다. 2번 누름은 하나라 확인음이다.
+  expect(await waitingScene([2], [], 1.5, ['Digit2'])).toBe(false);
+  // 앞 기술을 쓰는 중에 2번을 톡 눌렀다 떼고 곧바로 3번을 눌렀다. 서버는 2번을 버리고 앞 기술이 끝나면 3번을 시작하므로 3번도 확인음이다.
+  // 스냅샷의 마나에서 앞 누름의 마나를 어림해 뺐을 때는 막힌 소리가 났다(PR #42 리뷰, 572ee03).
+  expect(await waitingScene([], [], 1.5, ['Digit2', 'Digit3'])).toBe(false);
   wire.change = data => data;
 
   // 끄면 소리를 내지 않는다. 다시 열어도 꺼져 있다.
@@ -265,12 +297,13 @@ test('sound starts with the first press, plays the landing and a press, and keep
   expect((await audioLog(page)).sounds.length).toBe(muted);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('argus-sound')!))).toEqual({ on: false, volume: .6 });
 
-  // PC 옆 패널에는 소리 조절이 없다(위쪽 줄에 있다). 크기는 위쪽 줄의 막대로 고친다. 소리 장치 전체의 크기(첫 크기 노드)가 막대 값이다.
+  // PC 옆 패널에는 소리 조절이 없다(위쪽 줄에 있다). 크기는 위쪽 줄의 막대로 고친다. 소리 장치 전체의 크기(첫 크기 노드)는 막대 값의 0.8배다
+  // (막대 100이 0.8, 몰린 소리의 여유, PR #42 리뷰 572ee03).
   await expect(page.locator('.side-bottom .sound-controls')).toBeHidden();
   await page.locator('#sound-toggle').click();
   await expect(page.locator('#sound-toggle')).toHaveText('소리 켬');
   await page.locator('#sound-volume-top').fill('30');
-  expect((await audioLog(page)).gains[0].value).toBeCloseTo(.3);
+  expect((await audioLog(page)).gains[0].value).toBeCloseTo(.24);
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('argus-sound')!))).toEqual({ on: true, volume: .3 });
 
   // 버튼의 이름은 "소리"이고 켬·끔은 눌림(aria-pressed)으로 알린다(PR #42 리뷰 7).
@@ -362,6 +395,16 @@ test('the volume slider takes the arrow keys only when reached by keyboard, and 
   await expect(slider).toBeFocused();
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveValue(String(Number(clicked) + 5));
+  // Tab으로 온 막대에 커서가 있는 채 창을 다녀왔다. 돌아와서도 방향키는 막대를 움직인다. 창이 포커스를 잃을 때 무조건 Tab을 잊었을 때는
+  // 돌아와 막대가 focus를 다시 받으며 거짓이 되어 →가 걸었다(PR #42 리뷰, 572ee03).
+  await slider.evaluate(element => {
+    element.dispatchEvent(new FocusEvent('blur'));
+    window.dispatchEvent(new FocusEvent('blur'));
+    window.dispatchEvent(new FocusEvent('focus'));
+    element.dispatchEvent(new FocusEvent('focus'));
+  });
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveValue(String(Number(clicked) + 10));
   // 누른 폼 요소에 커서를 주지 않는 브라우저(macOS Safari)다. 막대를 눌렀지만 커서는 오지 않았고, 그 뒤 Tab으로 막대에 왔다. 방향키는
   // 막대를 움직인다(PR #42 리뷰, ee96b62). 막대에 pointerdown만 보내 흉내 낸다.
   await page.locator('#sound-toggle').focus();
@@ -369,7 +412,7 @@ test('the volume slider takes the arrow keys only when reached by keyboard, and 
   await page.keyboard.press('Tab');
   await expect(slider).toBeFocused();
   await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveValue(String(Number(clicked) + 10));
+  await expect(slider).toHaveValue(String(Number(clicked) + 15));
   // macOS Safari의 Option+Tab으로 막대에 왔다(Alt가 눌린 Tab). 방향키는 막대를 움직인다(PR #42 리뷰, c1d5077). 이 엔진은 Option+Tab으로
   // 커서를 옮기지 않으므로 키 이벤트를 보내고 커서는 직접 옮긴다.
   await page.locator('.build-tag').click();
@@ -378,7 +421,7 @@ test('the volume slider takes the arrow keys only when reached by keyboard, and 
     (document.getElementById('sound-volume-top') as HTMLInputElement).focus();
   });
   await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveValue(String(Number(clicked) + 15));
+  await expect(slider).toHaveValue(String(Number(clicked) + 20));
   // 창 바꾸기(Alt+Tab)의 Tab이 페이지에 새어 들어와도, 창이 포커스를 잃으면 잊는다. 마우스로 막대를 누른 뒤 창을 다녀오면 →는 걷는다.
   await page.locator('.build-tag').click();
   await slider.click();
@@ -437,19 +480,85 @@ test('a sound that throws does not stop the notices or the skill being held', as
   await page.locator('#camp').click();
   await page.locator('#deploy').click();
   await expect.poll(() => wire.player?.state, { timeout: 15000 }).toBe('alive');
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
   await page.evaluate(() => { (window as unknown as { audioLog: AudioLog }).audioLog.broken = true; });
-  // 소리가 나는 새 효과(타격)와 안내 하나를 함께 보낸다.
+  // 소리가 나는 새 효과(타격)와 안내 하나를 한 스냅샷에만 함께 보낸다. 거듭 보내면 첫 장에서 처리가 멈춰도 다음 장에서 안내가 떠 가려진다
+  // (PR #42 리뷰, 572ee03). 예외가 밖으로 새지도 않는다(pageerror). 안내가 소리보다 먼저인 차례는 Sound.play가 예외를 삼키는 한 밖에서
+  // 따로 고정할 수 없다.
+  let sent = false;
   wire.change = data => {
+    if (sent) return data;
+    sent = true;
     const me = data.players.find(player => player.id === data.you)!;
     return { ...data, effects: [...data.effects, { id: 909090, kind: 'hit', x: me.x + 40, y: me.y, until: data.now + 5 }], notices: [...data.notices, { id: 1_000_000, at: data.now, text: '검사 안내: 소리가 망가져도 뜬다' }] };
   };
   await expect(page.getByText('검사 안내: 소리가 망가져도 뜬다')).toBeVisible();
   wire.change = data => data;
   // 마나가 없어 막힌 소리를 내려다 예외가 난다. 그래도 누르고 있는 동안 보낸 입력의 held에 1번이 있다.
-  const sent = wire.inputs.length;
+  const before = wire.inputs.length;
   await page.keyboard.down('Digit1');
-  await expect.poll(() => wire.inputs.slice(sent).some(input => input.held.includes(1))).toBe(true);
+  await expect.poll(() => wire.inputs.slice(before).some(input => input.held.includes(1))).toBe(true);
   await page.keyboard.up('Digit1');
+  expect(errors).toEqual([]);
+});
+
+test('snapshots that arrive together after a stall sound each kind once', async ({ page }) => {
+  // 연결이 끊기지 않은 채 밀렸던 스냅샷들이 한꺼번에 오면 장마다 앞 장과 견준 소리가 같은 순간에 시작해, 같은 종류면 그 수만큼 더해졌다
+  // (PR #42 리뷰, 572ee03). 같은 소리는 50ms 안에 다시 내지 않는다. 스냅샷마다 새 받아치기 효과(880Hz로 시작)를 넣어 잡아 두었다 푼다.
+  // 푸는 동안 가짜 장치의 시계를 멈춰, 검사 기계가 느려 장들이 50ms보다 벌어져 닿아도 같은 시각을 받게 한다.
+  await recordAudio(page);
+  const wire = await relay(page);
+  await page.goto(quietRoom);
+  await page.locator('#create').click();
+  await expect(page.locator('#mission-state')).toHaveText('투입 대기');
+  await page.locator('#camp').click();
+  await page.locator('#deploy').click();
+  await expect.poll(() => wire.player?.state, { timeout: 15000 }).toBe('alive');
+  await page.waitForTimeout(1500);
+  let next = 920000;
+  wire.change = data => {
+    const me = data.players.find(player => player.id === data.you)!;
+    next += 1;
+    return { ...data, effects: [...data.effects, { id: next, kind: 'break', x: me.x + 30, y: me.y, until: data.now + .4 }] };
+  };
+  wire.holding = true;
+  await page.waitForTimeout(1000);
+  const start = (await audioLog(page)).sounds.length;
+  const held = wire.held.length;
+  wire.change = data => data;
+  await page.evaluate(() => { const log = (window as unknown as { audioLog: AudioLog }).audioLog; log.frozen = performance.now() / 1000; });
+  wire.release();
+  // 시계는 검사가 끝날 때까지 멈춰 둔다. 느린 기계에서 늦게 처리된 장도 같은 시각을 받는다.
+  await page.waitForTimeout(1500);
+  expect(held).toBeGreaterThan(5);
+  expect((await audioLog(page)).sounds.slice(start).filter(sound => sound.frequency === 880)).toHaveLength(1);
+});
+
+test('two tabs keep each other\'s sound settings, and a held key does not pile up attempts to start the audio device', async ({ browser }) => {
+  // 탭 A에서 크기를 낮춘 뒤 먼저 열려 있던 탭 B에서 끄면 A의 크기가 남는다. 이 탭이 쥔 값으로 통째로 썼을 때는 크기가 되돌아갔다
+  // (PR #42 리뷰, 572ee03).
+  const context = await browser.newContext();
+  const a = await context.newPage();
+  const b = await context.newPage();
+  await recordAudio(a);
+  await recordAudio(b);
+  await a.goto(quietRoom);
+  await b.goto(quietRoom);
+  await a.locator('#sound-volume-top').fill('20');
+  await b.locator('#sound-toggle').click();
+  expect(await b.evaluate(() => JSON.parse(localStorage.getItem('argus-sound')!))).toEqual({ on: false, volume: .2 });
+  await b.locator('#sound-toggle').click();
+  expect(await a.evaluate(() => JSON.parse(localStorage.getItem('argus-sound')!))).toEqual({ on: true, volume: .2 });
+  // 소리 장치가 켜지지 못하는 환경(켜기가 끝나지 않음)에서 키를 쥐고 있어도, 자동 반복마다 켜기를 다시 부르지 않는다(PR #42 리뷰, 572ee03).
+  await a.evaluate(() => { (window as unknown as { audioLog: AudioLog }).audioLog.stuck = true; });
+  await a.locator('.build-tag').click();
+  const resumes = (await audioLog(a)).resumes;
+  await a.keyboard.down('KeyW');
+  for (let i = 0; i < 10; i++) await a.keyboard.down('KeyW');
+  await a.keyboard.up('KeyW');
+  expect((await audioLog(a)).resumes).toBe(resumes + 1);
+  await context.close();
 });
 
 test('a phone keeps the sound switch and volume in the menu drawer', async ({ browser }) => {
@@ -522,6 +631,15 @@ test.describe('on a real audio device', () => {
                 return { peak, rms: Math.sqrt(sum / (buffer.length * buffer.numberOfChannels)), last };
               };
               window.renderCue = cue => window.renderCues([cue]);
+              // 메모리에 그리는 장치에 묶인 소리다. 그리기 전에는 장치의 시계가 0에 멈춰 있어, 같은 순간에 낸 소리를 기계 빠르기와 관계없이 본다.
+              window.offlineSound = () => {
+                const live = window.AudioContext;
+                window.AudioContext = Offline;
+                const sound = new Sound();
+                sound.unlock();
+                window.AudioContext = live;
+                return sound;
+              };
               window.soundReady = true;
             </script></body></html>`);
           });
@@ -546,16 +664,21 @@ test.describe('on a real audio device', () => {
       const cues = [...kinds.map(kind => ({ kind, pan: -.5, gain: .8, affinity: 'strike', tier: 1 })),
         ...['strike', 'block', 'channel', 'none'].flatMap(affinity => [1, 2].map(tier => ({ kind: 'telegraph', pan: .5, gain: .6, affinity, tier }))),
         ...['block', 'channel', 'none'].map(affinity => ({ kind: 'press', pan: 0, gain: 1, affinity }))];
-      // 한 번에 울리는 소리의 상한(24)을 넘지 않게 여덟씩 나눠 낸다.
+      // 한 번에 울리는 소리의 상한(24)을 넘지 않게 여덟씩 나눠 낸다. 묶음마다 울리는 수가 는 만큼을 모은다. Sound.play는 만들다 예외가
+      // 난 소리를 삼키므로(그 소리만 버림), 소리가 빠졌는지는 이 수로 본다(PR #42 리뷰, 572ee03).
       let most = 0;
+      const added: number[] = [];
       for (let i = 0; i < cues.length; i += 8) {
+        const before = sound.active;
         for (const cue of cues.slice(i, i + 8)) sound.play(cue);
+        added.push(sound.active - before);
         most = Math.max(most, sound.active);
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
-      return { most, left: sound.active, errors: (window as unknown as { soundErrors: string[] }).soundErrors };
+      return { most, added, left: sound.active, errors: (window as unknown as { soundErrors: string[] }).soundErrors };
     }, kinds);
     expect(result.errors).toEqual([]);
+    expect(result.added).toEqual([8, 8, 8, 6]);
     expect(result.most).toBe(8);
     // 다 울린 소리의 노드는 끊고 센 수를 돌린다.
     expect(result.left).toBe(0);
@@ -570,18 +693,45 @@ test.describe('on a real audio device', () => {
     const counts = await page.evaluate(() => {
       type Played = { play(cue: unknown): void; active: number };
       const sound = (window as unknown as { testSound: Played }).testSound;
-      for (let i = 0; i < 24; i++) sound.play({ kind: 'defeat', pan: 0, gain: .2 });
+      // 같은 소리는 50ms 안에 다시 내지 않으므로 서로 다른 소리 스물넷으로 채운다(타격은 빼 둔다).
+      const fill = [...['break', 'partial', 'draw', 'guard', 'hurt', 'heal', 'deploy', 'evade', 'facility', 'pickup', 'extract', 'down', 'defeat'].map(kind => ({ kind })),
+        ...['strike', 'block', 'channel', 'none'].flatMap(affinity => [1, 2].map(tier => ({ kind: 'telegraph', affinity, tier }))),
+        ...['strike', 'block', 'channel'].map(affinity => ({ kind: 'press', affinity }))];
+      for (const cue of fill) sound.play({ ...cue, pan: 0, gain: .2 });
       const full = sound.active;
       sound.play({ kind: 'hit', pan: 0, gain: 1 });
       const afterHit = sound.active;
       sound.play({ kind: 'myHurt', pan: 0, gain: 1 });
       sound.play({ kind: 'victory', pan: 0, gain: 1 });
       // 내가 누른 기술의 확인음과 막힌 소리도 낸다(PR #42 리뷰, c1d5077).
-      sound.play({ kind: 'press', pan: 0, gain: 1, affinity: 'strike' });
+      sound.play({ kind: 'press', pan: 0, gain: 1, affinity: 'none' });
       sound.play({ kind: 'empty', pan: 0, gain: 1 });
       return { full, afterHit, afterMine: sound.active };
     });
     expect(counts).toEqual({ full: 24, afterHit: 24, afterMine: 28 });
+  });
+
+  test('the same sound within fifty milliseconds plays once, and turning the sound off ends what is playing', async ({ page }) => {
+    // 밀렸던 스냅샷이 한꺼번에 와도 같은 소리는 하나만 난다(PR #42 리뷰, 572ee03). 소리를 끄면 울리던 소리를 그 자리에서 끝낸다. 멈춘 장치의
+    // 소리가 다시 켤 때 멈춘 자리부터 이어 울리다 끊겼다(같은 리뷰).
+    // 실제 장치의 시계는 느린 기계에서 잇단 호출 사이에도 50ms를 넘게 나아가므로, 시계가 멈춰 있는 메모리 장치로 본다.
+    await page.goto(url);
+    await page.waitForFunction(() => (window as unknown as { soundReady?: boolean }).soundReady === true);
+    const counts = await page.evaluate(() => {
+      type Played = { play(cue: unknown): void; setEnabled(on: boolean): void; active: number };
+      const sound = (window as unknown as { offlineSound: () => Played }).offlineSound();
+      for (let i = 0; i < 3; i++) sound.play({ kind: 'break', pan: 0, gain: 1 });
+      const same = sound.active;
+      sound.play({ kind: 'defeat', pan: 0, gain: 1 });
+      sound.play({ kind: 'telegraph', pan: 0, gain: 1, affinity: 'strike', tier: 1 });
+      sound.play({ kind: 'telegraph', pan: 0, gain: 1, affinity: 'strike', tier: 2 });
+      const different = sound.active;
+      sound.setEnabled(false);
+      const off = sound.active;
+      sound.setEnabled(true);
+      return { same, different, off };
+    });
+    expect(counts).toEqual({ same: 1, different: 4, off: 0 });
   });
 
   test('a crowded snapshot stays below clipping at full volume', async ({ page }) => {
@@ -592,6 +742,14 @@ test.describe('on a real audio device', () => {
     const spin = snapshotCues(state(), myHp(5, { effects: [...[505, 495, 510, 490, 500].map((x, i) => effect(30 + i, 'break', x)), effect(40, 'hit', 500), effect(41, 'hurt', 500)] }));
     const mixed = snapshotCues(state(), crowd());
     expect(mixed).toHaveLength(maxCuesPerSnapshot);
+    // 가장 큰 소리 여덟이 내 곁(45~50)에서 한꺼번에 났다. 받아침·부분 대응·비김·방어·타격, 타격 Ⅱ 예고, 내가 맞고 쓰러짐이다. 크기 막대 100이
+    // 장치 크기 1이었을 때는 1.1쯤으로 넘쳤다(PR #42 리뷰, 572ee03).
+    const near = ['break', 'partial', 'draw', 'guard', 'hit'].map((kind, i) => effect(60 + i, kind, 455 + i));
+    const loud = snapshotCues(state(), state({
+      players: [{ id: 'p', x: 500, y: 500, state: 'waiting', hp: 0, maxHp: 6, mana: 0 }],
+      effects: near, enemies: [telegraph(70, 400, 'strike', 548, 2)],
+    }));
+    expect(loud.map(cue => cue.kind).sort()).toEqual(['break', 'down', 'draw', 'guard', 'hit', 'myHurt', 'partial', 'telegraph']);
     const peaks = await page.evaluate(async groups => {
       type Render = (cues: unknown[]) => Promise<{ peak: number }>;
       const render = (window as unknown as { renderCues: Render }).renderCues;
@@ -599,7 +757,7 @@ test.describe('on a real audio device', () => {
       const results: number[] = [];
       for (const cues of groups) results.push((await render(cues)).peak);
       return results;
-    }, [spin, mixed]);
+    }, [spin, mixed, loud]);
     for (const peak of peaks) expect(peak).toBeLessThan(.95);
   });
 
